@@ -1,0 +1,2556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>dome-mapper – Equirectangular Sphere Raycaster</title>
+<script type="importmap">
+{
+	"imports": {
+		"three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+		"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+	}
+}
+</script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #111; color: #ccc; font-family: monospace; overflow: hidden; }
+#c { display: block; width: 100vw; height: 100vh; }
+#drop-zone {
+	position: absolute; inset: 0; display: flex;
+	align-items: center; justify-content: center;
+	z-index: 10; pointer-events: none;
+}
+#drop-zone.active {
+	background: rgba(0,0,0,0.7);
+	pointer-events: auto;
+}
+#drop-zone .hint {
+	font-size: 18px; color: #aaa; text-align: center; line-height: 1.6;
+	padding: 32px; border: 2px dashed #555; border-radius: 12px;
+	max-width: 480px; pointer-events: auto;
+}
+#drop-zone.active .hint { border-color: #0f0; color: #0f0; }
+#progress {
+	position: absolute; inset: 0; display: flex;
+	align-items: center; justify-content: center; flex-direction: column;
+	z-index: 20; background: #111;
+	transition: opacity 0.6s ease;
+}
+#progress.done { opacity: 0; pointer-events: none; }
+#progress .track {
+	width: min(60vw, 400px); height: 4px;
+	background: #222; border-radius: 2px; overflow: hidden;
+	margin-top: 16px;
+}
+#progress .fill {
+	height: 100%; width: 0%; border-radius: 2px;
+	background: linear-gradient(90deg, #0af, #0f6);
+	transition: width 0.15s ease;
+}
+#progress .label {
+	font-size: 13px; color: #667; margin-top: 8px;
+}
+#controls {
+	position: absolute; top: 12px; right: 12px;
+	background: rgba(0,0,0,0.55); backdrop-filter: blur(6px);
+	padding: 8px 14px; border-radius: 6px;
+	font-size: 12px; z-index: 5; pointer-events: auto;
+	display: flex; flex-direction: column; gap: 6px;
+}
+#controls label { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+#controls .row { display: flex; align-items: center; gap: 12px; }
+#angles { font-variant-numeric: tabular-nums; color: #888; font-size: 11px; display: flex; flex-direction: column; gap: 4px; }
+#angles label { gap: 6px !important; }
+#angles .val { min-width: 42px; text-align: right; font-family: monospace; }
+#controls select {
+	background: #222; color: #ccc; border: 1px solid #555; border-radius: 3px;
+	font-family: monospace; font-size: 12px; padding: 2px 6px; cursor: pointer;
+}
+#info {
+	position: absolute; top: 12px; left: 12px;
+	background: rgba(0,0,0,0.7); padding: 8px 14px; border-radius: 6px;
+	font-size: 12px; z-index: 5;
+}
+/* ── Video timeline overlay ── */
+#timeline {
+	position: absolute; bottom: 16px; left: 16px; right: 16px;
+	background: rgba(0,0,0,0.55); backdrop-filter: blur(6px);
+	padding: 8px 16px; border-radius: 10px;
+	font-size: 12px; z-index: 15; pointer-events: auto;
+	display: none; align-items: center; gap: 10px;
+	user-select: none;
+}
+#timeline button {
+	background: none; border: none; color: #ddd; font-size: 18px;
+	cursor: pointer; padding: 0 4px; line-height: 1;
+}
+#timeline button:hover { color: #fff; }
+#timeline .time { white-space: nowrap; color: #aaa; font-variant-numeric: tabular-nums; min-width: 90px; text-align: center; }
+#timeline input[type=range] {
+	-webkit-appearance: none; appearance: none;
+	flex: 1; height: 6px; border-radius: 3px;
+	background: rgba(255,255,255,0.15); outline: none; cursor: pointer;
+}
+#timeline input[type=range]::-webkit-slider-thumb {
+	-webkit-appearance: none; appearance: none;
+	width: 14px; height: 14px; border-radius: 50%;
+	background: #fff; border: none; box-shadow: 0 0 4px rgba(0,0,0,0.5);
+}
+#timeline input[type=range]::-moz-range-thumb {
+	width: 14px; height: 14px; border-radius: 50%;
+	background: #fff; border: none; box-shadow: 0 0 4px rgba(0,0,0,0.5);
+}
+/* ── Joystick overlay ── */
+#joystick-canvas {
+	position: absolute; bottom: 52px; left: 12px;
+	width: 220px; height: 200px;
+	border-radius: 10px;
+	background: rgba(0,0,0,0.35);
+	pointer-events: none;
+	z-index: 5;
+}
+/* ── Joystick button HUD overlay ── */
+#joystick-hud {
+	position: absolute; bottom: 260px; left: 12px;
+	width: 220px;
+	background: rgba(0,0,0,0.55); backdrop-filter: blur(6px);
+	padding: 8px 12px; border-radius: 8px;
+	font-size: 11px; z-index: 5; pointer-events: none;
+}
+#joystick-hud .label { color: #888; margin-bottom: 4px; }
+#joystick-hud .indices { color: #0f6; font-weight: bold; min-height: 16px; }
+#joystick-hud .indices.empty { color: #555; }
+</style>
+</head>
+<body>
+<div id="drop-zone">
+	<div class="hint">
+		Drop an equirectangular image or video here<br>
+		or <label style="cursor:pointer;color:#4af;text-decoration:underline;">
+		browse<input type="file" id="file-input" accept="image/*,video/*" style="display:none">
+		</label>
+	</div>
+</div>
+<div id="info">
+	<span id="tex-info">No texture loaded</span>
+	<button id="clear-cache" style="display:none; margin-left:10px; cursor:pointer; background:#333; color:#f88; border:1px solid #555; border-radius:3px; font-family:monospace; font-size:11px; padding:2px 8px;">✕ clear cache</button>
+</div>
+<div id="controls">
+	<div id="angles">
+		<label>Y <input type="range" id="angle-yaw" min="-180" max="180" value="0" step="0.1">
+		<span class="val" id="angle-yaw-val">0.0°</span></label>
+		<label>P <input type="range" id="angle-pitch" min="-90" max="90" value="0" step="0.1">
+		<span class="val" id="angle-pitch-val">0.0°</span></label>
+		<label>R <input type="range" id="angle-roll" min="-180" max="180" value="0" step="0.1">
+		<span class="val" id="angle-roll-val">0.0°</span></label>
+	</div>
+	<div class="row">
+		<label>Projection
+		<select id="projection-select">
+			<option value="equirectangular" selected>equirectangular</option>
+			<option value="perspective">perspective</option>
+			<option value="foldable buckyball">foldable buckyball</option>
+		</select></label>
+		<label><input type="checkbox" id="grid-toggle"> Grid <kbd style="color:#666;font-size:10px">[X]</kbd></label>
+	</div>
+	<div class="row" id="fov-row">
+		<label>FOV <input type="range" id="fov-slider" min="20" max="170" value="90" step="1">
+		<span id="fov-val">90°</span></label>
+	</div>
+	<div class="row" id="net-row" style="display:none;">
+		<label>Net <input type="range" id="net-alpha-slider" min="0" max="100" value="100" step="1">
+		<span id="net-alpha-val">100%</span></label>
+	</div>
+	<div class="row" id="globe-row">
+		<label><input type="checkbox" id="globe-toggle" checked> Globe</label>
+		<label>Size <input type="range" id="globe-size" min="2" max="30" value="10" step="1">
+		<span id="globe-size-val">10%</span></label>
+	</div>
+	<div class="row" id="playback-row" style="display:none;">
+		<label>Speed <span id="playback-val" style="color:#0f6;min-width:48px;text-align:right;display:inline-block;">1.00x</span></label>
+	</div>
+	<div class="row" id="screenshot-row" style="display:none;">
+		<button id="screenshot-btn" style="cursor:pointer; background:#333; color:#4af; border:1px solid #555; border-radius:3px; font-family:monospace; font-size:11px; padding:3px 10px; width:100%;">📷 export PNG</button>
+	</div>
+</div>
+<canvas id="c"></canvas>
+<canvas id="joystick-canvas"></canvas>
+<div id="joystick-hud">
+	<div class="label">Buttons</div>
+	<div class="indices empty" id="joy-btn-indices">no buttons pressed</div>
+</div>
+<video id="video-el" style="display:none" playsinline></video>
+<div id="timeline">
+	<button id="tl-play" title="Play / Pause">&#9654;</button>
+	<span class="time" id="tl-time">0:00 / 0:00</span>
+	<input type="range" id="tl-seek" min="0" max="1000" value="0" step="1">
+</div>
+<div id="progress" style="display:none">
+	<div style="color:#556;font-size:15px;">loading panorama…</div>
+	<div class="track"><div class="fill" id="progress-fill"></div></div>
+	<div class="label" id="progress-label">0%</div>
+</div>
+
+<!-- ── Vertex Shader ── -->
+<script id="shader-vs" type="x-shader/x-vertex">#version 300 es
+in vec2 position;
+void main() {
+	gl_Position = vec4(position, 0.0, 1.0);
+}
+</script>
+
+<!-- ── Fragment Shader: equirectangular sphere raycaster ── -->
+<script id="shader-fs" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+
+uniform vec2 resolution;
+uniform float fov;
+uniform mat3 viewMatrix;
+uniform sampler2D equirect;
+uniform float hasTexture;
+uniform float globeRadius;   // 0.0 = hidden, else screen-fraction radius
+uniform float projection;    // 0.0 = equirectangular, 1.0 = perspective, 2.0 = buckyball
+uniform float showGrid;
+uniform float buckyOverlayAlpha; // 0.0–1.0 net overlay opacity (edges + flaps)
+uniform vec4 buckyNet[32];   // flat net layout: (x, y, rotation, gnomonicScale) per face
+uniform float buckyScale;    // inverse normalization scale for polygon sizes
+uniform sampler2D buckyOverlay; // 2D canvas overlay: edges + glue tabs
+uniform vec4 buckyBBox;         // bounding box in net space (minX, minY, maxX, maxY)
+uniform vec4 exportClip;        // viewport clip range in screenUV space (default: -1,-1,1,1)
+
+out vec4 fragColor;
+
+const float PI  = 3.141592653589793;
+const float TAU = 6.283185307179586;
+
+// ── Truncated icosahedron face centers ──
+// 12 pentagon centers (icosahedron vertices, normalized)
+// a = 1/√(1+φ²), b = φ/√(1+φ²)  where φ = (1+√5)/2
+const float BUCKY_A = 0.5257311121;
+const float BUCKY_B = 0.8506508084;
+// 20 hexagon centers (dodecahedron vertices, normalized)
+// c = 1/√3, d = φ/√3, e = 1/(φ√3)
+const float BUCKY_C = 0.5773502692;
+const float BUCKY_D = 0.9341723590;
+const float BUCKY_E = 0.3568220898;
+
+// Face center distance from origin (truncated icosahedron inscribed in unit sphere)
+const float RFACE_PENT = 0.9392580;
+const float RFACE_HEX  = 0.9149168;
+
+// Pre-rotation for buckyball texture: Ry(180°) · Rx(45°) · Rz(-90°)
+const mat3 buckyPreRot = mat3(
+	 0.0,        -0.70710678,  0.70710678,  // column 0
+	-1.0,         0.0,          0.0,         // column 1
+	 0.0,        -0.70710678, -0.70710678   // column 2
+);
+
+const vec3 buckyFaces[32] = vec3[32](
+	// 12 pentagon centers (indices 0–11)
+	vec3( 0.0,  BUCKY_A,  BUCKY_B), vec3( 0.0,  BUCKY_A, -BUCKY_B),
+	vec3( 0.0, -BUCKY_A,  BUCKY_B), vec3( 0.0, -BUCKY_A, -BUCKY_B),
+	vec3( BUCKY_A,  BUCKY_B,  0.0), vec3( BUCKY_A, -BUCKY_B,  0.0),
+	vec3(-BUCKY_A,  BUCKY_B,  0.0), vec3(-BUCKY_A, -BUCKY_B,  0.0),
+	vec3( BUCKY_B,  0.0,  BUCKY_A), vec3( BUCKY_B,  0.0, -BUCKY_A),
+	vec3(-BUCKY_B,  0.0,  BUCKY_A), vec3(-BUCKY_B,  0.0, -BUCKY_A),
+	// 20 hexagon centers (indices 12–31)
+	vec3( BUCKY_C,  BUCKY_C,  BUCKY_C), vec3( BUCKY_C,  BUCKY_C, -BUCKY_C),
+	vec3( BUCKY_C, -BUCKY_C,  BUCKY_C), vec3( BUCKY_C, -BUCKY_C, -BUCKY_C),
+	vec3(-BUCKY_C,  BUCKY_C,  BUCKY_C), vec3(-BUCKY_C,  BUCKY_C, -BUCKY_C),
+	vec3(-BUCKY_C, -BUCKY_C,  BUCKY_C), vec3(-BUCKY_C, -BUCKY_C, -BUCKY_C),
+	vec3( 0.0,  BUCKY_D,  BUCKY_E), vec3( 0.0,  BUCKY_D, -BUCKY_E),
+	vec3( 0.0, -BUCKY_D,  BUCKY_E), vec3( 0.0, -BUCKY_D, -BUCKY_E),
+	vec3( BUCKY_E,  0.0,  BUCKY_D), vec3( BUCKY_E,  0.0, -BUCKY_D),
+	vec3(-BUCKY_E,  0.0,  BUCKY_D), vec3(-BUCKY_E,  0.0, -BUCKY_D),
+	vec3( BUCKY_D,  BUCKY_E,  0.0), vec3( BUCKY_D, -BUCKY_E,  0.0),
+	vec3(-BUCKY_D,  BUCKY_E,  0.0), vec3(-BUCKY_D, -BUCKY_E,  0.0)
+);
+
+// Spherical Voronoi of buckyball face centers.
+//
+// Partitions the unit sphere into 32 regions (12 pentagons + 20 hexagons)
+// by assigning each direction to the nearest face center.  Uses brute-force
+// angular distance comparison (acos of dot product) over all 32 centers.
+//
+// Also tracks the second-nearest center to compute the distance to the
+// Voronoi cell boundary — useful for wireframe / edge highlighting.
+//
+// Parameters:
+//   dir  — normalized direction vector on the unit sphere
+//
+// Returns vec4:
+//   .x = angular distance to nearest Voronoi edge (d2 − d1)
+//   .y = angular distance to nearest face center (d1)
+//   .z = index of nearest face (0–31; 0–11 = pentagon, 12–31 = hexagon)
+//   .w = 1.0 if nearest face is a pentagon, 0.0 if hexagon
+vec4 buckyVoronoi(vec3 dir) {
+	float d1 = 1e9, d2 = 1e9;
+	int i1 = 0;
+	for (int i = 0; i < 32; i++) {
+		float d = acos(clamp(dot(dir, buckyFaces[i]), -1.0, 1.0));
+		if (d < d1) { d2 = d1; d1 = d; i1 = i; }
+		else if (d < d2) { d2 = d; }
+	}
+	return vec4(d2 - d1, d1, float(i1), i1 < 12 ? 1.0 : 0.0);
+}
+
+// Convert a 3D direction vector to equirectangular texture coordinates.
+//
+// Maps a unit-sphere direction to [0,1]² UV for sampling a 2:1 equirectangular
+// panorama texture.  The horizontal coordinate u is derived from the azimuthal
+// angle (atan2 of z/x), and the vertical coordinate v from the elevation
+// (asin of y).  The V axis is flipped (1−v) so that the texture's top row
+// corresponds to the north pole (+Y).
+//
+// Parameters:
+//   dir — normalized direction vector on the unit sphere
+//
+// Returns:
+//   vec2(u, v) in [0,1]², suitable for texture2D sampling
+vec2 dirToEquirect(vec3 dir) {
+	float u = 0.5 - atan(dir.z, dir.x) / TAU;
+	float v = asin(clamp(dir.y, -1.0, 1.0)) / PI + 0.5;
+	return vec2(u, 1.0 - v);
+}
+
+// Procedural checkerboard test pattern rendered on the unit sphere.
+//
+// Generates a visual reference grid when no panorama texture is loaded.
+// The pattern consists of:
+//   - 18×9 checkerboard tiles (dark grey / light grey)
+//   - 4 cyan meridian lines at 90° intervals (longitude markers)
+//   - 1 orange equator line (latitude 0°)
+//
+// Parameters:
+//   dir — normalized direction vector on the unit sphere
+//
+// Returns:
+//   RGB color for the test pattern at this direction
+vec3 testPattern(vec3 dir) {
+	vec2 uv = dirToEquirect(dir);
+	float checks = step(0.5, fract(uv.x * 18.0)) + step(0.5, fract(uv.y * 9.0));
+	checks = mod(checks, 2.0);
+	vec3 col = mix(vec3(0.15), vec3(0.35), checks);
+	float meridian = smoothstep(0.004, 0.0, abs(fract(uv.x * 4.0) - 0.5) - 0.495);
+	float equator  = smoothstep(0.008, 0.0, abs(uv.y - 0.5));
+	col += vec3(0.0, 0.25, 0.5) * meridian;
+	col += vec3(0.5, 0.2, 0.0) * equator;
+	return col;
+}
+
+// Render a miniature 3D globe overlay with geographic reference markers.
+//
+// Draws a semi-transparent sphere in screen space with:
+//   - Latitude/longitude grid lines (30° spacing)
+//   - Volumetric orange equator ring (torus at latitude 0°)
+//   - Volumetric blue prime meridian ring (torus at longitude 0°)
+//   - Grey axis cylinder along the world Y axis
+//   - Environment-mapped reflection from the loaded panorama
+//   - Rim lighting for depth perception
+//
+// The globe respects the current camera rotation via viewMatrix, so its
+// orientation always matches the main viewport.
+//
+// Parameters:
+//   screenUV — normalized screen coordinates in [-1, 1]²
+//   radius   — globe radius as fraction of screen height (0 = hidden)
+//
+// Returns:
+//   vec4(rgb, alpha) — premultiplied color for alpha compositing
+vec4 renderGlobe(vec2 screenUV, float radius) {
+	if (radius <= 0.0) return vec4(0.0);
+	float aspect = resolution.x / resolution.y;
+	vec2 p = screenUV;
+	p.x *= aspect;
+	float d = length(p);
+
+	float px = 1.0 / resolution.y; // pixel size in UV space
+	float tubeR = radius * 0.035;  // tube radius for volumetric rings
+	float axisR = radius * 0.018;  // axis cylinder radius
+	float axisLen = radius * 1.4;  // axis extends beyond sphere
+
+	vec3 color = vec3(0.0);
+	float alpha = 0.0;
+
+	// ── Axis cylinder (world Y, transformed to view space) ──
+	vec3 axisDir = normalize(vec3(0.0, 1.0, 0.0) * viewMatrix);
+	// Closest point on infinite line through origin with direction axisDir to point p (in z=0 plane)
+	// Project screen point onto axis line in 3D: line is axisDir*t, we find t minimizing dist to (p.x, p.y, 0)
+	// For a 2D projection: the axis projects as a line in direction axisDir.xy
+	vec2 axisDir2 = axisDir.xy;
+	float axisLen2 = length(axisDir2);
+	if (axisLen2 > 0.001) {
+		vec2 ad = axisDir2 / axisLen2;
+		float t = dot(p, ad);
+		float distToAxis = abs(dot(p, vec2(-ad.y, ad.x)));
+		float axisAlpha = smoothstep(axisR + px, axisR - px, distToAxis);
+		// Limit length
+		float tMax = axisLen * axisLen2;
+		axisAlpha *= smoothstep(tMax + px, tMax - px, abs(t));
+		// Shading: darker at edges
+		float shade = 1.0 - (distToAxis / axisR) * 0.4;
+		vec3 axisCol = vec3(0.6, 0.65, 0.7) * shade;
+		alpha = max(alpha, axisAlpha * 0.9);
+		color = mix(color, axisCol, axisAlpha * 0.9);
+	}
+
+	// ── Sphere body ──
+	if (d < radius + px * 2.0) {
+		float sphereAlpha = smoothstep(radius, radius - px * 2.0, d) * 0.8;
+		float z = (d < radius) ? sqrt(radius * radius - d * d) : 0.0;
+		vec3 n = normalize(vec3(p.x, p.y, z));
+		vec3 wn = viewMatrix * n;
+
+		float lat = asin(clamp(wn.y, -1.0, 1.0));
+		float lon = atan(wn.z, wn.x);
+
+		// Grid lines (thin)
+		float thick = px * 1.5;
+		float latLines = smoothstep(thick, 0.0, abs(fract(lat / (PI / 6.0) + 0.5) - 0.5) - 0.48);
+		float lonLines = smoothstep(thick, 0.0, abs(fract(lon / (PI / 6.0) + 0.5) - 0.5) - 0.48);
+
+		// Base sphere
+		vec3 base = vec3(0.08, 0.1, 0.14);
+		float rim = pow(1.0 - z / radius, 3.0);
+		base += vec3(0.15, 0.2, 0.3) * rim;
+
+		// Environment reflection
+		vec3 viewDir = vec3(0.0, 0.0, 1.0);
+		vec3 refl = reflect(-viewDir, n);
+		refl = viewMatrix * refl;
+		vec2 reflUV = dirToEquirect(refl);
+		vec3 envCol = mix(testPattern(refl), texture(equirect, reflUV).rgb, hasTexture);
+		base = mix(base, envCol, 0.75 * (1.0 - rim * 0.5));
+
+		vec3 gridCol = vec3(0.3, 0.4, 0.55);
+		float grid = max(latLines, lonLines);
+		base = mix(base, gridCol, grid * 0.7);
+
+		// ── Volumetric equator (torus at lat=0) ──
+		// Distance from point on sphere to equator plane (Y=0 in world)
+		float eqDist = abs(wn.y) * radius; // approximate screen-space distance
+		float eqTube = smoothstep(tubeR + px, tubeR * 0.2, eqDist);
+		// Round shading
+		float eqShade = 1.0 - pow(eqDist / tubeR, 2.0) * 0.5;
+		vec3 eqCol = vec3(1.0, 0.45, 0.1) * max(eqShade, 0.5);
+		base = mix(base, eqCol, eqTube * 0.95);
+
+		// ── Volumetric prime meridian (torus at lon=0) ──
+		float pmDist = abs(sin(lon)) * cos(lat) * radius;
+		float pmTube = smoothstep(tubeR + px, tubeR * 0.2, pmDist);
+		// Only front half (cos(lon) > 0)
+		float pmFront = smoothstep(-0.1, 0.1, cos(lon));
+		pmTube *= pmFront + (1.0 - pmFront) * step(0.0, -wn.x) * 0.4; // dimmer on back
+		float pmShade = 1.0 - pow(pmDist / tubeR, 2.0) * 0.5;
+		vec3 pmCol = vec3(0.2, 0.55, 1.0) * max(pmShade, 0.5);
+		base = mix(base, pmCol, pmTube * 0.9);
+
+		float compositeAlpha = max(alpha, sphereAlpha);
+		color = mix(color, base, sphereAlpha / max(compositeAlpha, 0.001));
+		alpha = compositeAlpha;
+	}
+
+	return vec4(color, alpha);
+}
+
+// Compute a repeating border/grid line intensity for a tiled domain.
+//
+// Given a 2D position in a repeating tile domain, returns a smooth
+// intensity value (0.0–1.0) that is 1.0 on tile borders and falls off
+// toward tile centers.  The "thickness" parameter controls the line
+// width independently for each axis.
+//
+// Used by applyGrid() to draw the 32×16 wireframe overlay.
+//
+// Parameters:
+//   domain    — UV coordinates in tile space (will be fract'd internally)
+//   thickness — line width in UV units for each axis
+//
+// Returns:
+//   scalar intensity (0 = no line, 1 = line center)
+float borderLine(vec2 domain, vec2 thickness) {
+	vec2 f = fract(domain - vec2(0.5));
+	f = min(f, 1.0 - f) * 2.0;
+	return max(
+		clamp(f.x - 1.0 + thickness.x, 0.0, 1.0) / thickness.x,
+		clamp(f.y - 1.0 + thickness.y, 0.0, 1.0) / thickness.y
+	);
+}
+
+// Overlay a 32×16 wireframe grid with crosshairs onto the rendered color.
+//
+// When the grid toggle is active (showGrid >= 0.5), this function composites
+// two layers of grid lines:
+//   - Fine grid:  32×16 subdivisions (5.625° per cell)
+//   - Crosshairs: 2×1 subdivisions (equator + prime meridian)
+//
+// The grid is drawn as an inverted-color overlay (mix toward 1−col with
+// negative weight) so it remains visible on both light and dark backgrounds.
+//
+// Parameters:
+//   col  — input RGB color at this fragment
+//   eqUV — equirectangular UV coordinates [0,1]² for grid alignment
+//
+// Returns:
+//   RGB color with grid lines composited on top
+vec3 applyGrid(vec3 col, vec2 eqUV) {
+	if (showGrid < 0.5) return col;
+	vec2 px = 1.0 / resolution;
+	float aspect = resolution.x / resolution.y;
+	vec2 uvGrid  = fract((eqUV - 0.5) * vec2(2.0, 1.0) * 32.0);
+	vec2 uvCross = fract((eqUV - 0.5) * vec2(2.0, 1.0) * 2.0);
+	float grid  = borderLine(uvGrid,  px * 64.0 * vec2(aspect, 1.0));
+	float cross = borderLine(uvCross, px * 8.0  * vec2(aspect, 1.0));
+	float g = max(grid, cross);
+	col = mix(col, 1.0 - col, -g);
+	return col;
+}
+
+void main() {
+	vec2 screenUV = mix(exportClip.xy, exportClip.zw, gl_FragCoord.xy / resolution);
+	float aspect = resolution.x / resolution.y;
+
+	vec3 rd;
+	vec2 tc;
+
+	if (projection > 1.5) {
+		// ── Foldable Buckyball net (flat 2D layout) ──
+		//
+		// Renders all 32 faces of the truncated icosahedron as a flat 2D net.
+		// For each pixel, we test which polygon (if any) contains it, then
+		// reconstruct the corresponding 3D direction on the unit sphere via
+		// gnomonic projection, and sample the panorama texture.
+		//
+		// Steps per pixel:
+		//   1. Point-in-regular-polygon test for all 32 faces
+		//   2. Gnomonic back-projection from 2D position → 3D sphere direction
+		//   3. Camera rotation + texture sampling
+		//   4. Composite 2D canvas overlay (edges, tabs, labels) on top
+
+		vec2 uv = screenUV;
+		uv.x *= aspect;
+
+		// invS = inverse of the normalization scale applied to the net layout
+		float invS = 1.0 / buckyScale;
+		float insideAny = 0.0;
+		int bestI = 0;
+		float bestDist = 1e9;
+		vec2 bestRP = vec2(0.0);
+
+		// ── Point-in-polygon test for all 32 faces ──
+		// Uses the angular symmetry of regular polygons: a point is inside
+		// an n-sided regular polygon iff its distance projected onto the
+		// nearest edge normal is less than the apothem.
+		for (int i = 0; i < 32; i++) {
+			vec2 ctr = buckyNet[i].xy;   // face center in net space
+			float rot = buckyNet[i].z;   // polygon rotation angle
+			float n = (i < 12) ? 5.0 : 6.0;  // number of sides
+			float an = PI / n;           // half the interior angle of one sector
+			float ap = invS / (2.0 * tan(an)); // apothem (center-to-edge distance)
+
+			// Transform pixel position into polygon-local rotated coordinates
+			vec2 p = uv - ctr;
+			float cs = cos(-rot), sn = sin(-rot);
+			vec2 rp = vec2(p.x*cs - p.y*sn, p.x*sn + p.y*cs);
+
+			// Fold the angle into one sector of the regular polygon, then
+			// compute signed distance to the nearest edge:
+			// d < 0 means inside, d > 0 means outside.
+			float a = mod(atan(rp.y, rp.x) + an, 2.0 * an) - an;
+			float d = length(rp) * cos(a) - ap;
+
+			if (d < 0.0) {
+				// Pixel is inside this polygon; pick the closest center
+				// to resolve overlaps at polygon boundaries
+				float cd = length(p);
+				if (cd < bestDist) {
+					bestDist = cd;
+					bestI = i;
+					bestRP = rp;  // local position needed for gnomonic projection
+					insideAny = 1.0;
+				}
+			}
+		}
+
+		vec3 col = vec3(1.0);  // white background (outside any polygon)
+
+		if (insideAny > 0.5) {
+			// ── Gnomonic back-projection: 2D net position → 3D sphere direction ──
+
+			// Face normal on the unit sphere (center of this Voronoi cell)
+			vec3 N = buckyFaces[bestI];
+			// Face offset: rotational alignment between the tangent frame and
+			// the actual truncated icosahedron vertex positions
+			float faceOffset = buckyNet[bestI].w;
+			// Face center distance from sphere origin
+			float rFace = bestI < 12 ? RFACE_PENT : RFACE_HEX;
+
+			// Build orthonormal tangent frame {T1, T2} perpendicular to N
+			vec3 tUp = abs(N.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+			vec3 T1 = normalize(cross(N, tUp));
+			vec3 T2 = cross(N, T1);
+
+			// Rotate the local 2D position by faceOffset to align with the
+			// 3D tangent frame (matches actual vertex positions on the polyhedron)
+			float co = cos(faceOffset), so = sin(faceOffset);
+			vec2 alignedRP = vec2(bestRP.x*co - bestRP.y*so, bestRP.x*so + bestRP.y*co);
+
+			// Scale from flat polygon space to gnomonic (tangent plane) space:
+			// gnoCircumR = radius of the gnomonic projection circle at this face distance
+			// flatCircumR = circumradius of the regular polygon in the flat net
+			float gnoCircumR = sqrt(1.0 - rFace * rFace);
+			float nSides = (bestI < 12) ? 5.0 : 6.0;
+			float flatCircumR = 1.0 / (2.0 * sin(PI / nSides));
+			vec2 gno = alignedRP * buckyScale * (gnoCircumR / flatCircumR);
+
+			// Reconstruct 3D direction: face normal scaled by rFace (depth)
+			// plus tangent-plane offset, then normalize back to unit sphere
+			vec3 dir = normalize(rFace * N + gno.x * T1 + gno.y * T2);
+			// Apply camera rotation and the fixed aesthetic pre-rotation
+			dir = viewMatrix * buckyPreRot * dir;
+
+			// Sample panorama texture (or test pattern if no texture loaded)
+			tc = dirToEquirect(dir);
+			col = mix(testPattern(dir), texture(equirect, tc).rgb, hasTexture);
+			col = applyGrid(col, tc);
+		}
+
+		// ── Composite 2D net overlay (edges + glue tabs) ──
+		vec2 overlayUV = (uv - buckyBBox.xy) / (buckyBBox.zw - buckyBBox.xy);
+		overlayUV.y = 1.0 - overlayUV.y;
+		vec4 overlay = texture(buckyOverlay, overlayUV);
+		float oa = overlay.a * buckyOverlayAlpha;
+		col = col * (1.0 - oa) + overlay.rgb * buckyOverlayAlpha;
+
+		fragColor = vec4(col, 1.0);
+		return;
+	} else if (projection > 0.5) {
+		// ── Perspective projection ──
+		vec2 uv = screenUV;
+		uv.x *= aspect;
+		float halfFov = fov * 0.5;
+		float scale = tan(halfFov);
+		rd = normalize(vec3(-uv.x * scale, uv.y * scale, -1.0));
+		rd = viewMatrix * rd;
+		tc = dirToEquirect(rd);
+	} else {
+		// ── Equirectangular projection ──
+		// Screen maps directly to equirect domain; rotation applied on sphere
+		vec2 eqUV = gl_FragCoord.xy / resolution; // 0..1
+		float aspect = resolution.x / resolution.y;
+		// Fit 2:1 aspect into viewport
+		float eqAspect = aspect / 2.0;
+		if (eqAspect > 1.0) {
+			// Wider than 2:1 - letterbox left/right
+			eqUV.x = 0.5 + (eqUV.x - 0.5) / eqAspect;
+		} else {
+			// Taller than 2:1 - letterbox top/bottom
+			eqUV.y = 0.5 + (eqUV.y - 0.5) * (1.0 / eqAspect);
+		}
+		
+		// Black bars at top/bottom where texture would mirror
+		if (eqUV.y < 0.0 || eqUV.y > 1.0) {
+			fragColor = vec4(0.0, 0.0, 0.0, 1.0);
+			return;
+		}
+		
+		// Convert screen equirect UV to direction
+		float hAngle = eqUV.x * TAU;
+		float vAngle = (1.0 - eqUV.y) * PI;
+		vec3 p;
+		p.x = sin(vAngle) * sin(hAngle);
+		p.y = cos(vAngle);
+		p.z = sin(vAngle) * cos(hAngle);
+		// Apply camera rotation
+		p = viewMatrix * p;
+		rd = p;
+		tc = dirToEquirect(p);
+	}
+
+	vec3 color = mix(testPattern(rd), texture(equirect, tc).rgb, hasTexture);
+
+	// Grid overlay
+	color = applyGrid(color, tc);
+
+	// Globe overlay
+	vec4 globe = renderGlobe(screenUV, globeRadius);
+	color = mix(color, globe.rgb, globe.a);
+
+	fragColor = vec4(color, 1.0);
+}
+</script>
+
+<script>
+// ══════════════════════════════════════════════════════════
+// WebGL 2 setup
+// ══════════════════════════════════════════════════════════
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl2', { antialias: false, preserveDrawingBuffer: false });
+if (!gl) { document.body.innerHTML = '<h2 style="color:red;padding:2em">WebGL 2 not supported</h2>'; }
+
+function compileShader(src, type) {
+	const s = gl.createShader(type);
+	gl.shaderSource(s, src);
+	gl.compileShader(s);
+	if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+		console.error(gl.getShaderInfoLog(s));
+		return null;
+	}
+	return s;
+}
+
+const vs = compileShader(document.getElementById('shader-vs').textContent, gl.VERTEX_SHADER);
+const fs = compileShader(document.getElementById('shader-fs').textContent, gl.FRAGMENT_SHADER);
+
+const program = gl.createProgram();
+gl.attachShader(program, vs);
+gl.attachShader(program, fs);
+gl.linkProgram(program);
+if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+	console.error(gl.getProgramInfoLog(program));
+}
+gl.useProgram(program);
+
+// Full-screen quad
+const quad = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+const aPos = gl.getAttribLocation(program, 'position');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+// Uniforms
+const uResolution  = gl.getUniformLocation(program, 'resolution');
+const uFov         = gl.getUniformLocation(program, 'fov');
+const uViewMatrix  = gl.getUniformLocation(program, 'viewMatrix');
+const uEquirect    = gl.getUniformLocation(program, 'equirect');
+const uHasTexture  = gl.getUniformLocation(program, 'hasTexture');
+const uGlobeRadius = gl.getUniformLocation(program, 'globeRadius');
+const uProjection  = gl.getUniformLocation(program, 'projection');
+const uShowGrid    = gl.getUniformLocation(program, 'showGrid');
+const uBuckyNet     = gl.getUniformLocation(program, 'buckyNet');
+const uBuckyScale   = gl.getUniformLocation(program, 'buckyScale');
+const uBuckyOverlay      = gl.getUniformLocation(program, 'buckyOverlay');
+const uBuckyBBox         = gl.getUniformLocation(program, 'buckyBBox');
+const uBuckyOverlayAlpha = gl.getUniformLocation(program, 'buckyOverlayAlpha');
+const uExportClip        = gl.getUniformLocation(program, 'exportClip');
+
+// ── Compute truncated icosahedron flat net layout ──
+//
+// This IIFE runs once at initialization.  It computes a non-overlapping
+// 2D unfolding (net) of the 32-face truncated icosahedron, uploads the
+// face positions/rotations as a GLSL uniform array, and renders the
+// overlay (edges + glue tabs) to a 2D canvas texture.
+(function uploadBuckyNet() {
+	// Golden ratio and derived constants for face center coordinates
+	const PHI = (1 + Math.sqrt(5)) / 2;
+	// Pentagon centers: icosahedron vertices normalized to unit sphere
+	// iA = 1/√(1+φ²), iB = φ·iA
+	const iA = 1 / Math.sqrt(1 + PHI * PHI);
+	const iB = PHI * iA;
+	// Hexagon centers: dodecahedron vertices normalized to unit sphere
+	// dC = 1/√3, dD = φ/√3, dE = 1/(φ√3)
+	const dC = 1 / Math.sqrt(3);
+	const dD = PHI * dC;
+	const dE = dC / PHI;
+
+	// 32 face center normals on the unit sphere.
+	// Indices 0–11: pentagon centers (icosahedron vertices)
+	// Indices 12–31: hexagon centers (dodecahedron vertices)
+	// Must match the GLSL buckyFaces[] array exactly.
+	const c3 = [
+		[0,iA,iB],[0,iA,-iB],[0,-iA,iB],[0,-iA,-iB],
+		[iA,iB,0],[iA,-iB,0],[-iA,iB,0],[-iA,-iB,0],
+		[iB,0,iA],[iB,0,-iA],[-iB,0,iA],[-iB,0,-iA],
+		[dC,dC,dC],[dC,dC,-dC],[dC,-dC,dC],[dC,-dC,-dC],
+		[-dC,dC,dC],[-dC,dC,-dC],[-dC,-dC,dC],[-dC,-dC,-dC],
+		[0,dD,dE],[0,dD,-dE],[0,-dD,dE],[0,-dD,-dE],
+		[dE,0,dD],[dE,0,-dD],[-dE,0,dD],[-dE,0,-dD],
+		[dD,dE,0],[dD,-dE,0],[-dD,dE,0],[-dD,-dE,0]
+	];
+
+	// Number of sides for face i (pentagon = 5, hexagon = 6)
+	const nSides = i => i < 12 ? 5 : 6;
+
+	// ── 3D vector math utilities ──
+	// Dot product of two 3-component vectors
+	function dot3(a,b) { return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
+	// Cross product of two 3-component vectors
+	function cross3(a,b) { return [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]]; }
+	// Normalize a 3-component vector to unit length
+	function norm3(v) { const l = Math.sqrt(dot3(v,v)); return [v[0]/l,v[1]/l,v[2]/l]; }
+	// Scale a 3-component vector by scalar s
+	function scale3(v,s) { return [v[0]*s,v[1]*s,v[2]*s]; }
+	// Subtract vector b from vector a (component-wise)
+	function sub3(a,b) { return [a[0]-b[0],a[1]-b[1],a[2]-b[2]]; }
+
+	// ── Build adjacency graph ──
+	// Two faces are adjacent if the angular distance between their centers
+	// is less than 0.8 radians (~46°).  On a truncated icosahedron, adjacent
+	// face centers are ~0.55–0.72 rad apart, so 0.8 captures all true
+	// neighbors without false positives.
+	const adj = Array.from({length:32}, ()=>[]);
+	for (let i = 0; i < 32; i++)
+		for (let j = i+1; j < 32; j++) {
+			const d = Math.acos(Math.min(1, Math.max(-1, dot3(c3[i], c3[j]))));
+			if (d < 0.8) { adj[i].push(j); adj[j].push(i); }
+		}
+
+	// ── Build tangent frames per face ──
+	// For each face, construct an orthonormal basis {T1, T2} in the tangent
+	// plane perpendicular to the face normal N.  This defines the local 2D
+	// coordinate system used for edge indexing and gnomonic projection.
+	// The "up" reference vector is [0,1,0] unless N is nearly vertical,
+	// in which case [1,0,0] is used to avoid degeneracy.
+	const frames = [];
+	for (let i = 0; i < 32; i++) {
+		const N = c3[i];
+		let up = [0,1,0];
+		if (Math.abs(dot3(N, up)) > 0.9) up = [1,0,0];
+		const T1 = norm3(cross3(N, up));
+		const T2 = cross3(N, T1);
+		frames.push([T1, T2]);
+	}
+
+	// Determine which edge index (0…n-1) of face i faces the adjacent face j.
+	//
+	// Each face's n edges are numbered 0…n-1 counter-clockwise starting from the
+	// direction of the tangent-frame basis vector T1.  Edge k spans the arc from
+	// angle (k-½)·2π/n to (k+½)·2π/n in the local tangent frame {T1, T2}.
+	//
+	// Algorithm:
+	//   1. Project center M of face j onto the tangent plane of face i by
+	//      subtracting the component along face i's outward normal N.
+	//   2. Normalize the resulting in-plane vector to get the unit direction
+	//      from face i's center toward face j within the tangent frame.
+	//   3. Compute the polar angle of this direction relative to {T1, T2}
+	//      using atan2, mapping the result to [0, 2π).
+	//   4. Quantize the angle into one of n equal sectors via rounding.
+	//
+	// A small positive epsilon (1e-10) is added before rounding to resolve
+	// an IEEE 754 tie-breaking issue: for certain face pairs (e.g. face 28
+	// looking at face 12), the exact mathematical result is a half-integer
+	// (5.5), but floating-point arithmetic yields 5.4999…99 which Math.round
+	// would truncate to the wrong edge.  The epsilon nudges these boundary
+	// values past the rounding threshold without affecting non-boundary cases,
+	// which are always well away from 0.5 multiples.
+	function edgeIdx(i, j) {
+		const N = c3[i], [T1,T2] = frames[i], M = c3[j];
+		const proj = sub3(M, scale3(N, dot3(M, N)));
+		const pn = norm3(proj);
+		let a = Math.atan2(dot3(pn,T2), dot3(pn,T1));
+		if (a < 0) a += 2*Math.PI;
+		const n = nSides(i);
+		return Math.round(a * n / (2*Math.PI) + 1e-10) % n;
+	}
+
+	// Apothem (center-to-edge distance) for a regular polygon with unit edge length.
+	// Pentagon: 1 / (2·tan(π/5)) ≈ 0.6882
+	// Hexagon:  √3/2 ≈ 0.8660
+	const ap5 = 1 / (2 * Math.tan(Math.PI/5));
+	const ap6 = Math.sqrt(3) / 2;
+	// Return the apothem for face i
+	function ap(i) { return nSides(i)===5 ? ap5 : ap6; }
+	// Return the circumradius (center-to-vertex distance) for face i.
+	// Pentagon: 1/(2·sin(π/5)) ≈ 0.8507;  Hexagon: 1.0 (unit edge length)
+	function circumR(i) { return nSides(i)===5 ? 1/(2*Math.sin(Math.PI/5)) : 1.0; }
+
+	// Attempt to place face j adjacent to already-placed face i in the 2D net.
+	//
+	// Computes the position and rotation where face j would sit if unfolded
+	// from the shared edge with face i, then checks for overlaps with all
+	// previously placed faces.
+	//
+	// Algorithm:
+	//   1. Determine which edge of face i faces face j (ki) and vice versa (kj)
+	//      using edgeIdx().
+	//   2. The shared edge direction in 2D: phi = rotation_i + 2π·ki/ni
+	//      (angle from face i's center toward the shared edge midpoint).
+	//   3. The center-to-center distance = apothem_i + apothem_j (both
+	//      polygons touch edge-to-edge at their apothems).
+	//   4. Face j's rotation: theta = phi + π − 2π·kj/nj (j must be
+	//      rotated so its kj-th edge faces back toward i).
+	//   5. Overlap test: reject if any previously placed face (except
+	//      the parent i) is closer than 85% of the sum of apothems.
+	//      The 0.85 tolerance allows slight geometric imprecision while
+	//      still catching genuine overlaps.
+	//
+	// Parameters:
+	//   i      — index of the already-placed parent face
+	//   j      — index of the face to place
+	//   res    — array of {x, y, r} positions for placed faces
+	//   placed — boolean array indicating which faces are placed
+	//
+	// Returns:
+	//   {x, y, r} position/rotation for face j, or null if it would overlap
+	function tryPlace(i, j, res, placed) {
+		const pi = res[i], ni = nSides(i);
+		const ki = edgeIdx(i,j), kj = edgeIdx(j,i), nj = nSides(j);
+		const phi = pi.r + 2*Math.PI * ki / ni;
+		const dist = ap(i) + ap(j);
+		const px = pi.x + dist * Math.cos(phi);
+		const py = pi.y + dist * Math.sin(phi);
+		const theta = phi + Math.PI - 2*Math.PI * kj / nj;
+		// Overlap check against all placed faces (except parent)
+		for (let k = 0; k < 32; k++) {
+			if (!placed[k] || k === i) continue;
+			const dx = px - res[k].x, dy = py - res[k].y;
+			const d = Math.sqrt(dx*dx + dy*dy);
+			if (d < (ap(j) + ap(k)) * 0.85) return null;
+		}
+		return { x:px, y:py, r:theta };
+	}
+
+	// Unfold the truncated icosahedron into a flat 2D net via overlap-aware BFS.
+	//
+	// Starting from a seed face placed at the origin with zero rotation, this
+	// function iteratively places adjacent faces using tryPlace().  It uses a
+	// multi-pass approach instead of a strict BFS queue: each pass scans all
+	// unplaced faces and tries to attach them to any placed neighbor.  This
+	// allows faces that were blocked in one pass (due to overlap with earlier
+	// placements) to find an alternative parent in a later pass.
+	//
+	// The loop terminates when a full pass completes with no new placements.
+	// Typically all 32 faces are placed, but some seed faces may produce
+	// incomplete layouts due to unavoidable geometric conflicts.
+	//
+	// Parameters:
+	//   startFace — index (0–31) of the seed face to begin unfolding from
+	//
+	// Returns:
+	//   { res, placed, parent, count }
+	//   res[i]     = {x, y, r} — 2D center position and rotation of face i
+	//   placed[i]  = true if face i was successfully placed
+	//   parent[i]  = index of the face from which face i was unfolded (-1 for seed)
+	//   count      = total number of placed faces (ideally 32)
+	function unfold(startFace) {
+		const placed = new Array(32).fill(false);
+		const parent = new Array(32).fill(-1);
+		const res = new Array(32);
+		res[startFace] = { x:0, y:0, r:0 };
+		placed[startFace] = true;
+		let count = 1;
+		// Multi-pass: keep trying until no more faces can be placed
+		let changed = true;
+		while (changed) {
+			changed = false;
+			for (let j = 0; j < 32; j++) {
+				if (placed[j]) continue;
+				for (const i of adj[j]) {
+					if (!placed[i]) continue;
+					const pos = tryPlace(i, j, res, placed);
+					if (pos) {
+						res[j] = pos;
+						placed[j] = true;
+						parent[j] = i;
+						count++;
+						changed = true;
+						break;
+					}
+				}
+			}
+		}
+		return { res, placed, parent, count };
+	}
+
+	// Compute the axis-aligned bounding box area of a layout after rotation.
+	//
+	// Used to find the rotation angle that makes the layout most compact.
+	// Each face is approximated as a circle with its circumradius, so the
+	// bounding box conservatively encloses all polygon vertices.
+	//
+	// Parameters:
+	//   res    — array of {x, y, r} face positions
+	//   placed — boolean array of placed faces
+	//   angle  — rotation angle (radians) to apply before measuring
+	//
+	// Returns:
+	//   area of the axis-aligned bounding box (width × height)
+	function bboxArea(res, placed, angle) {
+		const cs = Math.cos(angle), sn = Math.sin(angle);
+		let mnX=1e9, mxX=-1e9, mnY=1e9, mxY=-1e9;
+		for (let i = 0; i < 32; i++) {
+			if (!placed[i]) continue;
+			const cr = circumR(i);
+			const rx = res[i].x*cs - res[i].y*sn;
+			const ry = res[i].x*sn + res[i].y*cs;
+			mnX = Math.min(mnX, rx-cr); mxX = Math.max(mxX, rx+cr);
+			mnY = Math.min(mnY, ry-cr); mxY = Math.max(mxY, ry+cr);
+		}
+		return (mxX-mnX) * (mxY-mnY);
+	}
+
+	// ── Layout optimization: try all 32 seed faces ──
+	// Each seed produces a different unfolding topology.  For each complete
+	// layout (all 32 faces placed), we search for the rotation angle that
+	// minimizes the axis-aligned bounding box area (2° steps, 0–180°).
+	// The layout with the smallest optimized bounding box wins.
+	let best = null, bestScore = Infinity;
+	for (let s = 0; s < 32; s++) {
+		const layout = unfold(s);
+		if (layout.count < 32) continue; // skip incomplete layouts
+		// Find the rotation angle that minimizes bounding box area
+		let bestA = 0, bestAr = Infinity;
+		for (let deg = 0; deg < 180; deg += 2) {
+			const rad = deg * Math.PI / 180;
+			const ar = bboxArea(layout.res, layout.placed, rad);
+			if (ar < bestAr) { bestAr = ar; bestA = rad; }
+		}
+		if (bestAr < bestScore) {
+			bestScore = bestAr;
+			best = { ...layout, angle: bestA };
+		}
+	}
+
+	// Fallback: if no seed produces a complete layout (all 32 faces),
+	// pick the most complete one (maximum placed faces)
+	if (!best) {
+		let maxCount = 0;
+		for (let s = 0; s < 32; s++) {
+			const layout = unfold(s);
+			if (layout.count > maxCount) {
+				maxCount = layout.count;
+				best = { ...layout, angle: 0 };
+			}
+		}
+	}
+
+	const { res, placed, parent, angle } = best;
+
+	// Apply the optimal rotation to all placed face positions
+	const cs = Math.cos(angle), sn = Math.sin(angle);
+	for (let i = 0; i < 32; i++) {
+		if (!placed[i]) continue;
+		const x = res[i].x, y = res[i].y;
+		res[i].x = x*cs - y*sn;
+		res[i].y = x*sn + y*cs;
+		res[i].r += angle;
+	}
+
+	// Ensure landscape orientation: if the layout is taller than wide,
+	// rotate the entire net by 90° so it fits better in a widescreen viewport
+	let mnX=1e9, mxX=-1e9, mnY=1e9, mxY=-1e9;
+	for (let i = 0; i < 32; i++) {
+		if (!placed[i]) continue;
+		const cr = circumR(i);
+		mnX = Math.min(mnX, res[i].x-cr); mxX = Math.max(mxX, res[i].x+cr);
+		mnY = Math.min(mnY, res[i].y-cr); mxY = Math.max(mxY, res[i].y+cr);
+	}
+	if ((mxY-mnY) > (mxX-mnX)) {
+		// Rotate 90° for landscape
+		for (let i = 0; i < 32; i++) {
+			if (!placed[i]) continue;
+			const x = res[i].x, y = res[i].y;
+			res[i].x = -y; res[i].y = x;
+			res[i].r += Math.PI/2;
+		}
+		const tmpMnX = mnX, tmpMxX = mxX;
+		mnX = -mxY; mxX = -mnY; mnY = tmpMnX; mxY = tmpMxX;
+	}
+
+	// Center the layout at (0,0) and normalize to fit within [-0.95, 0.95]
+	const cx = (mnX+mxX)/2, cy = (mnY+mxY)/2;
+	const scale = (mxY-mnY)/2 / 0.95;
+
+	// Prepare the uniform data array: 32 faces × 4 floats each
+	// [x, y, rotation, faceOffset] per face
+	const data = new Float32Array(32*4);
+
+	// ── Compute tangent frame alignment offset per face ──
+	//
+	// The shader's gnomonic projection needs to know how the flat polygon
+	// in the 2D net is rotationally aligned with the actual 3D face on the
+	// truncated icosahedron.  This offset (in radians) corrects the rotation
+	// so that texture seams align perfectly across shared edges.
+	//
+	// Algorithm:
+	//   1. Generate all 60 vertices of the truncated icosahedron from three
+	//      families of even permutations, normalized to the unit sphere.
+	//   2. For each face, find one vertex belonging to it (angular distance
+	//      < 0.42 rad from face center).
+	//   3. Compute the vertex's polar angle in the face's tangent frame.
+	//   4. The offset = vertexAngle − π/n (where π/n is the canonical first-
+	//      vertex angle of a regular n-gon), reduced to [−π/n, π/n].
+	//   5. Resolve ±π/n boundary ambiguity by cross-checking against the
+	//      edgeIdx of an adjacent face to ensure consistency with the BFS
+	//      layout topology.
+	const tiVerts = [];
+	// Generate all vertices of a truncated icosahedron.  The vertices are
+	// the even permutations of (0,±1,±3φ), (±2,±(1+2φ),±φ),
+	// (±1,±(2+φ),±2φ), with all sign combinations, normalized to unit length.
+	// The function deduplicates entries to produce exactly 60 unique vertices.
+	function addEvenPerms(a, b, c) {
+		for (const [x,y,z] of [[a,b,c],[b,c,a],[c,a,b]]) {
+			const signs = x === 0
+				? [[0]].flatMap(_ => [-1,1].flatMap(sb => [-1,1].map(sc => [0, sb*y, sc*z])))
+				: [-1,1].flatMap(sa => [-1,1].flatMap(sb => [-1,1].map(sc => [sa*x, sb*y, sc*z])));
+			for (const v of signs) {
+				const n = norm3(v);
+				if (!tiVerts.some(u => Math.abs(u[0]-n[0])+Math.abs(u[1]-n[1])+Math.abs(u[2]-n[2]) < 1e-8))
+					tiVerts.push(n);
+			}
+		}
+	}
+	addEvenPerms(0, 1, 3*PHI);
+	addEvenPerms(2, 1+2*PHI, PHI);
+	addEvenPerms(1, 2+PHI, 2*PHI);
+
+	// For each face, find its vertices and compute offset = vertexAngle - π/n.
+	const faceOffsets = [];
+	for (let i = 0; i < 32; i++) {
+		const N = c3[i], [T1, T2] = frames[i], n = nSides(i);
+		// Find a vertex belonging to this face (angular distance < 0.42 rad)
+		let vAngle = 0;
+		for (const v of tiVerts) {
+			if (Math.acos(Math.min(1, dot3(v, N))) < 0.42) {
+				vAngle = Math.atan2(dot3(v, T2), dot3(v, T1));
+				break;
+			}
+		}
+		// Canonical polygon has vertex 0 at angle π/n; reduce offset to [-π/n, π/n]
+		let off = vAngle - Math.PI / n;
+		const step = 2 * Math.PI / n;
+		while (off > Math.PI / n + 1e-9) off -= step;
+		while (off < -Math.PI / n - 1e-9) off += step;
+		// Resolve ±π/n boundary ambiguity: ensure offset is consistent with
+		// edgeIdx used by BFS layout (which determines polygon rotation in 2D)
+		if (adj[i].length > 0 && Math.abs(Math.abs(off) - Math.PI / n) < 0.01) {
+			const j = adj[i][0], M = c3[j];
+			const proj = sub3(M, scale3(N, dot3(M, N)));
+			const pn = norm3(proj);
+			const a = Math.atan2(dot3(pn, T2), dot3(pn, T1));
+			const ki = edgeIdx(i, j);
+			let req = a - 2 * Math.PI * ki / n;
+			while (req > Math.PI) req -= 2 * Math.PI;
+			while (req < -Math.PI) req += 2 * Math.PI;
+			off = req > 0 ? Math.PI / n : -Math.PI / n;
+		}
+		faceOffsets.push(off);
+	}
+
+	// ── Pack face data into uniform array and upload to GPU ──
+	// Each face gets 4 floats: [x, y, rotation, faceOffset]
+	// Unplaced faces are pushed off-screen (x=y=9.0) so the shader skips them.
+	for (let i = 0; i < 32; i++) {
+		if (!placed[i]) { data[i*4]=9.0; data[i*4+1]=9.0; data[i*4+2]=0; data[i*4+3]=0; continue; }
+		data[i*4]   = (res[i].x - cx) / scale;
+		data[i*4+1] = (res[i].y - cy) / scale;
+		data[i*4+2] = res[i].r;
+		data[i*4+3] = faceOffsets[i];
+	}
+	gl.uniform4fv(uBuckyNet, data);
+	gl.uniform1f(uBuckyScale, scale);
+
+	// ── Render buckyball net overlay onto an offscreen 2D canvas ──
+	//
+	// The overlay provides visual aids for cutting and folding the printed net:
+	//   - Solid lines for polygon edges (cut lines)
+	//   - Dashed trapezoidal flaps on boundary edges (glue tabs)
+	//
+	// The overlay is rendered to a high-resolution offscreen canvas, then
+	// uploaded as a WebGL texture and alpha-composited by the fragment shader.
+
+	// Compute the bounding box of all placed faces in normalized net space,
+	// including circumradius padding so polygon edges aren't clipped
+	let bbX0 = Infinity, bbX1 = -Infinity, bbY0 = Infinity, bbY1 = -Infinity;
+	for (let i = 0; i < 32; i++) {
+		if (!placed[i]) continue;
+		const cr = circumR(i) / scale;
+		bbX0 = Math.min(bbX0, data[i*4] - cr);   bbX1 = Math.max(bbX1, data[i*4] + cr);
+		bbY0 = Math.min(bbY0, data[i*4+1] - cr); bbY1 = Math.max(bbY1, data[i*4+1] + cr);
+	}
+	// Add extra padding beyond the polygon edges to accommodate glue tabs
+	const bbPad = 0.02 + ap5 / scale * 0.35;
+	bbX0 -= bbPad; bbX1 += bbPad; bbY0 -= bbPad; bbY1 += bbPad;
+	const bbW = bbX1 - bbX0, bbH = bbY1 - bbY0;
+
+	// Create offscreen canvas with 2048px height, width scaled to match aspect ratio
+	const OVH = 2048, OVW = Math.round(OVH * bbW / bbH);
+	const oCanvas = document.createElement('canvas');
+	oCanvas.width = OVW; oCanvas.height = OVH;
+	const ctx = oCanvas.getContext('2d');
+
+	// Coordinate conversion from net space (normalized [-1,1]) to canvas pixels.
+	// ovX/ovY map normalized net coordinates to pixel positions, with Y flipped
+	// because canvas Y grows downward but net space Y grows upward.
+	const ovSX = OVW / bbW, ovSY = OVH / bbH;
+	function ovX(x) { return (x - bbX0) * ovSX; }
+	function ovY(y) { return OVH - (y - bbY0) * ovSY; }
+
+	ctx.clearRect(0, 0, OVW, OVH);
+
+	// ── Classify edges as internal (fold) or boundary (cut/glue) ──
+	//
+	// For each face i and each of its n edges (indexed by drawing-edge k),
+	// determine the neighboring face j and whether this edge is internal
+	// (shared with a BFS tree neighbor → fold line) or boundary (free edge
+	// → needs a glue tab when assembling the physical model).
+	//
+	// Note: edgeIdx returns the spherical edge sector index, but drawing
+	// edges are offset by one sector, so: drawing-edge d = (edgeIdx - 1) mod n.
+	const edgeNeighbor = [];
+	for (let i = 0; i < 32; i++) {
+		const n = nSides(i);
+		edgeNeighbor.push(new Array(n).fill(null));
+		if (!placed[i]) continue;
+		for (const j of adj[i]) {
+			const k = edgeIdx(i, j);
+			const isInternal = placed[j] && (parent[j] === i || parent[i] === j);
+			edgeNeighbor[i][(k - 1 + n) % n] = { j, isInternal };
+		}
+	}
+
+	// ── Draw glue tabs on boundary edges ──
+	//
+	// Glue tabs are small trapezoidal flaps extending outward from boundary
+	// edges (edges not shared with a neighbor in the 2D net).  When the net
+	// is printed and cut out, these tabs are folded and glued under the
+	// adjacent face to hold the 3D shape together.
+	//
+	// The tabs are drawn with a clip path that excludes all polygon interiors
+	// (using the even-odd fill rule), so tabs from one face don't draw over
+	// the texture content of adjacent faces.
+	//
+	// Tab geometry: a trapezoid with the full edge width at the base and
+	// 70% width (tabInset = 0.15 on each side) at the outer edge.
+	// Only one tab is drawn per boundary edge pair (the face with the
+	// smaller index draws the tab) to avoid duplicates.
+	const tabH = ap5 / scale * 0.3;
+	const tabInset = 0.15;
+	// ── Render glue tabs ──
+	ctx.save();
+	// Build clip path: full canvas rect + all polygon holes (evenodd excludes polygon interiors)
+	ctx.beginPath();
+	ctx.rect(0, 0, oCanvas.width, oCanvas.height);
+	for (let i = 0; i < 32; i++) {
+		if (!placed[i]) continue;
+		const fx = data[i*4], fy = data[i*4+1], rot = data[i*4+2];
+		const n = nSides(i), cr = circumR(i) / scale;
+		for (let k = 0; k < n; k++) {
+			const a = rot + (2*k + 1) * Math.PI / n;
+			const vx = fx + cr * Math.cos(a), vy = fy + cr * Math.sin(a);
+			if (k === 0) ctx.moveTo(ovX(vx), ovY(vy));
+			else ctx.lineTo(ovX(vx), ovY(vy));
+		}
+		ctx.closePath();
+	}
+	ctx.clip('evenodd');
+	ctx.fillStyle = 'rgba(255, 180, 200, 0.15)';
+	ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+	ctx.lineWidth = 2;
+	ctx.setLineDash([6, 4]);
+	for (let i = 0; i < 32; i++) {
+		if (!placed[i]) continue;
+		const fx = data[i*4], fy = data[i*4+1], rot = data[i*4+2];
+		const n = nSides(i), cr = circumR(i) / scale;
+		for (let k = 0; k < n; k++) {
+			const info = edgeNeighbor[i][k];
+			if (info && info.isInternal) continue; // internal edge, no tab
+			if (info && info.j < i) continue; // one flap per edge pair: keep smaller index
+			// Edge vertices
+			const a1 = rot + (2*k + 1) * Math.PI / n;
+			const a2 = rot + (2*(k+1) + 1) * Math.PI / n;
+			const v1x = fx + cr * Math.cos(a1), v1y = fy + cr * Math.sin(a1);
+			const v2x = fx + cr * Math.cos(a2), v2y = fy + cr * Math.sin(a2);
+			// Outward normal (away from face center)
+			const emx = (v1x + v2x) / 2 - fx, emy = (v1y + v2y) / 2 - fy;
+			const eml = Math.sqrt(emx*emx + emy*emy);
+			const nx = emx / eml, ny = emy / eml;
+			// Outer edge (inset for trapezoid)
+			const dx = v2x - v1x, dy = v2y - v1y;
+			const o1x = v1x + nx * tabH + dx * tabInset, o1y = v1y + ny * tabH + dy * tabInset;
+			const o2x = v2x + nx * tabH - dx * tabInset, o2y = v2y + ny * tabH - dy * tabInset;
+			ctx.beginPath();
+			ctx.moveTo(ovX(v1x), ovY(v1y));
+			ctx.lineTo(ovX(o1x), ovY(o1y));
+			ctx.lineTo(ovX(o2x), ovY(o2y));
+			ctx.lineTo(ovX(v2x), ovY(v2y));
+			ctx.closePath();
+			ctx.fill();
+			ctx.stroke();
+		}
+	}
+	ctx.setLineDash([]);
+	ctx.restore();
+
+	// ── Draw polygon edges (cut lines) ──
+	// Solid semi-transparent black lines along all polygon boundaries.
+	// These represent the lines where the printed net should be cut.
+	ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+	ctx.lineWidth = 3;
+	ctx.lineJoin = 'round';
+	for (let i = 0; i < 32; i++) {
+		if (!placed[i]) continue;
+		const fx = data[i*4], fy = data[i*4+1], rot = data[i*4+2];
+		const n = nSides(i), cr = circumR(i) / scale;
+		ctx.beginPath();
+		for (let k = 0; k <= n; k++) {
+			const a = rot + (2*k + 1) * Math.PI / n;
+			const vx = fx + cr * Math.cos(a), vy = fy + cr * Math.sin(a);
+			if (k === 0) ctx.moveTo(ovX(vx), ovY(vy));
+			else ctx.lineTo(ovX(vx), ovY(vy));
+		}
+		ctx.closePath();
+		ctx.stroke();
+	}
+
+	// ── Upload overlay canvas as WebGL texture ──
+	const overlayTex = gl.createTexture();
+	gl.activeTexture(gl.TEXTURE1);
+	gl.bindTexture(gl.TEXTURE_2D, overlayTex);
+	gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+	gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, oCanvas);
+	gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+	gl.generateMipmap(gl.TEXTURE_2D);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+	gl.uniform1i(uBuckyOverlay, 1);
+	gl.uniform4f(uBuckyBBox, bbX0, bbY0, bbX1, bbY1);
+
+	// Expose bounding box to outer scope for screenshot export clipping
+	window.buckyBBox = { x0: bbX0, y0: bbY0, x1: bbX1, y1: bbY1 };
+
+	// Log polygon pixel sizes for a hypothetical export at S×S
+	const bMax = Math.max(bbW, bbH);
+	const hexCR = 1.0 / scale, pentCR = 1/(2*Math.sin(Math.PI/5)) / scale;
+	console.log('Bucky net: placed', best.count + '/32, overlay:', OVW + '×' + OVH);
+	console.log('  scale:', scale.toFixed(4), 'bMax:', bMax.toFixed(4));
+	console.log('  Hex circumR (net):', hexCR.toFixed(4), '→ diameter', (2*hexCR).toFixed(4));
+	console.log('  Pent circumR (net):', pentCR.toFixed(4), '→ diameter', (2*pentCR).toFixed(4));
+	console.log('  At S=4096 export: hex ø ≈', Math.round(2*hexCR/bMax*4096) + 'px, pent ø ≈', Math.round(2*pentCR/bMax*4096) + 'px');
+})();
+
+// Placeholder texture (1×1 black)
+const tex = gl.createTexture();
+gl.activeTexture(gl.TEXTURE0);
+gl.bindTexture(gl.TEXTURE_2D, tex);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0,0,0,255]));
+gl.bindTexture(gl.TEXTURE_2D, tex);
+gl.uniform1i(uEquirect, 0);
+
+let hasTexture = 0;
+let texWidth = 0, texHeight = 0;
+let sourceFileName = '';
+let videoActive = false;
+const videoEl = document.getElementById('video-el');
+const timelineEl = document.getElementById('timeline');
+const tlPlay = document.getElementById('tl-play');
+const tlTime = document.getElementById('tl-time');
+const tlSeek = document.getElementById('tl-seek');
+let seeking = false;
+let needsVideoUpdate = false;
+
+function fmtTime(s) {
+	if (!isFinite(s)) return '0:00';
+	const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+	return m + ':' + (sec < 10 ? '0' : '') + sec;
+}
+
+tlPlay.addEventListener('click', () => {
+	if (videoEl.paused) videoEl.play(); else videoEl.pause();
+});
+videoEl.addEventListener('play',  () => { tlPlay.innerHTML = '&#9646;&#9646;'; });
+videoEl.addEventListener('pause', () => { tlPlay.innerHTML = '&#9654;'; });
+videoEl.addEventListener('ended', () => { tlPlay.innerHTML = '&#9654;'; });
+
+tlSeek.addEventListener('pointerdown', () => { seeking = true; });
+tlSeek.addEventListener('pointerup',   () => { seeking = false; });
+tlSeek.addEventListener('input', () => {
+	if (videoEl.duration) videoEl.currentTime = (tlSeek.value / 1000) * videoEl.duration;
+});
+videoEl.addEventListener('seeked', () => { needsVideoUpdate = true; });
+
+function updateTimeline() {
+	if (!videoActive) return;
+	if (!seeking) tlSeek.value = videoEl.duration ? (videoEl.currentTime / videoEl.duration) * 1000 : 0;
+	tlTime.textContent = fmtTime(videoEl.currentTime) + ' / ' + fmtTime(videoEl.duration);
+}
+
+// ══════════════════════════════════════════════════════════
+// Camera state (quaternion-based)
+// ══════════════════════════════════════════════════════════
+
+// Minimal quaternion math (x, y, z, w)
+function quat(x, y, z, w) { return new Float64Array([x, y, z, w]); }
+function quatFromAxisAngle(ax, ay, az, angle) {
+	const ha = angle * 0.5, s = Math.sin(ha);
+	return quat(ax * s, ay * s, az * s, Math.cos(ha));
+}
+function quatMul(a, b) {
+	return quat(
+		a[3]*b[0] + a[0]*b[3] + a[1]*b[2] - a[2]*b[1],
+		a[3]*b[1] - a[0]*b[2] + a[1]*b[3] + a[2]*b[0],
+		a[3]*b[2] + a[0]*b[1] - a[1]*b[0] + a[2]*b[3],
+		a[3]*b[3] - a[0]*b[0] - a[1]*b[1] - a[2]*b[2]
+	);
+}
+function quatNormalize(q) {
+	const len = Math.sqrt(q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3]);
+	return quat(q[0]/len, q[1]/len, q[2]/len, q[3]/len);
+}
+function quatToMat3(q) {
+	const [x, y, z, w] = q;
+	const x2 = x+x, y2 = y+y, z2 = z+z;
+	const xx = x*x2, xy = x*y2, xz = x*z2;
+	const yy = y*y2, yz = y*z2, zz = z*z2;
+	const wx = w*x2, wy = w*y2, wz = w*z2;
+	// column-major for WebGL
+	return new Float32Array([
+		1-yy-zz,  xy+wz,    xz-wy,
+		xy-wz,    1-xx-zz,  yz+wx,
+		xz+wy,    yz-wx,    1-xx-yy,
+	]);
+}
+
+// camQuat stores user-controlled orientation (sliders show 0/0/0 at start)
+let camQuat = [0, 0, 0, 1]; // identity
+// Fixed offset: -90° yaw so equirect center faces the dome
+const camQuatOffset = quatFromAxisAngle(0, 1, 0, -Math.PI / 2);
+
+let fovDeg = 90;
+const fovSlider = document.getElementById('fov-slider');
+const fovVal = document.getElementById('fov-val');
+const texInfo = document.getElementById('tex-info');
+const globeToggle = document.getElementById('globe-toggle');
+const globeSizeSlider = document.getElementById('globe-size');
+const globeSizeVal = document.getElementById('globe-size-val');
+
+let globeVisible = true;
+let globeSize = 10;
+let showGrid = false;
+let buckyOverlayAlpha = 1.0;
+
+// Projection modes as array for cycling
+const projectionModes = ['equirectangular', 'perspective', 'foldable buckyball'];
+let projectionModeIndex = 0;
+
+const projectionSelect = document.getElementById('projection-select');
+const gridToggle = document.getElementById('grid-toggle');
+const playbackRow = document.getElementById('playback-row');
+const playbackVal = document.getElementById('playback-val');
+
+// Expose to module scope for joystick HUD
+window.cycleProjection = (dir) => {
+	projectionModeIndex = (projectionModeIndex + dir + projectionModes.length) % projectionModes.length;
+	const mode = projectionModes[projectionModeIndex];
+	projectionSelect.value = mode;
+	projectionSelect.dispatchEvent(new Event('change'));
+};
+
+fovSlider.addEventListener('input', () => {
+	fovDeg = +fovSlider.value;
+	fovVal.textContent = fovDeg + '°';
+	saveProjectionConfig();
+});
+globeToggle.addEventListener('change', () => { globeVisible = globeToggle.checked; saveProjectionConfig(); });
+globeSizeSlider.addEventListener('input', () => {
+	globeSize = +globeSizeSlider.value;
+	globeSizeVal.textContent = globeSize + '%';
+	saveProjectionConfig();
+});
+projectionSelect.addEventListener('change', () => {
+	projectionModeIndex = projectionModes.indexOf(projectionSelect.value);
+	if (projectionModeIndex < 0) projectionModeIndex = 0;
+	updateProjectionUI();
+	saveProjectionConfig();
+});
+gridToggle.addEventListener('change', () => { showGrid = gridToggle.checked; saveProjectionConfig(); });
+
+const fovRow = document.getElementById('fov-row');
+const netRow = document.getElementById('net-row');
+const globeRow = document.getElementById('globe-row');
+const screenshotRow = document.getElementById('screenshot-row');
+function updateProjectionUI() {
+	const isBucky = projectionModeIndex === 2;
+	fovRow.style.display = isBucky ? 'none' : '';
+	netRow.style.display = isBucky ? '' : 'none';
+	globeRow.style.display = isBucky ? 'none' : '';
+	if (screenshotRow) screenshotRow.style.display = hasTexture ? '' : 'none';
+}
+updateProjectionUI();
+
+const netAlphaSlider = document.getElementById('net-alpha-slider');
+const netAlphaVal = document.getElementById('net-alpha-val');
+netAlphaSlider.addEventListener('input', () => {
+	buckyOverlayAlpha = +netAlphaSlider.value / 100;
+	netAlphaVal.textContent = netAlphaSlider.value + '%';
+	saveProjectionConfig();
+});
+
+function viewMatrix() {
+	return quatToMat3(quatNormalize(quatMul(camQuatOffset, camQuat)));
+}
+
+// ══════════════════════════════════════════════════════════
+// Mouse / touch look (quaternion trackball)
+// ══════════════════════════════════════════════════════════
+let dragging = false, lastX = 0, lastY = 0;
+
+// Relative quaternion rotation helpers
+function rotateYaw(angle) {
+	camQuat = quatMul(quatFromAxisAngle(0, 1, 0, angle), camQuat);
+	camQuat = quatNormalize(camQuat);
+}
+function rotatePitch(angle) {
+	camQuat = quatMul(camQuat, quatFromAxisAngle(1, 0, 0, angle));
+	camQuat = quatNormalize(camQuat);
+}
+function rotateRoll(angle) {
+	camQuat = quatMul(camQuat, quatFromAxisAngle(0, 0, 1, angle));
+	camQuat = quatNormalize(camQuat);
+}
+function resetYPR() {
+	camQuat = [0, 0, 0, 1];
+	angleYawIn.value = 0; anglePitchIn.value = 0; angleRollIn.value = 0;
+	onAngleInput();
+}
+// Expose for joystick module
+window.rotateYaw = rotateYaw;
+window.rotatePitch = rotatePitch;
+window.rotateRoll = rotateRoll;
+window.resetYPR = resetYPR;
+window.saveProjectionConfig = saveProjectionConfig;
+window.videoEl = videoEl;
+window.playbackRow = playbackRow;
+window.playbackVal = playbackVal;
+window.globeSizeSlider = globeSizeSlider;
+window.globeSizeVal = globeSizeVal;
+Object.defineProperty(window, 'videoActive', { get() { return videoActive; } });
+Object.defineProperty(window, 'globeSize', {
+	get() { return globeSize; },
+	set(v) { globeSize = v; }
+});
+
+canvas.addEventListener('pointerdown', e => {
+	dragging = true; lastX = e.clientX; lastY = e.clientY;
+	canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', e => {
+	if (!dragging) return;
+	const dx = e.clientX - lastX;
+	const dy = e.clientY - lastY;
+	lastX = e.clientX; lastY = e.clientY;
+	const sensitivity = 0.003;
+	if (e.shiftKey) {
+		// Roll: Shift + drag horizontal
+		if (dx !== 0) rotateRoll(dx * sensitivity);
+	} else {
+		if (dx !== 0) rotateYaw(-dx * sensitivity);
+		if (dy !== 0) rotatePitch((projectionModeIndex === 0 ? 1 : -1) * dy * sensitivity);
+	}
+});
+canvas.addEventListener('pointerup', () => { dragging = false; saveProjectionConfig(); });
+
+canvas.addEventListener('wheel', e => {
+	e.preventDefault();
+	fovDeg = Math.max(20, Math.min(170, fovDeg + e.deltaY * 0.05));
+	fovSlider.value = fovDeg;
+	fovVal.textContent = Math.round(fovDeg) + '°';
+	saveProjectionConfig();
+}, { passive: false });
+
+// ══════════════════════════════════════════════════════════
+// Keyboard navigation (yaw / pitch / roll)
+// ══════════════════════════════════════════════════════════
+const keysDown = {};
+document.addEventListener('keydown', e => {
+	if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+	if (e.repeat) return;
+	// Spacebar toggles video playback
+	if (e.code === 'Space' && videoActive) {
+		e.preventDefault();
+		if (videoEl.paused) videoEl.play(); else videoEl.pause();
+		return;
+	}
+	keysDown[e.code] = { age: 0, reads: 0 };
+});
+document.addEventListener('keyup', e => { delete keysDown[e.code]; saveProjectionConfig(); });
+// Tick age every 20ms (50 Hz) independent of frame rate
+setInterval(() => {
+	for (const k in keysDown) keysDown[k].age++;
+}, 20);
+
+// Extract Euler angles from quaternion for display (yaw, pitch, roll in degrees)
+function quatToEulerDeg(q) {
+	const [x, y, z, w] = q;
+	// yaw (Y), pitch (X), roll (Z) — Tait-Bryan YXZ
+	const sinP = 2 * (w * x - y * z);
+	const pitch = Math.abs(sinP) >= 1 ? Math.sign(sinP) * 90 : Math.asin(sinP) * 180 / Math.PI;
+	const yaw   = Math.atan2(2 * (w * y + x * z), 1 - 2 * (x * x + y * y)) * 180 / Math.PI;
+	const roll  = Math.atan2(2 * (w * z + x * y), 1 - 2 * (x * x + z * z)) * 180 / Math.PI;
+	return { yaw, pitch, roll };
+}
+
+// Build quaternion from Euler angles (Tait-Bryan YXZ order, degrees)
+function quatFromEulerDeg(yawDeg, pitchDeg, rollDeg) {
+	const toRad = Math.PI / 180;
+	const qY = quatFromAxisAngle(0, 1, 0, yawDeg * toRad);
+	const qX = quatFromAxisAngle(1, 0, 0, pitchDeg * toRad);
+	const qZ = quatFromAxisAngle(0, 0, 1, rollDeg * toRad);
+	return quatNormalize(quatMul(quatMul(qY, qX), qZ));
+}
+
+const angleYawIn   = document.getElementById('angle-yaw');
+const anglePitchIn = document.getElementById('angle-pitch');
+const angleRollIn  = document.getElementById('angle-roll');
+const angleYawVal   = document.getElementById('angle-yaw-val');
+const anglePitchVal = document.getElementById('angle-pitch-val');
+const angleRollVal  = document.getElementById('angle-roll-val');
+
+function onAngleInput() {
+	const y = parseFloat(angleYawIn.value)   || 0;
+	const p = parseFloat(anglePitchIn.value) || 0;
+	const r = parseFloat(angleRollIn.value)  || 0;
+	camQuat = quatFromEulerDeg(y, p, r);
+	angleYawVal.textContent   = y.toFixed(1) + '°';
+	anglePitchVal.textContent = p.toFixed(1) + '°';
+	angleRollVal.textContent  = r.toFixed(1) + '°';
+	saveProjectionConfig();
+}
+angleYawIn.addEventListener('input', onAngleInput);
+anglePitchIn.addEventListener('input', onAngleInput);
+angleRollIn.addEventListener('input', onAngleInput);
+
+[angleYawIn, anglePitchIn, angleRollIn].forEach(sl => {
+	sl.addEventListener('dblclick', () => { sl.value = 0; onAngleInput(); });
+});
+
+function handleKeys() {
+	const debounce = 12; // ticks before acceleration starts
+	for (const code in keysDown) {
+		const k = keysDown[code];
+		const isNew = k.reads === 0;
+		const accel = isNew ? 1 : (k.age < debounce ? 0 : Math.min(Math.pow((k.age - debounce) * 1.5, 2) / 100, 50));
+		if (accel === 0) { k.reads++; continue; }
+		const step = 0.002 * accel;
+		switch (code) {
+			case 'KeyA': case 'Numpad4': rotateYaw(step);   break;
+			case 'KeyD': case 'Numpad6': rotateYaw(-step);  break;
+			case 'KeyW': case 'Numpad8': rotatePitch(step);  break;
+			case 'KeyS': case 'Numpad2': case 'Numpad5': rotatePitch(-step); break;
+			case 'KeyQ': case 'Numpad7': rotateRoll(-step); break;
+			case 'KeyE': case 'Numpad9': rotateRoll(step);  break;
+			case 'KeyX':
+				if (isNew) { showGrid = !showGrid; gridToggle.checked = showGrid; }
+				break;
+		}
+		k.reads++;
+	}
+	// Update angle sliders
+	const e = quatToEulerDeg(camQuat);
+	angleYawIn.value   = e.yaw.toFixed(1);
+	anglePitchIn.value = e.pitch.toFixed(1);
+	angleRollIn.value  = e.roll.toFixed(1);
+	angleYawVal.textContent   = e.yaw.toFixed(1) + '°';
+	anglePitchVal.textContent = e.pitch.toFixed(1) + '°';
+	angleRollVal.textContent  = e.roll.toFixed(1) + '°';
+}
+
+// ══════════════════════════════════════════════════════════
+// IndexedDB texture cache
+// ══════════════════════════════════════════════════════════
+const DB_NAME = 'dome-mapper';
+const DB_STORE = 'textures';
+const DB_KEY = 'equirect';
+const DB_CONFIG_KEY = 'projectionConfig';
+
+function openDB() {
+	return new Promise((resolve, reject) => {
+		const req = indexedDB.open(DB_NAME, 1);
+		req.onupgradeneeded = () => req.result.createObjectStore(DB_STORE);
+		req.onsuccess = () => resolve(req.result);
+		req.onerror = () => reject(req.error);
+	});
+}
+
+async function cacheStore(blob, name) {
+	const db = await openDB();
+	const tx = db.transaction(DB_STORE, 'readwrite');
+	tx.objectStore(DB_STORE).put({ blob, name, ts: Date.now() }, DB_KEY);
+	return new Promise((resolve, reject) => {
+		tx.oncomplete = resolve;
+		tx.onerror = () => reject(tx.error);
+	});
+}
+
+async function cacheLoad() {
+	try {
+		const db = await openDB();
+		const tx = db.transaction(DB_STORE, 'readonly');
+		const req = tx.objectStore(DB_STORE).get(DB_KEY);
+		return new Promise((resolve, reject) => {
+			req.onsuccess = () => resolve(req.result || null);
+			req.onerror = () => reject(req.error);
+		});
+	} catch { return null; }
+}
+
+async function cacheClear() {
+	const db = await openDB();
+	const tx = db.transaction(DB_STORE, 'readwrite');
+	const store = tx.objectStore(DB_STORE);
+	store.delete(DB_KEY);
+	store.delete(DB_CONFIG_KEY);
+}
+
+// ── Projection configuration persistence ──
+// Saves the current viewing state (camera orientation, FOV, projection mode,
+// grid, globe) alongside the cached texture so the user returns to exactly
+// the same view on reload.
+
+let configSaveTimer = null;
+
+// Debounced save: collects rapid changes (e.g. slider drag) and writes
+// to IndexedDB at most once every 500 ms to avoid excessive I/O.
+function saveProjectionConfig() {
+	if (configSaveTimer) clearTimeout(configSaveTimer);
+	configSaveTimer = setTimeout(async () => {
+		try {
+			const db = await openDB();
+			const tx = db.transaction(DB_STORE, 'readwrite');
+			tx.objectStore(DB_STORE).put({
+				camQuat: [...camQuat],
+				fovDeg,
+				projectionModeIndex,
+				showGrid,
+				buckyOverlayAlpha,
+				globeVisible,
+				globeSize
+			}, DB_CONFIG_KEY);
+		} catch (e) { console.warn('Failed to save projection config:', e); }
+	}, 500);
+}
+
+async function loadProjectionConfig() {
+	try {
+		const db = await openDB();
+		const tx = db.transaction(DB_STORE, 'readonly');
+		const req = tx.objectStore(DB_STORE).get(DB_CONFIG_KEY);
+		return new Promise((resolve, reject) => {
+			req.onsuccess = () => resolve(req.result || null);
+			req.onerror = () => reject(req.error);
+		});
+	} catch { return null; }
+}
+
+// Apply a loaded projection config to all UI controls and state variables
+function applyProjectionConfig(cfg) {
+	if (!cfg) return;
+	if (cfg.camQuat && cfg.camQuat.length === 4) camQuat = cfg.camQuat;
+	if (typeof cfg.fovDeg === 'number') {
+		fovDeg = cfg.fovDeg;
+		fovSlider.value = fovDeg;
+		fovVal.textContent = fovDeg + '°';
+	}
+	if (typeof cfg.projectionModeIndex === 'number') {
+		projectionModeIndex = cfg.projectionModeIndex;
+		projectionSelect.value = projectionModes[projectionModeIndex] || projectionModes[0];
+	}
+	if (typeof cfg.showGrid === 'boolean') {
+		showGrid = cfg.showGrid;
+		gridToggle.checked = showGrid;
+	}
+	if (typeof cfg.buckyOverlayAlpha === 'number') {
+		buckyOverlayAlpha = cfg.buckyOverlayAlpha;
+		netAlphaSlider.value = Math.round(buckyOverlayAlpha * 100);
+		netAlphaVal.textContent = Math.round(buckyOverlayAlpha * 100) + '%';
+	}
+	if (typeof cfg.globeVisible === 'boolean') {
+		globeVisible = cfg.globeVisible;
+		globeToggle.checked = globeVisible;
+	}
+	if (typeof cfg.globeSize === 'number') {
+		globeSize = cfg.globeSize;
+		globeSizeSlider.value = globeSize;
+		globeSizeVal.textContent = globeSize + '%';
+	}
+	// Update Euler angle sliders to reflect restored quaternion
+	const e = quatToEulerDeg(camQuat);
+	angleYawIn.value = e.yaw.toFixed(1);
+	anglePitchIn.value = e.pitch.toFixed(1);
+	angleRollIn.value = e.roll.toFixed(1);
+	angleYawVal.textContent = e.yaw.toFixed(1) + '°';
+	anglePitchVal.textContent = e.pitch.toFixed(1) + '°';
+	angleRollVal.textContent = e.roll.toFixed(1) + '°';
+	updateProjectionUI();
+}
+
+const clearCacheBtn = document.getElementById('clear-cache');
+const screenshotBtn = document.getElementById('screenshot-btn');
+
+clearCacheBtn.addEventListener('click', async () => {
+	await cacheClear();
+	hasTexture = 0;
+	texWidth = 0; texHeight = 0;
+	videoActive = false;
+	videoEl.pause(); videoEl.removeAttribute('src');
+	timelineEl.style.display = 'none';
+	gl.bindTexture(gl.TEXTURE_2D, tex);
+	gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0,0,0,255]));
+	texInfo.textContent = 'No texture loaded';
+	clearCacheBtn.style.display = 'none';
+	screenshotRow.style.display = 'none';
+	document.getElementById('drop-zone').style.display = '';
+});
+
+// ── Screenshot export ──
+// Resizes the canvas to export resolution, renders, reads pixels, then restores.
+// For buckyball projection: clips to the net bounding box with 1:1 aspect,
+// resolution slightly larger than the source equirect texture.
+// For other projections: keeps viewport aspect ratio at source texture height.
+screenshotBtn.addEventListener('click', () => {
+	if (!texWidth || !texHeight) return;
+
+	const isBucky = projectionModeIndex > 1.5;
+	let w, h;
+
+	if (isBucky && window.buckyBBox) {
+		// Export clipped tightly to the net bounding box
+		const bb = window.buckyBBox;
+		const bW = bb.x1 - bb.x0;
+		const bH = bb.y1 - bb.y0;
+
+		// Resolution: scale so the longer bbox side maps to max(texW, texH)
+		const S = Math.max(texWidth, texHeight);
+		if (bW >= bH) {
+			w = S;
+			h = Math.round(S * bH / bW);
+		} else {
+			h = S;
+			w = Math.round(S * bW / bH);
+		}
+
+		// exportClip is in screenUV space (before uv.x *= aspect in the shader).
+		// bbox values are in uv space (after aspect scaling), so divide x by
+		// the export canvas aspect to compensate.
+		const exportAspect = w / h;
+		gl.uniform4f(uExportClip, bb.x0 / exportAspect, bb.y0, bb.x1 / exportAspect, bb.y1);
+	} else {
+		// Other projections: keep viewport aspect, match texture height
+		const aspect = canvas.width / canvas.height;
+		h = texHeight;
+		w = Math.round(h * aspect);
+
+		gl.uniform4f(uExportClip, -1, -1, 1, 1);
+	}
+
+	// Resize canvas to export resolution
+	canvas.width = w;
+	canvas.height = h;
+	gl.viewport(0, 0, w, h);
+
+	// Render at export resolution (draws to default framebuffer, textures stay bound)
+	gl.uniform2f(uResolution, w, h);
+	gl.uniform1f(uFov, fovDeg * Math.PI / 180);
+	gl.uniformMatrix3fv(uViewMatrix, false, viewMatrix());
+	gl.uniform1f(uHasTexture, hasTexture);
+	gl.uniform1f(uGlobeRadius, 0.0); // no globe in export
+	gl.uniform1f(uProjection, projectionModeIndex);
+	gl.uniform1f(uShowGrid, showGrid ? 1.0 : 0.0);
+	gl.uniform1f(uBuckyOverlayAlpha, buckyOverlayAlpha);
+	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+	// Read pixels immediately (works within same JS task before buffer swap)
+	const pixels = new Uint8Array(w * h * 4);
+	gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+	// Restore exportClip and canvas size
+	gl.uniform4f(uExportClip, -1, -1, 1, 1);
+	resize();
+
+	// Flip Y and write to 2D canvas for PNG export
+	const out = document.createElement('canvas');
+	out.width = w; out.height = h;
+	const ctx2 = out.getContext('2d');
+	const imgData = ctx2.createImageData(w, h);
+	for (let y = 0; y < h; y++) {
+		const srcRow = (h - 1 - y) * w * 4;
+		const dstRow = y * w * 4;
+		imgData.data.set(pixels.subarray(srcRow, srcRow + w * 4), dstRow);
+	}
+	ctx2.putImageData(imgData, 0, 0);
+
+	// Trigger download
+	const a = document.createElement('a');
+	const baseName = sourceFileName ? sourceFileName.replace(/\.[^.]+$/, '') : 'dome-mapper';
+	const projName = projectionModes[projectionModeIndex].replace(/\s+/g, '-');
+	a.download = baseName + '-' + projName + '-' + w + 'x' + h + '.png';
+	a.href = out.toDataURL('image/png');
+	a.click();
+});
+
+// ══════════════════════════════════════════════════════════
+// Texture loading
+// ══════════════════════════════════════════════════════════
+function isPowerOf2(v) { return (v & (v - 1)) === 0; }
+
+function uploadTexture(img) {
+	gl.bindTexture(gl.TEXTURE_2D, tex);
+	gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+
+	if (isPowerOf2(img.width) && isPowerOf2(img.height)) {
+		gl.generateMipmap(gl.TEXTURE_2D);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+	} else {
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+	}
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+	texWidth = img.width;
+	texHeight = img.height;
+	hasTexture = 1;
+	texInfo.textContent = img.width + ' × ' + img.height;
+	clearCacheBtn.style.display = '';
+	updateProjectionUI();
+	document.getElementById('drop-zone').style.display = 'none';
+}
+
+function loadImageFromBlob(blob) {
+	return new Promise((resolve, reject) => {
+		const img = new Image();
+		img.onload = () => { URL.revokeObjectURL(img.src); resolve(img); };
+		img.onerror = reject;
+		img.src = URL.createObjectURL(blob);
+	});
+}
+
+function uploadVideoTexture() {
+	if (videoEl.readyState < 2) return;
+	gl.bindTexture(gl.TEXTURE_2D, tex);
+	gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, videoEl);
+}
+
+function activateVideo(url, name) {
+	sourceFileName = name;
+	videoEl.src = url;
+    videoEl.loop = true;
+	videoEl.muted = true;
+	videoEl.play();
+	videoActive = true;
+	hasTexture = 1;
+	timelineEl.style.display = 'flex';
+	document.getElementById('drop-zone').style.display = 'none';
+
+	// Set texture params once metadata is ready
+	videoEl.addEventListener('loadeddata', () => {
+		gl.bindTexture(gl.TEXTURE_2D, tex);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		texWidth = videoEl.videoWidth;
+		texHeight = videoEl.videoHeight;
+		texInfo.textContent = videoEl.videoWidth + ' × ' + videoEl.videoHeight + ' — ' + name;
+		clearCacheBtn.style.display = '';
+		updateProjectionUI();
+	}, { once: true });
+}
+
+async function handleFile(file) {
+	if (!file) return;
+	if (file.type.startsWith('video/')) {
+		const url = URL.createObjectURL(file);
+		activateVideo(url, file.name);
+		return;
+	}
+	if (!file.type.startsWith('image/')) return;
+	videoActive = false;
+	timelineEl.style.display = 'none';
+	videoEl.pause(); videoEl.removeAttribute('src');
+	const img = await loadImageFromBlob(file);
+	uploadTexture(img);
+	await cacheStore(file, file.name);
+	sourceFileName = file.name;
+	texInfo.textContent = img.width + ' × ' + img.height + ' — ' + file.name;
+}
+
+const DEFAULT_VIDEO = '2025-11-17 last mile to work equirect.mp4';
+const DEFAULT_IMAGE = '2025-09-26 Hohe D\u00fcne.jpg';
+
+const progressEl    = document.getElementById('progress');
+const progressFill  = document.getElementById('progress-fill');
+const progressLabel = document.getElementById('progress-label');
+
+function setProgress(ratio, text) {
+	progressEl.style.display = '';
+	const pct = Math.round(ratio * 100);
+	progressFill.style.width = pct + '%';
+	progressLabel.textContent = text || pct + '%';
+}
+
+function hideProgress() {
+	setProgress(1, 'done');
+	setTimeout(() => {
+		progressEl.classList.add('done');
+		setTimeout(() => { progressEl.style.display = 'none'; }, 700);
+	}, 200);
+}
+
+async function fetchWithProgress(url) {
+	const res = await fetch(url);
+	if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
+	const total = +res.headers.get('Content-Length') || 0;
+	if (!total || !res.body) {
+		const blob = await res.blob();
+		setProgress(1);
+		return blob;
+	}
+	const reader = res.body.getReader();
+	const chunks = [];
+	let received = 0;
+	while (true) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		chunks.push(value);
+		received += value.length;
+		setProgress(received / total, formatBytes(received) + ' / ' + formatBytes(total));
+	}
+	return new Blob(chunks);
+}
+
+function formatBytes(b) {
+	if (b < 1024) return b + ' B';
+	if (b < 1048576) return (b / 1024).toFixed(0) + ' KB';
+	return (b / 1048576).toFixed(1) + ' MB';
+}
+
+// Restore from cache on startup, or fetch default image
+(async () => {
+	try {
+		const cached = await cacheLoad();
+		if (cached) {
+			setProgress(0.5, 'restoring from cache…');
+			const img = await loadImageFromBlob(cached.blob);
+			uploadTexture(img);
+			sourceFileName = cached.name;
+			texInfo.textContent = img.width + ' × ' + img.height + ' — ' + cached.name + ' (cached)';
+			// Restore last projection configuration alongside cached texture
+			const cfg = await loadProjectionConfig();
+			applyProjectionConfig(cfg);
+			hideProgress();
+			return;
+		}
+		// No cache — try fetching default image (only works via HTTP, not file://)
+		if (location.protocol === 'file:') return;
+		// Try loading default video first, fall back to image
+		try {
+			const testRes = await fetch(encodeURI(DEFAULT_VIDEO), { method: 'HEAD' });
+			if (testRes.ok) {
+				activateVideo(encodeURI(DEFAULT_VIDEO), DEFAULT_VIDEO);
+				hideProgress();
+				return;
+			}
+		} catch (_) { /* video not available, try image */ }
+		setProgress(0, 'fetching ' + DEFAULT_IMAGE + '…');
+		const blob = await fetchWithProgress(encodeURI(DEFAULT_IMAGE));
+		const img = await loadImageFromBlob(blob);
+		uploadTexture(img);
+		await cacheStore(blob, DEFAULT_IMAGE);
+		sourceFileName = DEFAULT_IMAGE;
+		texInfo.textContent = img.width + ' × ' + img.height + ' — ' + DEFAULT_IMAGE;
+		hideProgress();
+	} catch (e) {
+		console.warn('Initial load failed:', e);
+		progressEl.style.display = 'none';
+	}
+})();
+
+// File input
+document.getElementById('file-input').addEventListener('change', e => {
+	if (e.target.files[0]) handleFile(e.target.files[0]);
+});
+
+// Drag & drop
+const dropZone = document.getElementById('drop-zone');
+document.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('active'); });
+document.addEventListener('dragleave', e => {
+	if (e.relatedTarget === null) dropZone.classList.remove('active');
+});
+document.addEventListener('drop', e => {
+	e.preventDefault();
+	dropZone.classList.remove('active');
+	if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+
+// ══════════════════════════════════════════════════════════
+// Render loop
+// ══════════════════════════════════════════════════════════
+function resize() {
+	const dpr = Math.min(devicePixelRatio, 2);
+	canvas.width  = innerWidth  * dpr;
+	canvas.height = innerHeight * dpr;
+	gl.viewport(0, 0, canvas.width, canvas.height);
+}
+window.addEventListener('resize', resize);
+resize();
+
+function frame() {
+	requestAnimationFrame(frame);
+	handleKeys();
+
+	gl.uniform2f(uResolution, canvas.width, canvas.height);
+	gl.uniform1f(uFov, fovDeg * Math.PI / 180);
+	gl.uniformMatrix3fv(uViewMatrix, false, viewMatrix());
+	gl.uniform1f(uHasTexture, hasTexture);
+	gl.uniform1f(uGlobeRadius, globeVisible ? globeSize / 100.0 : 0.0);
+	gl.uniform1f(uProjection, projectionModeIndex);
+	gl.uniform1f(uShowGrid, showGrid ? 1.0 : 0.0);
+	gl.uniform1f(uBuckyOverlayAlpha, buckyOverlayAlpha);
+	gl.uniform4f(uExportClip, -1, -1, 1, 1);
+
+	if (videoActive && videoEl.readyState >= 2 && (!videoEl.paused ? true : needsVideoUpdate)) {
+		uploadVideoTexture();
+		needsVideoUpdate = false;
+	}
+	updateTimeline();
+
+	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+frame();
+</script>
+
+<!-- ══ Joystick 3D Overlay ══ -->
+<script type="module">
+import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { OutlineEffect } from 'three/addons/effects/OutlineEffect.js';
+
+const jCanvas = document.getElementById('joystick-canvas');
+const JW = 220 * 2, JH = 200 * 2; // render at 2x for retina
+jCanvas.width = JW; jCanvas.height = JH;
+
+const jRenderer = new THREE.WebGLRenderer({ canvas: jCanvas, alpha: true, antialias: true });
+jRenderer.setSize(JW, JH, false);
+jRenderer.setClearColor(0x000000, 0);
+
+const jEffect = new OutlineEffect(jRenderer, {
+	defaultThickness: 0.004, defaultColor: [0, 0, 0], defaultAlpha: 1.0, defaultKeepAlive: true,
+});
+
+const jScene = new THREE.Scene();
+const jCamera = new THREE.PerspectiveCamera(40, JW / JH, 0.01, 10);
+jCamera.position.set(0.12, 0.28, 0.42);
+jCamera.lookAt(0, 0.08, 0);
+
+jScene.add(new THREE.AmbientLight(0xffffff, 1.5));
+const jDirLight = new THREE.DirectionalLight(0xffffff, 2.0);
+jDirLight.position.set(2, 5, 3);
+jScene.add(jDirLight);
+
+// ── Joystick Model (faithful copy from joystick-nav) ──
+const S = 0.01;
+const DOME_RADIUS = 15 * S, DOME_THETA = Math.PI / 5;
+const DOME_FOOT_R = DOME_RADIUS * Math.sin(DOME_THETA);
+const DOME_CAP_H = DOME_RADIUS * (1 - Math.cos(DOME_THETA));
+const PLATE_THICKNESS = 0.5 * S;
+const SHAFT_R_TOP = 0.85 * S, SHAFT_R_BOT = 1.20 * S;
+const BELLOWS_R_TOP = 1.60 * S, BELLOWS_R_BOT = 2.70 * S;
+const THROTTLE_W = 8.5 * S, THROTTLE_H = 5.5 * S, THROTTLE_D = 2.4 * S;
+const BTN_R = 0.5 * S, BTN_H = 0.25 * S, BTN_SEGS = 10;
+const STICK_MAX_ANGLE = Math.PI / 6;
+const TWIST_MAX_ANGLE = Math.PI / 4;
+const THROTTLE_TILT_ANGLE = Math.PI / 6;
+const ROCKER_MAX_ANGLE = Math.PI / 24;
+const DEADZONE = 0.05;
+const AXIS_ROLL = 0, AXIS_PITCH = 1, AXIS_THROTTLE = 2, AXIS_YAW = 5, AXIS_ROCKER = 7;
+
+function applyDeadzone(v) { return Math.abs(v) < DEADZONE ? 0 : v; }
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+const matBase = new THREE.MeshStandardMaterial({ color: 0x3a3a4a });
+const matShaft = new THREE.MeshStandardMaterial({ color: 0x555566 });
+const matGrip = new THREE.MeshStandardMaterial({ color: 0x3a3a4a });
+const matRubber = new THREE.MeshStandardMaterial({ color: 0x2a2a3a });
+const matTrigger = new THREE.MeshStandardMaterial({ color: 0xff4422 });
+const matHousing = new THREE.MeshStandardMaterial({ color: 0x4a4a5a });
+const matBtn = new THREE.MeshStandardMaterial({ color: 0x6666aa });
+const matBtnOn = new THREE.MeshStandardMaterial({ color: 0x44ff66, emissive: 0x44ff66, emissiveIntensity: 0.5 });
+const matHat = new THREE.MeshStandardMaterial({ color: 0x7777aa });
+const matDome = new THREE.MeshStandardMaterial({ color: 0x3a3a4a });
+
+function makeButtonGeo(r, h, segs) {
+	const capH = h * 0.35, bodyH = h - capH * 2;
+	const body = new THREE.CylinderGeometry(r, r, bodyH, segs);
+	const topCap = new THREE.SphereGeometry(r, segs, 5, 0, Math.PI * 2, 0, Math.PI / 2);
+	topCap.scale(1, capH / r, 1); topCap.translate(0, bodyH / 2, 0);
+	const botCap = new THREE.SphereGeometry(r, segs, 5, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+	botCap.scale(1, capH / r, 1); botCap.translate(0, -bodyH / 2, 0);
+	return mergeGeometries([body, topCap, botCap]);
+}
+const btnGeo = makeButtonGeo(BTN_R, BTN_H, BTN_SEGS);
+const btnSmGeo = makeButtonGeo(BTN_R, BTN_H, BTN_SEGS);
+
+// Pedestal plate
+const plateHalfLen = 2 * DOME_FOOT_R, plateHalfZ = DOME_FOOT_R;
+const plateShape = new THREE.Shape();
+plateShape.moveTo(-plateHalfZ, -plateHalfLen + plateHalfZ);
+plateShape.lineTo(-plateHalfZ, plateHalfLen - plateHalfZ);
+plateShape.absarc(0, plateHalfLen - plateHalfZ, plateHalfZ, Math.PI, 0, true);
+plateShape.lineTo(plateHalfZ, -plateHalfLen + plateHalfZ);
+plateShape.absarc(0, -plateHalfLen + plateHalfZ, plateHalfZ, 0, Math.PI, true);
+const pedestalPlate = new THREE.Mesh(
+	new THREE.ExtrudeGeometry(plateShape, { steps: 1, bevelEnabled: false, extrudePath: new THREE.LineCurve3(new THREE.Vector3(0,0,0), new THREE.Vector3(0, PLATE_THICKNESS, 0)) }),
+	matBase
+);
+jScene.add(pedestalPlate);
+
+function makeDome(radius, pos) {
+	const capHeight = radius * (1 - Math.cos(DOME_THETA));
+	const group = new THREE.Group();
+	group.position.copy(pos);
+	const dome = new THREE.Mesh(new THREE.SphereGeometry(radius, 24, 14, 0, Math.PI * 2, 0, DOME_THETA), matDome);
+	dome.position.y += -radius + capHeight;
+	group.add(dome);
+	jScene.add(group);
+	return group;
+}
+
+const stickDome = makeDome(DOME_RADIUS, new THREE.Vector3(DOME_FOOT_R, PLATE_THICKNESS, 0));
+const throttleDome = makeDome(DOME_RADIUS, new THREE.Vector3(-DOME_FOOT_R, PLATE_THICKNESS, 0));
+
+// ── Joystick Stick (right hand) ──
+const gimbalPivot = new THREE.Group();
+gimbalPivot.position.set(0, DOME_CAP_H - 1.28 * S, 0);
+stickDome.add(gimbalPivot);
+
+const twistPivot = new THREE.Group();
+gimbalPivot.add(twistPivot);
+
+const bellows = new THREE.Mesh(
+	new THREE.CylinderGeometry(BELLOWS_R_TOP, BELLOWS_R_BOT, 2.77 * S, 16, 4), matRubber
+);
+bellows.position.y = 0.51 * S;
+twistPivot.add(bellows);
+
+const shaft = new THREE.Mesh(
+	new THREE.CylinderGeometry(SHAFT_R_TOP, SHAFT_R_BOT, 11.92 * S, 14), matShaft
+);
+shaft.position.y = 7.45 * S;
+twistPivot.add(shaft);
+
+const gripGroup = new THREE.Group();
+gripGroup.position.y = 12.77 * S;
+twistPivot.add(gripGroup);
+
+gripGroup.add(new THREE.Mesh(
+	new THREE.CylinderGeometry(1.79 * S, 1.49 * S, 3.83 * S, 12), matGrip
+));
+
+const gripUpperGeo = new THREE.CylinderGeometry(1.49 * S, 1.79 * S, 4.26 * S, 12);
+{
+	const pos = gripUpperGeo.attributes.position;
+	const halfH = 4.26 * S / 2;
+	for (let i = 0; i < pos.count; i++) {
+		const y = pos.getY(i);
+		if (y > halfH - 0.001 * S) pos.setY(i, y - pos.getZ(i) * Math.tan(Math.PI / 4));
+	}
+	pos.needsUpdate = true;
+	gripUpperGeo.computeVertexNormals();
+}
+const gripUpper = new THREE.Mesh(gripUpperGeo, matGrip);
+gripUpper.position.y = 4.04 * S;
+gripGroup.add(gripUpper);
+
+// Tilted cap with hemisphere + hat & buttons
+const capTilt = new THREE.Group();
+capTilt.position.y = 6.17 * S;
+capTilt.rotation.x = Math.PI / 4;
+gripGroup.add(capTilt);
+
+const gripHemi = new THREE.Mesh(
+	new THREE.SphereGeometry(1.79 * S, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2), matHousing
+);
+gripHemi.rotation.x = Math.PI;
+capTilt.add(gripHemi);
+
+const capDisc = new THREE.Mesh(new THREE.CircleGeometry(1.79 * S, 16), matHousing);
+capDisc.rotation.x = -Math.PI / 2;
+capDisc.position.y = 0.002 * S;
+capTilt.add(capDisc);
+
+const triggerPivot = new THREE.Group();
+triggerPivot.position.set(0, 5.53 * S, -1.49 * S);
+gripGroup.add(triggerPivot);
+
+const triggerBody = new THREE.Mesh(
+	new THREE.BoxGeometry(0.85 * S, 2.34 * S, 0.77 * S), matTrigger
+);
+triggerBody.position.set(0, -0.64 * S, -0.21 * S);
+triggerBody.rotation.x = -0.25;
+triggerPivot.add(triggerBody);
+
+const triggerGuard = new THREE.Mesh(
+	new THREE.TorusGeometry(0.94 * S, 0.13 * S, 8, 12, Math.PI), matShaft
+);
+triggerGuard.rotation.z = Math.PI;
+triggerGuard.position.set(0, -1.28 * S, -0.34 * S);
+triggerPivot.add(triggerGuard);
+
+const hatGroup = new THREE.Group();
+hatGroup.position.set(-1.19 * S, 0.5 * S, 0);
+capTilt.add(hatGroup);
+hatGroup.add(new THREE.Mesh(new THREE.CylinderGeometry(0.77 * S, 0.77 * S, 0.34 * S, 8), matHat));
+const hatKnob = new THREE.Mesh(new THREE.SphereGeometry(0.55 * S, 12, 8), matTrigger);
+hatKnob.position.y = 0.43 * S;
+hatGroup.add(hatKnob);
+
+const btn1 = new THREE.Mesh(btnGeo, matBtn);
+btn1.position.set(0, 0.5 * S, 0);
+btn1._defaultMat = matBtn;
+capTilt.add(btn1);
+
+const btn2 = new THREE.Mesh(btnGeo,
+	new THREE.MeshStandardMaterial({ color: 0xff2200, emissive: 0xff2200, emissiveIntensity: 0.3 })
+);
+btn2.position.set(1.0 * S, 5.2 * S, -1.5 * S);
+btn2.rotation.order = 'YXZ';
+btn2.rotation.set(Math.PI / 2, -Math.PI / 4, 0);
+btn2._defaultMat = btn2.material;
+gripGroup.add(btn2);
+
+const btn3 = new THREE.Mesh(btnGeo, matBtn);
+btn3.position.set(1.19 * S, 0.5 * S, 0);
+btn3._defaultMat = matBtn;
+capTilt.add(btn3);
+
+// ── Throttle Stick (left hand) ──
+const throttlePivot = new THREE.Group();
+throttlePivot.position.set(0, DOME_CAP_H - 1.28 * S, 0);
+throttleDome.add(throttlePivot);
+
+const throttleBellows = new THREE.Mesh(
+	new THREE.CylinderGeometry(BELLOWS_R_TOP, BELLOWS_R_BOT, 2.77 * S, 16, 4), matRubber
+);
+throttleBellows.position.y = 0.51 * S;
+throttlePivot.add(throttleBellows);
+
+const throttleShaft = new THREE.Mesh(
+	new THREE.CylinderGeometry(SHAFT_R_TOP, SHAFT_R_BOT, 2.6 * S, 14), matShaft
+);
+throttleShaft.position.y = 3.2 * S;
+throttlePivot.add(throttleShaft);
+
+const handleY = 7.25 * S;
+const throttleHandle = new THREE.Mesh(
+	new RoundedBoxGeometry(THROTTLE_W, THROTTLE_H, THROTTLE_D, 3, 0.5 * S), matGrip
+);
+throttleHandle.position.set(0, handleY, 0);
+throttlePivot.add(throttleHandle);
+
+const sideX = THROTTLE_W / 2;
+const backZ = -THROTTLE_D / 2;
+
+const tBtn4 = new THREE.Mesh(btnGeo, matBtn);
+tBtn4.position.set(sideX, handleY + 1.5 * S, 0);
+tBtn4.rotation.z = Math.PI / 2;
+tBtn4._defaultMat = matBtn;
+throttlePivot.add(tBtn4);
+
+const tBtn5 = new THREE.Mesh(btnGeo, matBtn);
+tBtn5.position.set(sideX, handleY + 0.3 * S, 0);
+tBtn5.rotation.z = Math.PI / 2;
+tBtn5._defaultMat = matBtn;
+throttlePivot.add(tBtn5);
+
+const tBtn6 = new THREE.Mesh(btnGeo, matBtn);
+tBtn6.position.set(sideX, handleY - 0.9 * S, 0);
+tBtn6.rotation.z = Math.PI / 2;
+tBtn6._defaultMat = matBtn;
+throttlePivot.add(tBtn6);
+
+const tBtn7 = new THREE.Mesh(btnSmGeo, matBtn);
+tBtn7.position.set(sideX, handleY - 1.9 * S, 0);
+tBtn7.rotation.z = Math.PI / 2;
+tBtn7._defaultMat = matBtn;
+throttlePivot.add(tBtn7);
+
+const tBtn8 = new THREE.Mesh(btnGeo, matBtn);
+tBtn8.position.set(THROTTLE_W / 4, handleY + 1.5 * S, backZ);
+tBtn8.rotation.x = Math.PI / 2;
+tBtn8._defaultMat = matBtn;
+throttlePivot.add(tBtn8);
+
+const tBtn9 = new THREE.Mesh(btnGeo, matBtn);
+tBtn9.position.set(THROTTLE_W / 4, handleY + 0.3 * S, backZ);
+tBtn9.rotation.x = Math.PI / 2;
+tBtn9._defaultMat = matBtn;
+throttlePivot.add(tBtn9);
+
+const rockerPivot = new THREE.Group();
+rockerPivot.position.set(-THROTTLE_W / 8, handleY + 1.5 * S, -THROTTLE_D / 2);
+throttlePivot.add(rockerPivot);
+
+const rockerSwitch = new THREE.Mesh(
+	new THREE.BoxGeometry(THROTTLE_W * 0.55, 0.85 * S, 0.43 * S), matBtn
+);
+rockerSwitch._defaultMat = matBtn;
+rockerPivot.add(rockerSwitch);
+
+// ── Gamepad polling ──
+const gpState = { pitch: 0, roll: 0, yaw: 0, throttle: 0, rocker: 0, buttons: [] };
+const gpSmooth = { pitch: 0, roll: 0, yaw: 0, throttle: 0, rocker: 0 };
+const GP_SMOOTH = 0.12;
+
+const btnIndicesEl = document.getElementById('joy-btn-indices');
+let lastHatDir = null;
+
+function getHatDirection() {
+	// Hat is axis 9 on T.Flight HOTAS One (8-way POV, single axis encoded)
+	// Axis value ranges from -1 to 1, encoding 8 directions + neutral
+	// Formula: idx = round((axisValue + 1) * 3.5)
+	// idx 0-7 = directions, idx = 8 = neutral
+	const gps = navigator.getGamepads();
+	for (let i = 0; i < gps.length; i++) {
+		const gp = gps[i];
+		if (!gp) continue;
+		
+		const hat = gp.axes[9];
+		if (hat === undefined) return null;
+		
+		// Decode direction from single axis value
+		const idx = Math.round((hat + 1) * 3.5);
+		
+		// Neutral: idx = 8 (or out of range)
+		if (idx >= 8) return null;
+		
+		// Map index to compass direction (0 = N, clockwise)
+		const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+		return dirs[idx];
+	}
+	return null;
+}
+
+function updateHud() {
+	const pressed = gpState.buttons.map((p, i) => p ? i : -1).filter(i => i !== -1);
+	const hatDir = getHatDirection();
+
+	// Handle hat direction actions: N/S cycle through projection modes
+	if (hatDir && hatDir !== lastHatDir) {
+		if (hatDir === 'N') {
+			window.cycleProjection(-1); // cycle backwards
+		} else if (hatDir === 'S') {
+			window.cycleProjection(1); // cycle forwards
+		}
+	}
+	lastHatDir = hatDir;
+
+	// Handle rocker axis: adjust globe size
+	if (Math.abs(gpState.rocker) > 0.1) {
+		const delta = gpState.rocker * 0.15;
+		window.globeSize = Math.max(2, Math.min(30, window.globeSize + delta));
+		window.globeSizeSlider.value = Math.round(window.globeSize);
+		window.globeSizeVal.textContent = Math.round(window.globeSize) + '%';
+		saveProjectionConfig();
+	}
+
+	// Handle throttle axis: video playback speed (0x to 4x)
+	// Throttle axis is inverted (like joystick-nav): forward = positive, back = negative
+	// Neutral (0) = 1x, full forward (+1) = 4x, full back (−1) = 0x
+	if (window.videoActive) {
+		// Asymmetric mapping: forward range is 1x→4x, back range is 1x→0x
+		const speed = gpState.throttle > 0
+			? 1 + gpState.throttle * 3  // forward: 0→+1 maps to 1x→4x
+			: 1 + gpState.throttle;      // back: 0→−1 maps to 1x→0x
+		window.videoEl.playbackRate = Math.max(0, Math.min(4.0, speed));
+	}
+	
+	// Update playback speed display
+	if (window.videoActive && window.playbackRow) {
+		window.playbackRow.style.display = 'flex';
+		window.playbackVal.textContent = window.videoEl.playbackRate.toFixed(2) + 'x';
+	} else if (window.playbackRow) {
+		window.playbackRow.style.display = 'none';
+	}
+
+	if (pressed.length === 0 && !hatDir) {
+		btnIndicesEl.textContent = 'no buttons pressed';
+		btnIndicesEl.classList.add('empty');
+	} else {
+		let text = pressed.join(', ');
+		if (hatDir) text += (text ? '  |  ' : '') + 'Hat: ' + hatDir;
+		btnIndicesEl.textContent = text;
+		btnIndicesEl.classList.remove('empty');
+	}
+}
+
+function pollGamepad() {
+	const gps = navigator.getGamepads();
+	let gp = null;
+	for (let i = 0; i < gps.length; i++) { if (gps[i]) { gp = gps[i]; break; } }
+	if (!gp) return;
+	gpState.roll     = applyDeadzone(gp.axes[AXIS_ROLL] || 0);
+	gpState.pitch    = applyDeadzone(gp.axes[AXIS_PITCH] || 0);
+	gpState.yaw      = -applyDeadzone(gp.axes[AXIS_YAW] || 0);
+	gpState.throttle = -applyDeadzone(gp.axes[AXIS_THROTTLE] || 0); // inverted, like joystick-nav
+	gpState.rocker   = applyDeadzone(gp.axes[AXIS_ROCKER] || 0);
+	gpState.buttons  = Array.from(gp.buttons).map(b => b.pressed);
+}
+
+// Button mesh map for animation
+const buttonMeshes = [
+	triggerBody, btn1, btn2, btn3, tBtn4, tBtn5, tBtn6, tBtn7, tBtn8, tBtn9, rockerSwitch, hatKnob
+];
+const buttonIndices = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, -1]; // hat has no button state
+
+// Access dome-mapper camera functions (exposed on window)
+const rotateYaw   = window.rotateYaw;
+const rotatePitch = window.rotatePitch;
+const rotateRoll  = window.rotateRoll;
+const resetYPR    = window.resetYPR;
+const saveProjectionConfig = window.saveProjectionConfig;
+let btn1WasPressed = false;
+
+function jAnimate() {
+	requestAnimationFrame(jAnimate);
+	pollGamepad();
+
+	gpSmooth.pitch    = lerp(gpSmooth.pitch,    gpState.pitch,    GP_SMOOTH);
+	gpSmooth.roll     = lerp(gpSmooth.roll,     gpState.roll,     GP_SMOOTH);
+	gpSmooth.yaw      = lerp(gpSmooth.yaw,      gpState.yaw,      GP_SMOOTH);
+	gpSmooth.throttle = lerp(gpSmooth.throttle, gpState.throttle, GP_SMOOTH);
+	gpSmooth.rocker   = lerp(gpSmooth.rocker,   gpState.rocker,   GP_SMOOTH);
+
+	// Animate 3D model
+	gimbalPivot.rotation.x = gpSmooth.pitch * STICK_MAX_ANGLE;
+	gimbalPivot.rotation.z = -gpSmooth.roll * STICK_MAX_ANGLE;
+	twistPivot.rotation.y = gpSmooth.yaw * TWIST_MAX_ANGLE;
+	throttlePivot.rotation.x = -gpSmooth.throttle * THROTTLE_TILT_ANGLE;
+	rockerPivot.rotation.y = -gpSmooth.rocker * ROCKER_MAX_ANGLE;
+	triggerPivot.rotation.x = (gpState.buttons[0] ? -0.35 : 0);
+
+	// Animate button materials (light up when pressed)
+	for (let i = 0; i < buttonMeshes.length; i++) {
+		const mesh = buttonMeshes[i];
+		const btnIdx = buttonIndices[i];
+		if (btnIdx === -1) continue; // hat knob has no button state
+		const pressed = gpState.buttons[btnIdx] || false;
+		if (mesh._defaultMat) {
+			mesh.material = pressed ? matBtnOn : mesh._defaultMat;
+		}
+	}
+
+	// Reset Y/P/R on button 1 (rising edge)
+	if (gpState.buttons[1] && !btn1WasPressed && resetYPR) resetYPR();
+	btn1WasPressed = gpState.buttons[1] || false;
+
+	// Drive dome-mapper camera from gamepad
+	const sens = 0.03;
+	if (rotateYaw && (gpState.roll !== 0 || gpState.pitch !== 0 || gpState.yaw !== 0)) {
+		rotateYaw(-gpState.yaw * sens);
+		rotatePitch(gpState.pitch * sens);
+		rotateRoll(gpState.roll * sens);
+		saveProjectionConfig();
+	}
+
+	updateHud();
+	jEffect.render(jScene, jCamera);
+}
+jAnimate();
+</script>
+</body>
+</html>

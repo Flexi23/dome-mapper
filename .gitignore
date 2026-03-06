@@ -1,0 +1,8 @@
+# Images (tracked before release, ignored during development)
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.hdr
+*.exr
+2025-11-17 last mile to work equirect.mp4
