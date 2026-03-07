@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-03-07
+
+### Added
+- **Azimuthal equidistant projection** — full sphere mapped into a disc with optional circular mask and adjustable zoom
+- **Azimuthal collage projection** — two overlapping azimuthal discs side by side (front/back hemispheres) with rotation, flip, and zoom controls
+- **Stereographic projection** — Scaramuzza polynomial lens model with D parameter (0.1–3.0) and a¹–a⁴ polynomial coefficients; includes reset, copy, and paste for parameter sets
+- **Pixelate slider** — blends between linear (smooth) and nearest-neighbor (pixelated) texture filtering via dual-sampler setup; default 100%; works for both images and video
+- **Magnifier** — cursor-following lens with adjustable radius and refractivity (half-sphere refraction in shader); toggle via `M` key
+- **Horizon leveling** — dedicated leveling mode with accept/discard workflow; yaw/pitch/roll sliders; double-click horizon to auto-level; yellow border on leveling box; per-file persistence
+- **Fly-to animation** — double-click to smoothly animate camera toward any point; works in both camera and leveling mode
+- **Click to play/pause** — single click on canvas (no drag) toggles video playback
+- **Multi-file cache** — multiple panoramas cached in IndexedDB with file list UI; click to switch between cached files; last-viewed file restored on reload
+- **Per-file config persistence** — all projection parameters (stereographic D/a¹–a⁴, collage rotation/flip, azimuthal mask/zoom, pixelate) saved and restored per file
+- **Camera copy/paste** — copy and paste camera quaternion between files
+- **Level copy/paste** — copy and paste leveling quaternion between files
+- **VideoFrame-based video upload** — captures frame once to ensure both LINEAR and NEAREST textures get identical data (no temporal offset)
+- `G` keyboard shortcut to toggle globe overlay
+- `M` keyboard shortcut to toggle magnifier
+
+### Changed
+- **UI reordering** — Perspective box → Leveling box → Projection box (top to bottom)
+- **Projection mode order** — equirectangular, perspective, azimuthal, azimuthal collage, stereographic, foldable buckyball
+- **PNG export dimensions** — azimuthal exports square (texWidth²), collage exports 3:2, stereographic exports at original texture resolution (texWidth×texHeight)
+- **Leveling box** styled with yellow border for visual distinction
+- Hotkey visualizations (`[X]`, `[G]`, `[M]`) removed from UI labels
+- `var` declarations changed to `let` for consistency
+- Code comments updated to match current feature names (Pixelate)
+
 ## [0.5.0] - 2026-03-06
 
 ### Added

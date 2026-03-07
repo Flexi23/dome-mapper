@@ -13,11 +13,13 @@ A single-file browser app that loads equirectangular images and videos and rende
 
 For each screen pixel the fragment shader:
 
-1. Computes a **ray direction** (perspective or equirectangular projection) based on FOV and aspect ratio
+1. Computes a **ray direction** based on the active projection mode (equirectangular, perspective, azimuthal, collage, stereographic, or buckyball)
 2. Applies a **quaternion-derived rotation matrix** (controlled by mouse, keyboard, or gamepad) to orient the ray
-3. Converts the ray direction to **spherical coordinates** (θ, φ)
-4. Maps those to **equirectangular UV** coordinates: `u = atan2(z, x) / 2π + 0.5`, `v = asin(y) / π + 0.5`
-5. Samples the loaded texture (or shows a checkerboard test pattern)
+3. Optionally applies **horizon leveling** via a second quaternion
+4. Converts the ray direction to **spherical coordinates** (θ, φ)
+5. Maps those to **equirectangular UV** coordinates: `u = atan2(z, x) / 2π + 0.5`, `v = asin(y) / π + 0.5`
+6. Samples the loaded texture (blending LINEAR and NEAREST filtered versions via the Pixelate slider) or shows a checkerboard test pattern
+7. Composites **magnifier lens**, **globe overlay**, and **grid** on top
 
 No sphere geometry is created — the projection is purely analytical in the shader.
 
@@ -41,8 +43,10 @@ When served over HTTP the viewer auto-loads a default video (or image as fallbac
 | Input | Action |
 |---|---|
 | Drag | Look around (quaternion trackball) |
-| Scroll wheel | Adjust FOV (zoom) |
 | Shift + Drag | Roll rotation |
+| Scroll wheel | Adjust FOV / zoom (projection-dependent) |
+| Click (no drag) | Play / pause video |
+| Double-click | Fly-to: animate camera so clicked point becomes center |
 
 ### Keyboard
 
@@ -52,7 +56,9 @@ When served over HTTP the viewer auto-loads a default video (or image as fallbac
 | `W` / `S` (or Numpad `8` / `2` / `5`) | Pitch (rotate up/down) |
 | `Q` / `E` (or Numpad `7` / `9`) | Roll |
 | `X` | Toggle grid overlay |
-| `Space` | Play/pause video (when video is loaded) |
+| `G` | Toggle globe overlay |
+| `M` | Toggle magnifier |
+| `Space` | Play / pause video (when video is loaded) |
 
 Held keys debounce briefly, then accelerate exponentially.
 
@@ -81,6 +87,9 @@ The 3D joystick model in the bottom-left corner animates in real-time and shows 
 |---|---|
 | **Equirectangular** | Direct 2:1 equirectangular mapping; black bars when viewport aspect differs from 2:1 |
 | **Perspective** | Perspective projection with adjustable FOV (20°–170°) |
+| **Azimuthal equidistant** | Full sphere mapped into a disc (center = forward pole, edge = backward pole); optional circular mask |
+| **Azimuthal collage** | Two overlapping azimuthal equidistant discs side by side (front/back hemispheres) with rotation, flip, and zoom controls |
+| **Stereographic** | Scaramuzza polynomial lens model with adjustable D parameter and a¹–a⁴ coefficients; copy/paste/reset for parameter sets |
 | **Foldable Buckyball** | Flat 2D net of a truncated icosahedron (buckyball); each face is mapped from the sphere via spherical Voronoi |
 
 Cycle through modes with the **Hat switch** (N/S) on a connected joystick or via the dropdown.
@@ -165,11 +174,14 @@ The overlay is rendered to an offscreen 2048px-tall canvas, uploaded as a WebGL 
 
 #### PNG Export
 
-The export button renders the current view at the source texture's native resolution and downloads the result as PNG.
+The export button renders the current view at high resolution and downloads the result as PNG.
 
 | Projection | Dimensions | Clipping |
 |---|---|---|
 | **Equirectangular / Perspective** | `texHeight × (texHeight · viewportAspect)` | Full viewport |
+| **Azimuthal** | `texWidth × texWidth` (square) | Full viewport |
+| **Azimuthal collage** | `texWidth × (texWidth · ⅔)` (3:2) | Full viewport |
+| **Stereographic** | `texWidth × texHeight` (original resolution) | Full viewport |
 | **Foldable Buckyball** | Longer bbox side → `max(texW, texH)` px, shorter proportional | Tight bounding box of the net (minimal white border) |
 
 The implementation resizes the WebGL canvas to export resolution, sets the `exportClip` uniform to remap `screenUV` from the default `(−1,−1)→(1,1)` range to the net's bounding box coordinates (with aspect-ratio compensation), renders a single frame, and reads pixels via `gl.readPixels()` within the same JS task. After export, the canvas and uniform are restored to viewport defaults.
@@ -205,15 +217,20 @@ Exported filenames encode the source image name and projection method: `{source}
 
 | | |
 |---|---|
-| 🖼️ **Image & Video support** | Drop equirectangular JPEG/PNG or MP4 video files |
-| � **Video playback** | Timeline with play/pause, seek bar, time display; gamepad throttle controls speed (0×–4×) |
+| 🖼️ **Image & Video support** | Drop equirectangular JPEG/PNG or MP4/WebM video files |
+| 📽️ **Video playback** | Timeline with seek bar, time display; click to play/pause; gamepad throttle controls speed (0×–4×) |
+| 🔎 **Magnifier** | Cursor-following lens with adjustable radius and refractivity (half-sphere refraction shader); toggle via `M` key |
+| 📐 **Pixelate** | Slider blending between linear (smooth) and nearest-neighbor (pixelated) texture filtering |
+| 🌐 **Globe overlay** | 3D globe with grid, equator, prime meridian, and axis; adjustable size; toggle via `G` key |
+| 📏 **Grid overlay** | 32×16 grid with crosshairs for orientation (toggle via `X` key) |
+| 🎯 **Fly-to** | Double-click to smoothly animate camera toward any point; works in both camera and leveling mode |
+| ⚖️ **Horizon leveling** | Dedicated leveling mode with accept/discard; yaw/pitch/roll sliders; double-click horizon to auto-level; per-file persistence |
 | 🎮 **Gamepad integration** | Real-time 3D joystick model (Three.js) with per-button highlighting and button HUD |
 | 🕹️ **Gamepad camera** | Stick pitch/roll/yaw drive rotation; hat N/S cycles projection; rocker adjusts globe size |
-| 🌐 **Globe overlay** | Optional 3D globe with grid, equator, and prime meridian |
-| 📐 **Grid overlay** | 32×16 grid with crosshairs for orientation (toggle via checkbox or `X` key) |
-| � **PNG export** | Export the current view at source texture resolution; buckyball exports are clipped to net bounding box |
-| �🔢 **Y / P / R sliders** | Live Euler-angle readout; drag to set orientation, double-click to reset |
-| 💾 **IndexedDB caching** | Panoramas cached locally for instant reload; projection config (camera, FOV, mode, grid, globe) persisted and restored |
+| 📸 **PNG export** | Export current view at source texture resolution; projection-specific dimensions and clipping |
+| 🔢 **Y / P / R sliders** | Live Euler-angle readout; drag to set orientation, double-click to reset; copy/paste quaternion |
+| 💾 **Multi-file cache** | Multiple panoramas cached in IndexedDB; switch between cached files via file list; last-viewed file restored on reload |
+| ⚙️ **Per-file config** | Camera orientation, FOV, projection mode, grid, globe, leveling, and all projection parameters persisted per file |
 | 🎨 **Test pattern** | Built-in checkerboard fallback with meridian/equator markers |
 
 ## Project Structure
@@ -254,7 +271,15 @@ IndexedDB was chosen because:
 4. **Zero dependencies** — the wrapper is ~40 lines of inline JS (open, get, put, delete)
 5. **Survives page reloads** — texture loads once, then restores instantly from cache on every subsequent visit
 
-The cache stores a single entry (`equirect` key) containing the image Blob and its filename. A "clear cache" button in the UI lets the user reset and load a different panorama.
+The cache stores multiple entries with prefixed keys:
+
+| Key pattern | Content |
+|---|---|
+| `tex:<filename>` | Image/video Blob, dimensions, timestamp |
+| `cfg:<filename>` | Projection config (camera, level, FOV, mode, projection parameters) |
+| `lastFile` | Name of the last-viewed file (restored on reload) |
+
+A file list in the UI shows all cached panoramas with dimensions and size; clicking switches between them. Deleting a cached file removes both its `tex:` and `cfg:` entries.
 
 ### Future Direction
 
