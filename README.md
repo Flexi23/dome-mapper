@@ -1,11 +1,18 @@
+<div align="center">
+
 # dome-mapper
 
 **Equirectangular panorama viewer using a GPU raycaster projecting onto the inside of a unit sphere.**
 
 A single-file browser app that loads equirectangular images and videos and renders them as an immersive spherical projection. The fragment shader casts rays from the origin against a unit sphere and maps the equirectangular texture using spherical coordinates — no mesh geometry needed.
 
-![WebGL](https://img.shields.io/badge/WebGL-2.0-blue)
-![No Build](https://img.shields.io/badge/Build-None-green)
+![WebGL 2.0](https://img.shields.io/badge/WebGL-2.0-blue?logo=webgl)
+![GLSL 300 es](https://img.shields.io/badge/GLSL-300%20es-orange)
+![No Build](https://img.shields.io/badge/Build-None-brightgreen)
+![Single File](https://img.shields.io/badge/File-Single%20HTML-yellow)
+![License](https://img.shields.io/badge/License-GPL%20v3-blue)
+
+</div>
 
 ---
 
@@ -13,7 +20,7 @@ A single-file browser app that loads equirectangular images and videos and rende
 
 For each screen pixel the fragment shader:
 
-1. Computes a **ray direction** based on the active projection mode (equirectangular, perspective, azimuthal, collage, stereographic, or buckyball)
+1. Computes a **ray direction** based on the active projection mode — one of seven: equirectangular, perspective, buckyball preview, azimuthal equidistant, azimuthal collage, stereographic, or foldable buckyball
 2. Applies a **quaternion-derived rotation matrix** (controlled by mouse, keyboard, or gamepad) to orient the ray
 3. Optionally applies **horizon leveling** via a second quaternion
 4. Converts the ray direction to **spherical coordinates** (θ, φ)
@@ -83,16 +90,157 @@ The 3D joystick model in the bottom-left corner animates in real-time and shows 
 
 ## Projection Modes
 
-| Mode | Description |
-|---|---|
-| **Equirectangular** | Direct 2:1 equirectangular mapping; black bars when viewport aspect differs from 2:1 |
-| **Perspective** | Perspective projection with adjustable FOV (20°–170°) |
-| **Azimuthal equidistant** | Full sphere mapped into a disc (center = forward pole, edge = backward pole); optional circular mask |
-| **Azimuthal collage** | Two overlapping azimuthal equidistant discs side by side (front/back hemispheres) with rotation, flip, and zoom controls |
-| **Stereographic** | Scaramuzza polynomial lens model with adjustable D parameter and a¹–a⁴ coefficients; copy/paste/reset for parameter sets |
-| **Foldable Buckyball** | Flat 2D net of a truncated icosahedron (buckyball); each face is mapped from the sphere via spherical Voronoi |
+> **7 projection modes** — cycle with the gamepad hat switch (N/S) or the dropdown.
 
-Cycle through modes with the **Hat switch** (N/S) on a connected joystick or via the dropdown.
+| # | Mode | Description |
+|:---:|---|---|
+| 0 | **Equirectangular** | Direct 2:1 equirectangular mapping; black bars when viewport aspect ≠ 2:1 |
+| 1 | **Perspective** | Gnomonic projection with adjustable FOV (20°–170°); mathematically a special case of the stereographic family at D=1 |
+| 2 | **Buckyball Preview** | SDF-raymarched truncated icosahedron floating over the panorama; Blinn-Phong lit, bevelled edges, real-time rotation via Y/P/R face sliders |
+| 3 | **Azimuthal Equidistant** | Full sphere mapped into a disc (forward pole → center, backward pole → edge); optional circular mask |
+| 4 | **Azimuthal Collage** | Two overlapping azimuthal equidistant discs side-by-side (front/back hemispheres) with rotation, flip, and zoom |
+| 5 | **Stereographic** | Generalised stereographic with Scaramuzza polynomial lens distortion; D parameter (D=2 conformal, D=1 gnomonic) and a¹–a⁴ coefficients |
+| 6 | **Foldable Buckyball** | Flat 2D net of a truncated icosahedron unfolded onto the screen; gnomonic back-projection with 2D canvas overlay (edges, glue tabs) |
+
+---
+
+### Buckyball Preview — Technical Deep Dive
+
+The preview mode renders a **3D truncated icosahedron** (buckyball) floating in front of the panorama background. It serves as a tangible preview of the face partitioning used by the foldable mode — you can rotate the ball to inspect how the panorama maps onto each face before printing.
+
+#### Rendering Technique
+
+Unlike the other projections (which only compute a ray direction), the preview mode performs **SDF sphere-tracing** (raymarching) against an analytically defined solid:
+
+```
+SDF(p) = max over all 32 faces of: dot(p, faceNormal) − faceDist
+```
+
+This is the intersection of 32 half-spaces — 12 pentagons at face distance 0.9393 and 20 hexagons at 0.9149. The result is a convex polyhedron rendered without any mesh geometry.
+
+#### View-Space Architecture
+
+The ball is evaluated entirely in **view space** to ensure consistent rotation behavior:
+
+1. The camera is fixed at `(0, 0, 2.5)` in view space — it never moves.
+2. All 32 face normals are transformed from object space → world space → view space before raymarching: `vFaces[i] = transpose(viewMatrix) · previewMatrix · buckyPreRot · buckyFaces[i]`
+3. This means the ball rotates on screen in the same direction as mouse drag — matching the perspective projection, globe overlay, and all other modes.
+
+#### Shading Pipeline
+
+| Stage | Detail |
+|---|---|
+| **Bounding sphere** | Rays are intersected with a padded unit sphere first; misses skip raymarching entirely |
+| **Sphere tracing** | Up to 80 steps, convergence threshold 0.0004 |
+| **Face ID** | The face with the maximum half-space value is the active face; second-maximum gives edge proximity |
+| **Bevel** | `smoothstep` blend of the two nearest face normals creates a subtle chamfer at edges |
+| **Texture** | View-space hit point → world direction via `viewMatrix` → equirectangular UV |
+| **Edge wireframe** | `smoothstep` on edge distance, modulated by `buckyOverlayAlpha` (Net slider) |
+| **Lighting** | Key light at `(0.4, 0.9, 0.7)` in view space; diffuse + ambient, Blinn-Phong specular (exponent 60), rim light |
+| **Background** | Standard perspective panorama behind the ball (same ray as the Perspective mode) |
+
+#### Face Orientation (Y / P / R Sliders)
+
+The preview shares the `foldable32facesQuat` quaternion with the foldable mode. Adjusting the **Yaw / Pitch / Roll** sliders under *Faces* rotates the face assignment on the ball — the same rotation is applied when switching to foldable mode, ensuring a seamless transition.
+
+---
+
+### Stereographic Projection — Technical Deep Dive
+
+The stereographic projection maps the full sphere onto an infinite plane via a two-stage pipeline: **polynomial radial distortion** followed by an **inverse generalised stereographic mapping**. It subsumes the perspective (gnomonic) projection as a special case.
+
+#### Relationship to Perspective Projection
+
+The built-in **Perspective** mode constructs rays as:
+
+```glsl
+rd = normalize(vec3(-uv.x * tan(fov/2), uv.y * tan(fov/2), -1.0));
+```
+
+This is mathematically identical to a **gnomonic (central) projection** — a straight-line projection from the sphere center onto a tangent plane. The gnomonic projection is exactly the D=1 special case of the generalised stereographic family:
+
+| D value | Projection | Properties |
+|---|---|---|
+| D = 1 | **Gnomonic / rectilinear** | Straight lines preserved; FOV < 180°; same as the Perspective mode |
+| D = 2 | **True stereographic** | Conformal (angle-preserving); circles on the sphere map to circles on the plane; FOV can exceed 180° |
+| D ∈ (0,1) | Hyper-wide | Extreme wide-angle; compresses the periphery more aggressively |
+| D ∈ (1,2) | Intermediate | Blends gnomonic and stereographic characteristics |
+| D ∈ (2,3] | Narrower-than-stereographic | Pulls the periphery inward more than classic stereographic |
+
+In other words, the Perspective mode is a convenience shortcut for D=1 with a¹=1, a²=a³=a⁴=0 and an explicit FOV slider, while the Stereographic mode exposes the full parameter space.
+
+#### Stage 1: Polynomial Radial Distortion (Scaramuzza Model)
+
+Based on Davide Scaramuzza's omnidirectional camera model (*"A Toolbox for Easily Calibrating Omnidirectional Cameras"*, 2006), this stage warps the radial distance from the image center through a polynomial before the stereographic mapping is applied.
+
+**Formula:**
+
+$$l' = a_1 \cdot r + a_2 \cdot r^2 + a_3 \cdot r^3 + a_4 \cdot r^4 \quad\text{where}\quad r = l \cdot 8$$
+
+The input radial distance $l$ (in normalised-device-coordinate space, typically 0–~1) is scaled by 8 so that the higher-order coefficients $a_2$–$a_4$ have meaningful effect even at small slider values. The result is normalised:
+
+$$l'_{\text{norm}} = \frac{l'}{a_1 + a_2 + a_3 + a_4}$$
+
+This ensures the mapping stays close to identity at unit radius when all coefficients are equal (pure scaling, no shape change).
+
+**Default:** $a_1 = 1,\; a_2 = a_3 = a_4 = 0$ → $l' = l$ (linear, no distortion).
+
+**Effect of the coefficients:**
+
+| Coefficient | UI slider | Range | Effect |
+|---|---|---|---|
+| $a_1$ | a¹ | 0–100 | Linear term (controls base FOV / zoom) |
+| $a_2$ | a² | 0–16 | Quadratic — mild barrel/pincushion |
+| $a_3$ | a³ | 0–16 | Cubic — stronger radial warping |
+| $a_4$ | a⁴ | 0–1 | Quartic — subtle high-order correction |
+
+Increasing higher-order coefficients compresses or expands the panorama radially, creating fisheye-like or telephoto-like distortion patterns.
+
+**Uniform:** `stereoScaramuzza = vec4(a₁, a₂, a₃, a₄)`
+
+#### Stage 2: Inverse Generalised Stereographic Mapping
+
+Classic stereographic projection maps a point on the unit sphere onto a tangent plane by casting a ray from the **antipodal pole** through the sphere point. The parameter D generalises this by moving the projection point along the axis:
+
+**Forward mapping** (sphere → plane):
+
+$$l' = D \cdot \frac{\sin\theta}{D - 1 + \cos\theta}$$
+
+where $\theta$ is the polar angle (colatitude from the optical axis).
+
+**Inverse mapping** (plane → sphere) — solved by rearranging into a quadratic in $\cos\theta$:
+
+$$\text{Let } q = \frac{D}{l'}, \quad \cos\theta = \frac{1 - D + q\sqrt{q^2 + 2D - D^2}}{1 + q^2}$$
+
+The discriminant $q^2 + 2D - D^2$ is non-negative for $D \in [0, 2]$ and remains usable slightly beyond; it is clamped to $\geq 0$ for safety.
+
+**Uniform:** `stereoD` (UI slider range 0.1–3, default 2)
+
+#### Stage 3: Ray Construction
+
+The polar angle $\theta$ and azimuthal angle are converted to a Cartesian ray direction in the camera's local frame:
+
+```glsl
+rd = vec3(sinθ · sin(angle), cosθ, -sinθ · cos(angle));
+```
+
+A fixed **+90° pitch rotation** (Y↔Z swap with sign flip) reorients the optical axis from +Y (up) to +Z (forward):
+
+```glsl
+rd = vec3(rd.x, rd.z, -rd.y);   // pre-rotation P = +90°
+```
+
+Finally, the `viewMatrix` (derived from the camera quaternion) orients the ray into world space.
+
+#### JavaScript Mirror
+
+The `screenToLocalDir()` function in JavaScript contains an exact mirror of the GLSL stereographic pipeline for use by **double-click fly-to** (mapping a screen pixel back to a sphere direction). The JS variables `stereoA0`–`stereoA3` and `stereoD` correspond to the shader uniforms. The output `[rd0, rd2, -rd1]` applies the same +90° pre-rotation.
+
+#### Parameter Presets (Copy / Paste / Reset)
+
+The UI provides **Reset**, **Copy**, and **Paste** buttons for the stereographic parameters (D, a¹–a⁴). Copied parameters are stored as a compact array string in the system clipboard and can be shared between sessions or users. Per-file configs also persist all stereographic parameters in IndexedDB.
+
+---
 
 ### Foldable Buckyball Projection — Technical Deep Dive
 
@@ -172,22 +320,6 @@ After the WebGL shader renders the textured polygons, a 2D canvas overlay is com
 
 The overlay is rendered to an offscreen 2048px-tall canvas, uploaded as a WebGL texture, and alpha-composited in the fragment shader using the bounding box `buckyBBox` for UV mapping.
 
-#### PNG Export
-
-The export button renders the current view at high resolution and downloads the result as PNG.
-
-| Projection | Dimensions | Clipping |
-|---|---|---|
-| **Equirectangular / Perspective** | `texHeight × (texHeight · viewportAspect)` | Full viewport |
-| **Azimuthal** | `texWidth × texWidth` (square) | Full viewport |
-| **Azimuthal collage** | `texWidth × (texWidth · ⅔)` (3:2) | Full viewport |
-| **Stereographic** | `texWidth × texHeight` (original resolution) | Full viewport |
-| **Foldable Buckyball** | Longer bbox side → `max(texW, texH)` px, shorter proportional | Tight bounding box of the net (minimal white border) |
-
-The implementation resizes the WebGL canvas to export resolution, sets the `exportClip` uniform to remap `screenUV` from the default `(−1,−1)→(1,1)` range to the net's bounding box coordinates (with aspect-ratio compensation), renders a single frame, and reads pixels via `gl.readPixels()` within the same JS task. After export, the canvas and uniform are restored to viewport defaults.
-
-Exported filenames encode the source image name and projection method: `{source}-{projection}-{W}x{H}.png`.
-
 #### Data Flow Summary
 
 ```
@@ -213,6 +345,27 @@ Exported filenames encode the source image name and projection method: `{source}
 └─────────────────────────────────────────────────────────────┘
 ```
 
+---
+
+## PNG Export
+
+The export button renders the current view at high resolution and downloads the result as PNG. Each projection uses optimised dimensions:
+
+| Projection | Dimensions | Clipping |
+|---|---|---|
+| **Equirectangular / Perspective** | `texHeight × (texHeight · aspect)` | Full viewport |
+| **Buckyball Preview** | `texHeight × texHeight` (square) | Full viewport |
+| **Azimuthal** | `texWidth × texWidth` (square) | Full viewport |
+| **Azimuthal Collage** | `texWidth × (texWidth · ⅔)` (3:2) | Full viewport |
+| **Stereographic** | `texWidth × texHeight` (original) | Full viewport |
+| **Foldable Buckyball** | Longer bbox side → `max(texW, texH)` px | Tight net bounding box |
+
+The implementation resizes the WebGL canvas to export resolution, sets the `exportClip` uniform to remap `screenUV` from the default `(−1,−1)→(1,1)` range to the net's bounding box coordinates (with aspect-ratio compensation), renders a single frame, and reads pixels via `gl.readPixels()` within the same JS task. After export, the canvas and uniform are restored to viewport defaults.
+
+Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png`.
+
+---
+
 ## Features
 
 | | |
@@ -233,14 +386,18 @@ Exported filenames encode the source image name and projection method: `{source}
 | ⚙️ **Per-file config** | Camera orientation, FOV, projection mode, grid, globe, leveling, and all projection parameters persisted per file |
 | 🎨 **Test pattern** | Built-in checkerboard fallback with meridian/equator markers |
 
+---
+
 ## Project Structure
 
 ```
 dome-mapper/
 ├── index.html      # Self-contained viewer (HTML + GLSL + JS + Three.js joystick overlay)
 ├── CHANGELOG.md    # Version history
-└── README.md       # You are here
+└── README.md       # This file
 ```
+
+---
 
 ## Technical Notes
 
@@ -281,9 +438,11 @@ The cache stores multiple entries with prefixed keys:
 
 A file list in the UI shows all cached panoramas with dimensions and size; clicking switches between them. Deleting a cached file removes both its `tex:` and `cfg:` entries.
 
-### Future Direction
+---
 
-The rendering backend may migrate to **WebGPU** for compute shader support and more flexible pipeline control. The current WebGL 2 implementation serves as a baseline.
+## Roadmap
+
+> The rendering backend may migrate to **WebGPU** for compute shader support and more flexible pipeline control. The current WebGL 2 implementation serves as a baseline.
 
 ### Technical Roadmap Notes
 
@@ -337,15 +496,23 @@ WebGL Framebuffer → VideoFrame → VideoEncoder → WebM/MP4 Blob → Download
 
 **Recommended path:** Start with WebM/VP9 encoding (widely supported, no licensing). Add H.264/MP4 if needed for compatibility.
 
-## Disclaimer
+---
 
-This software was built with the assistance of **Claude Opus 4.6** (Anthropic). It builds upon and references two other projects by the same author:
+## Acknowledgements
+
+This software was built with the assistance of **Claude Opus 4.6** (Anthropic). It builds upon two other projects by the same author:
 
 - **[joystick-nav](https://github.com/Flexi23/joystick-nav)** — Gamepad-driven 3D navigation and joystick overlay
 - **[spherical-reprojection](https://github.com/Flexi23/spherical-reprojection)** — GPU-based spherical image reprojection
+
+---
 
 ## License
 
 This project is licensed under the **GNU General Public License v3.0** — see the [LICENSE](LICENSE) file for details.
 
+<div align="center">
+
 **© 2026 Felix Woitzel / [cake23.de](https://cake23.de)**
+
+</div>

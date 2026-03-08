@@ -1,5 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
+<!--
+  dome-mapper – Equirectangular Sphere Raycaster
+  https://github.com/Flexi23/dome-mapper
+
+  Copyright (c) 2026 Felix Woitzel / cake23.de
+  Licensed under the GNU General Public License v3.0
+  https://www.gnu.org/licenses/gpl-3.0.html
+
+  Built with the assistance of Claude Opus 4.6 (Anthropic).
+-->
 
 <head>
 	<meta charset="utf-8">
@@ -597,11 +607,9 @@
 					<option value="azimuthal">azimuthal</option>
 					<option value="azimuthal collage">azimuthal collage</option>
 					<option value="stereographic">stereographic</option>
-					<option value="foldable buckyball">foldable buckyball</option>
+					<option value="buckyball-32 preview">buckyball-32 preview</option>
+					<option value="buckyball-32 foldable">buckyball-32 foldable</option>
 				</select>
-				<span id="fov-row" class="span hide-in-level-off" style="display:contents">
-					<span>FOV</span> <input type="range" id="fov-slider" min="20" max="170" value="135"> <span class="val" id="fov-val">135°</span>
-				</span>
 				<span id="minecraft-row" class="span hide-in-level-off" style="display:contents">
 					<span>Pixelate</span> <input type="range" id="minecraft-slider" min="0" max="100" value="100" step="1"> <span class="val" id="minecraft-val">100%</span>
 				</span>
@@ -629,13 +637,17 @@
 						<button id="stereo-paste" title="Paste stereographic parameters">Paste</button>
 					</div>
 				</span>
-			</div>
-		</div>
-		<div class="slider-group hide-in-level-off" id="net-row" style="display:none;">
-			<div class="group-label">Net Overlay</div>
-			<div class="grid">
-				<span>Net</span> <input type="range" id="net-alpha-slider" min="0" max="100" value="100" step="1"> <span
-					class="val" id="net-alpha-val">100%</span>
+				<span id="net-row" class="span hide-in-level-off" style="display:none">
+					<span>Net</span> <input type="range" id="net-alpha-slider" min="0" max="100" value="33" step="1"> <span class="val" id="net-alpha-val">33%</span>
+				</span>
+				<span id="faces-row" class="span hide-in-level-off" style="display:none">
+					<span>Yaw</span> <input type="range" id="faces-yaw" min="-180" max="180" value="0" step="0.25"> <span class="val" id="faces-yaw-val">0.0°</span>
+					<span>Pitch</span> <input type="range" id="faces-pitch" min="-90" max="90" value="0" step="0.25"> <span class="val" id="faces-pitch-val">0.0°</span>
+					<span>Roll</span> <input type="range" id="faces-roll" min="-180" max="180" value="0" step="0.25"> <span class="val" id="faces-roll-val">0.0°</span>
+				</span>
+				<span id="fov-row" class="span hide-in-level-off" style="display:contents">
+					<span>FOV</span> <input type="range" id="fov-slider" min="20" max="170" value="135"> <span class="val" id="fov-val">135°</span>
+				</span>
 			</div>
 		</div>
 		<div class="slider-group hide-in-level-off" id="globe-row">
@@ -697,6 +709,7 @@ precision highp float;
 uniform vec2 resolution;
 uniform float fov;
 uniform mat3 viewMatrix;
+uniform mat3 previewMatrix;
 uniform sampler2D equirect;
 uniform sampler2D equirectNearest;  // same texture, NEAREST filtering
 uniform float hasTexture;
@@ -718,8 +731,12 @@ uniform float collageRotation;   // 2D rotation angle for collage view (radians)
 uniform float collageFlip;       // -1.0 or 1.0: flip overlap assignment
 uniform float azimuthalMask;     // 1.0 = mask outside disc to black, 0.0 = show equirect
 uniform float azimuthalZoom;      // zoom factor for azimuthal projections (default 1.0)
-uniform float stereoD;            // stereographic distance parameter (d=2 stereographic, d=1 gnomonic)
-uniform vec4 stereoScaramuzza;    // polynomial radial distortion coefficients (a0, a1, a2, a3)
+uniform float stereoD;            // generalised stereographic distance parameter
+                                  //   D=2: true stereographic (conformal)
+                                  //   D=1: gnomonic / rectilinear
+                                  //   continuous family for D ∈ (0,3]
+uniform vec4 stereoScaramuzza;    // Scaramuzza polynomial radial distortion coefficients
+                                  //   (a₁, a₂, a₃, a₄) – see stereographic shader block
 
 out vec4 fragColor;
 
@@ -1049,113 +1066,9 @@ void main() {
 	vec2 tc;
 	vec2 tcGrid;
 
-	if (projection > 4.5) {
-		// ── Stereographic projection ──
-		vec2 uv = lensUV;
-		uv.x *= resolution.x / resolution.y;
-		uv *= azimuthalZoom;
-
-		float angle = atan(-uv.x, -uv.y);
-		float l = length(uv);
-
-		// Polynomial radial distortion (Scaramuzza model)
-		float l8 = l * 8.0;
-		float lp = stereoScaramuzza.x * l8
-		         + stereoScaramuzza.y * l8 * l8
-		         + stereoScaramuzza.z * l8 * l8 * l8
-		         + stereoScaramuzza.w * l8 * l8 * l8 * l8;
-		float normF = stereoScaramuzza.x + stereoScaramuzza.y + stereoScaramuzza.z + stereoScaramuzza.w;
-		if (normF > 0.0) lp /= normF;
-
-		// Stereographic mapping: d=2 stereographic, d=1 gnomonic
-		float dl = stereoD / max(lp, 0.0001);
-		float dl2 = dl * dl;
-		float under = dl2 + 2.0 * stereoD - stereoD * stereoD;
-		float theta = acos(clamp((1.0 - stereoD + dl * sqrt(max(0.0, under))) / (1.0 + dl2), -1.0, 1.0));
-
-		float sinT = sin(theta);
-		rd = vec3(sinT * sin(angle), cos(theta), -sinT * cos(angle));
-		rd = vec3(rd.x, rd.z, -rd.y); // pre-rotation P=+90°
-		rd = viewMatrix * rd;
-		tcGrid = vec2(lensUV.x * aspect * 0.25 + 0.5, lensUV.y * 0.5 + 0.5);
-		tc = dirToEquirectLeveled(rd);
-	} else if (projection > 3.5) {
-		// ── Azimuthal equidistant collage ──
-		// Two overlapping azimuthal equidistant discs side by side.
-		// Left disc centered on forward pole, right disc on backward pole.
-		// Overlap is split horizontally (seamless at y=0 center line).
-		vec2 uv = lensUV;
-		uv.x *= resolution.x / resolution.y;
-		// Apply 2D rotation
-		float cr = cos(collageRotation), sr = sin(collageRotation);
-		uv = vec2(uv.x * cr - uv.y * sr, uv.x * sr + uv.y * cr);
-		uv *= azimuthalZoom;
-		float discRadius = 1.0;
-		vec2 c1 = vec2(-0.5, 0.0);
-		vec2 c2 = vec2(0.5, 0.0);
-		vec2 off1 = uv - c1;
-		vec2 off2 = uv - c2;
-		float r1 = length(off1);
-		float r2 = length(off2);
-		float d1 = r1 / discRadius;
-		float d2 = r2 / discRadius;
-		bool m1 = d1 < 1.0;
-		bool m2 = d2 < 1.0;
-		if (!m1 && !m2) {
-			if (azimuthalMask < 0.5) { fragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
-			// Background: extended left disc (wraps around the sphere)
-			float theta = d1 * PI;
-			float phi = atan(-off1.x, -off1.y);
-			rd = normalize(vec3(sin(theta)*sin(phi), cos(theta), -sin(theta)*cos(phi)));
-			rd = vec3(rd.y, rd.z, rd.x); // pre-rotation P=+90° Y=-90°
-			rd = viewMatrix * rd;
-			tcGrid = vec2(lensUV.x * aspect * 0.25 + 0.5, lensUV.y * 0.5 + 0.5);
-			tc = dirToEquirectLeveled(rd);
-		} else {
-		// In overlap: lower half → left disc, upper half → right disc
-		bool useLeft = m1 && (!m2 || uv.y * collageFlip < 0.0);
-		if (useLeft) {
-			float theta = d1 * PI;
-			float phi = atan(-off1.x, -off1.y);
-			rd = normalize(vec3(sin(theta)*sin(phi), cos(theta), -sin(theta)*cos(phi)));
-			rd = vec3(rd.y, rd.z, rd.x); // pre-rotation P=+90° Y=-90°
-		} else {
-			float theta = (1.0 - d2) * PI;
-			float phi = atan(off2.x, -off2.y);
-			rd = normalize(vec3(sin(theta)*sin(phi), cos(theta), -sin(theta)*cos(phi)));
-			rd = vec3(rd.y, rd.z, rd.x); // pre-rotation P=+90° Y=-90°
-		}
-		rd = viewMatrix * rd;
-		tcGrid = vec2(lensUV.x * aspect * 0.25 + 0.5, lensUV.y * 0.5 + 0.5);
-		tc = dirToEquirectLeveled(rd);
-		} // end else (inside disc)
-	} else if (projection > 2.5) {
-		// ── Azimuthal equidistant projection ──
-		// Full sphere mapped into a disc: center = forward, edge = backward pole
-		vec2 uv = lensUV;
-		uv.x *= resolution.x / resolution.y;
-		uv *= azimuthalZoom;
-		float r = length(uv);
-		if (r > 1.0) {
-			if (azimuthalMask < 0.5) { fragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
-			// Background: extended disc (wraps around the sphere)
-			float theta = r * PI;
-			float phi = atan(-uv.x, -uv.y);
-			rd = normalize(vec3(sin(theta)*sin(phi), cos(theta), -sin(theta)*cos(phi)));
-			rd = vec3(rd.x, rd.z, -rd.y);
-			rd = viewMatrix * rd;
-			tcGrid = vec2(lensUV.x * aspect * 0.25 + 0.5, lensUV.y * 0.5 + 0.5);
-			tc = dirToEquirectLeveled(rd);
-		} else {
-		float theta = r * PI; // full sphere: 0 at center, PI at edge
-		float phi = atan(-uv.x, -uv.y);
-		rd = normalize(vec3(sin(theta) * sin(phi), cos(theta), -sin(theta) * cos(phi)));
-		rd = vec3(rd.x, rd.z, -rd.y); // pre-rotation P=+90° 
-		rd = viewMatrix * rd;
-		tcGrid = vec2(lensUV.x * aspect * 0.25 + 0.5, lensUV.y * 0.5 + 0.5);
-		tc = dirToEquirectLeveled(rd);
-		} // end else (inside disc)
-	} else if (projection > 1.5) {
+	// Projection cascade — threshold N.5 selects mode index N.
+	// Keep in sync with JS projectionModes array & M_* constants.
+	if (projection > 5.5) {
 		// ── Foldable Buckyball net (flat 2D layout) ──
 		//
 		// Renders all 32 faces of the truncated icosahedron as a flat 2D net.
@@ -1171,6 +1084,15 @@ void main() {
 
 		vec2 uv = screenUV;
 		uv.x *= aspect;
+
+		// Fit entire net (including glue tabs) into the viewport.
+		// The net is normalized vertically to [-0.95, 0.95] but can be much
+		// wider than the viewport's horizontal range [-aspect, aspect].
+		// Scale uniformly so the bounding box always fits.
+		float bbHalfW = max(abs(buckyBBox.x), abs(buckyBBox.z));
+		float bbHalfH = max(abs(buckyBBox.y), abs(buckyBBox.w));
+		float fitScale = max(bbHalfW / aspect, bbHalfH);
+		uv *= fitScale;
 
 		// invS = inverse of the normalization scale applied to the net layout
 		float invS = 1.0 / buckyScale;
@@ -1264,6 +1186,318 @@ void main() {
 		vec4 overlay = texture(buckyOverlay, overlayUV);
 		float oa = overlay.a * buckyOverlayAlpha;
 		col = col * (1.0 - oa) + overlay.rgb * buckyOverlayAlpha;
+
+		fragColor = vec4(col, 1.0);
+		return;
+	} else if (projection > 4.5) {
+		// ══════════════════════════════════════════════════════════════════════
+		// Stereographic projection with Scaramuzza polynomial radial distortion
+		// ══════════════════════════════════════════════════════════════════════
+		//
+		// This projection combines two stages:
+		//
+		//   1. Polynomial radial distortion  (Scaramuzza omnidirectional model)
+		//   2. Generalized stereographic inverse mapping  (screen → sphere)
+		//
+		// ── Stage 0: Screen → polar ──────────────────────────────────────────
+		// Map the fragment from normalised-device-coordinates to polar (angle, l)
+		// where  angle = azimuthal direction  and  l = radial distance from centre.
+		//
+		vec2 uv = lensUV;
+		uv.x *= resolution.x / resolution.y;       // correct for aspect ratio
+		uv *= azimuthalZoom;                        // user zoom
+
+		float angle = atan(-uv.x, -uv.y);          // azimuthal angle around optical axis
+		float l = length(uv);                       // radial distance from centre
+
+		// ── Stage 1: Polynomial radial distortion (Scaramuzza model) ─────────
+		//
+		// Based on the omnidirectional camera model by Davide Scaramuzza
+		// ("A Toolbox for Easily Calibrating Omnidirectional Cameras", 2006).
+		//
+		// The model maps a radial distance l on the image plane to a
+		// distorted radius  lp  via a polynomial:
+		//
+		//   lp = a₁·r + a₂·r² + a₃·r³ + a₄·r⁴       where r = l · 8
+		//
+		// The ×8 scaling maps the normalised [0..~1] range of l into [0..~8]
+		// so that the higher-order a₂–a₄ coefficients have meaningful effect
+		// even at small slider values.
+		//
+		// The result is normalised by dividing by (a₁+a₂+a₃+a₄) so that
+		// at the unit input radius the mapping stays close to identity
+		// (pure scaling, no shape change) when all coefficients are equal.
+		//
+		// Default:  a₁=1, a₂=a₃=a₄=0  →  lp = l  (linear, no distortion)
+		//
+		// Increasing a₂–a₄ introduces barrel/pincushion-style warping that
+		// compresses or expands the panorama radially.
+		//
+		// UI sliders: a¹ (a₁, 0–100), a² (a₂, 0–16), a³ (a₃, 0–16), a⁴ (a₄, 0–1)
+		// Uniform:    stereoScaramuzza = vec4(a₁, a₂, a₃, a₄)
+		//
+		float l8 = l * 8.0;
+		float lp = stereoScaramuzza.x * l8
+		         + stereoScaramuzza.y * l8 * l8
+		         + stereoScaramuzza.z * l8 * l8 * l8
+		         + stereoScaramuzza.w * l8 * l8 * l8 * l8;
+		float normF = stereoScaramuzza.x + stereoScaramuzza.y + stereoScaramuzza.z + stereoScaramuzza.w;
+		if (normF > 0.0) lp /= normF;
+
+		// ── Stage 2: Generalised stereographic inverse mapping ───────────────
+		//
+		// Classic stereographic projection projects from a point on the sphere
+		// onto a tangent plane by casting a ray from the antipodal pole through
+		// the sphere point.  The parameter D generalises this:
+		//
+		//   D = 2  →  true stereographic projection (conformal, angle-preserving)
+		//   D = 1  →  gnomonic / rectilinear (straight lines stay straight)
+		//   D ∈ (0,3] → continuous family;  D<1 = hyper-wide, D>2 = narrower
+		//
+		// Given the distorted radius  lp  on the image plane, we solve for the
+		// polar angle  θ  (colatitude from the optical axis) on the unit sphere.
+		//
+		// Derivation (inverse stereographic with parameter D):
+		//
+		//   Forward:  lp = D · sin(θ) / (D - 1 + cos(θ))
+		//   Solving for θ  leads to a quadratic in cos(θ):
+		//
+		//     Let  q = D / lp                            (= dl  below)
+		//     Then  cos(θ) = (1 - D + q·√(q² + 2D - D²)) / (1 + q²)
+		//
+		//   The discriminant  q² + 2D - D²  is non-negative for D ∈ [0,2]
+		//   and stays usable slightly beyond; we clamp to ≥0 for safety.
+		//
+		// UI slider: D (0.1–3, default 2)
+		// Uniform:   stereoD
+		//
+		float dl = stereoD / max(lp, 0.0001);           // q = D / lp  (guarded)
+		float dl2 = dl * dl;                             // q²
+		float under = dl2 + 2.0 * stereoD - stereoD * stereoD; // discriminant
+		float theta = acos(clamp(                        // θ = arccos(…)
+			(1.0 - stereoD + dl * sqrt(max(0.0, under))) / (1.0 + dl2),
+			-1.0, 1.0));
+
+		// ── Stage 3: Spherical → Cartesian ray direction ─────────────────────
+		//
+		// Convert (θ, angle) to a unit ray direction in the camera's local frame,
+		// then apply a fixed +90° pitch rotation (swap Y↔Z with sign flip) so the
+		// optical axis points along +Z (forward) instead of +Y (up).
+		// Finally multiply by viewMatrix to orient the ray into world space.
+		//
+		float sinT = sin(theta);
+		rd = vec3(sinT * sin(angle), cos(theta), -sinT * cos(angle));
+		rd = vec3(rd.x, rd.z, -rd.y); // pre-rotation P=+90° (optical axis Y→Z)
+		rd = viewMatrix * rd;
+		tcGrid = vec2(lensUV.x * aspect * 0.25 + 0.5, lensUV.y * 0.5 + 0.5);
+		tc = dirToEquirectLeveled(rd);
+	} else if (projection > 3.5) {
+		// ── Azimuthal equidistant collage ──
+		// Two overlapping azimuthal equidistant discs side by side.
+		// Left disc centered on forward pole, right disc on backward pole.
+		// Overlap is split horizontally (seamless at y=0 center line).
+		vec2 uv = lensUV;
+		uv.x *= resolution.x / resolution.y;
+		// Apply 2D rotation
+		float cr = cos(collageRotation), sr = sin(collageRotation);
+		uv = vec2(uv.x * cr - uv.y * sr, uv.x * sr + uv.y * cr);
+		uv *= azimuthalZoom;
+		float discRadius = 1.0;
+		vec2 c1 = vec2(-0.5, 0.0);
+		vec2 c2 = vec2(0.5, 0.0);
+		vec2 off1 = uv - c1;
+		vec2 off2 = uv - c2;
+		float r1 = length(off1);
+		float r2 = length(off2);
+		float d1 = r1 / discRadius;
+		float d2 = r2 / discRadius;
+		bool m1 = d1 < 1.0;
+		bool m2 = d2 < 1.0;
+		if (!m1 && !m2) {
+			if (azimuthalMask < 0.5) { fragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+			// Background: extended left disc (wraps around the sphere)
+			float theta = d1 * PI;
+			float phi = atan(-off1.x, -off1.y);
+			rd = normalize(vec3(sin(theta)*sin(phi), cos(theta), -sin(theta)*cos(phi)));
+			rd = vec3(rd.y, rd.z, rd.x); // pre-rotation P=+90° Y=-90°
+			rd = viewMatrix * rd;
+			tcGrid = vec2(lensUV.x * aspect * 0.25 + 0.5, lensUV.y * 0.5 + 0.5);
+			tc = dirToEquirectLeveled(rd);
+		} else {
+		// In overlap: lower half → left disc, upper half → right disc
+		bool useLeft = m1 && (!m2 || uv.y * collageFlip < 0.0);
+		if (useLeft) {
+			float theta = d1 * PI;
+			float phi = atan(-off1.x, -off1.y);
+			rd = normalize(vec3(sin(theta)*sin(phi), cos(theta), -sin(theta)*cos(phi)));
+			rd = vec3(rd.y, rd.z, rd.x); // pre-rotation P=+90° Y=-90°
+		} else {
+			float theta = (1.0 - d2) * PI;
+			float phi = atan(off2.x, -off2.y);
+			rd = normalize(vec3(sin(theta)*sin(phi), cos(theta), -sin(theta)*cos(phi)));
+			rd = vec3(rd.y, rd.z, rd.x); // pre-rotation P=+90° Y=-90°
+		}
+		rd = viewMatrix * rd;
+		tcGrid = vec2(lensUV.x * aspect * 0.25 + 0.5, lensUV.y * 0.5 + 0.5);
+		tc = dirToEquirectLeveled(rd);
+		} // end else (inside disc)
+	} else if (projection > 2.5) {
+		// ── Azimuthal equidistant projection ──
+		// Full sphere mapped into a disc: center = forward, edge = backward pole
+		vec2 uv = lensUV;
+		uv.x *= resolution.x / resolution.y;
+		uv *= azimuthalZoom;
+		float r = length(uv);
+		if (r > 1.0) {
+			if (azimuthalMask < 0.5) { fragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+			// Background: extended disc (wraps around the sphere)
+			float theta = r * PI;
+			float phi = atan(-uv.x, -uv.y);
+			rd = normalize(vec3(sin(theta)*sin(phi), cos(theta), -sin(theta)*cos(phi)));
+			rd = vec3(rd.x, rd.z, -rd.y);
+			rd = viewMatrix * rd;
+			tcGrid = vec2(lensUV.x * aspect * 0.25 + 0.5, lensUV.y * 0.5 + 0.5);
+			tc = dirToEquirectLeveled(rd);
+		} else {
+		float theta = r * PI; // full sphere: 0 at center, PI at edge
+		float phi = atan(-uv.x, -uv.y);
+		rd = normalize(vec3(sin(theta) * sin(phi), cos(theta), -sin(theta) * cos(phi)));
+		rd = vec3(rd.x, rd.z, -rd.y); // pre-rotation P=+90° 
+		rd = viewMatrix * rd;
+		tcGrid = vec2(lensUV.x * aspect * 0.25 + 0.5, lensUV.y * 0.5 + 0.5);
+		tc = dirToEquirectLeveled(rd);
+		} // end else (inside disc)
+	} else if (projection > 1.5) {
+		// ── Buckyball preview (SDF-raymarched truncated icosahedron) ──
+		//
+		// Like the globe, the ball geometry is evaluated in VIEW SPACE.
+		// Face normals are transformed to view space via viewMatrix, the
+		// camera stays fixed at (0, 0, camDist).  This way the face edges
+		// rotate on screen in the same direction as the background —
+		// matching perspective, globe, and all other projections.
+		//
+		// For texture, hitPos (in view space) is mapped back to world/
+		// panorama space via inverse(viewMatrix) = transpose(viewMatrix).
+
+		vec2 uv = lensUV;
+		uv.x *= aspect;
+		float halfFov = fov * 0.5;
+		float scl = tan(halfFov);
+
+		vec3 rdLocal = normalize(vec3(-uv.x * scl, uv.y * scl, -1.0));
+
+		// Transform face normals to view space.
+		// Chain: object → buckyPreRot → previewMatrix (foldable32facesQuat) → world → view
+		// viewMatrix maps view→world, so world→view = transpose(viewMatrix).
+		mat3 worldRot = previewMatrix * buckyPreRot;
+		vec3 vFaces[32];
+		for (int i = 0; i < 32; i++) {
+			vFaces[i] = transpose(viewMatrix) * worldRot * buckyFaces[i];
+		}
+
+		// Camera fixed in view space — no orbit inversion needed
+		float camDist = 2.5;
+		vec3 eye = vec3(0.0, 0.0, camDist);
+		vec3 rdW = rdLocal;
+
+		// Start ray at bounding sphere (circumradius = 1.0) for efficiency
+		float bSph = dot(eye, rdW);
+		float cSph = dot(eye, eye) - 1.04; // slightly padded
+		float discSph = bSph * bSph - cSph;
+
+		// Background: same panorama direction as perspective (viewMatrix · rdLocal)
+		vec3 perspDir = viewMatrix * rdLocal;
+		vec2 bgTC = dirToEquirectLeveled(perspDir);
+		vec3 bgCol = mix(testPattern(perspDir), texture(equirect, bgTC).rgb, hasTexture);
+		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
+
+		if (discSph < 0.0) {
+			fragColor = vec4(bgCol, 1.0);
+			return;
+		}
+		float t = max(0.0, -bSph - sqrt(discSph));
+		float tMax = -bSph + sqrt(discSph);
+
+		// ── Sphere-trace the truncated icosahedron SDF ──
+		bool hit = false;
+		for (int step = 0; step < 80; step++) {
+			vec3 p = eye + t * rdW;
+			float d = -1e9;
+			for (int i = 0; i < 32; i++) {
+				float fd = i < 12 ? RFACE_PENT : RFACE_HEX;
+				d = max(d, dot(p, vFaces[i]) - fd);
+			}
+			if (d < 0.0004) { hit = true; break; }
+			t += d;
+			if (t > tMax) break;
+		}
+
+		if (!hit) {
+			fragColor = vec4(bgCol, 1.0);
+			return;
+		}
+
+		vec3 hitPos = eye + t * rdW;
+
+		// ── Identify active face (max constraint) and second-closest ──
+		float maxD = -1e9, secD = -1e9;
+		int bestI = 0, secI = 0;
+		for (int i = 0; i < 32; i++) {
+			float fd = i < 12 ? RFACE_PENT : RFACE_HEX;
+			float di = dot(hitPos, vFaces[i]) - fd;
+			if (di > maxD) {
+				secD = maxD; secI = bestI;
+				maxD = di; bestI = i;
+			} else if (di > secD) {
+				secD = di; secI = i;
+			}
+		}
+
+		vec3 faceN = vFaces[bestI];
+		vec3 secN  = vFaces[secI];
+		float isPent = bestI < 12 ? 1.0 : 0.0;
+
+		// Edge proximity: small when two half-planes are both near-active
+		float edgeDist = maxD - secD;
+
+		// Smooth bevel at edges: blend normals for a subtle chamfer
+		float bevelZone = 0.016;
+		float bevel = smoothstep(bevelZone, 0.0, edgeDist);
+		vec3 normal = normalize(mix(faceN, faceN + secN, bevel * 0.45));
+
+		// ── Texture mapping ──
+		// Map view-space surface point back to world/panorama space.
+		// viewMatrix maps view→world (same as globe's wn = viewMatrix * n).
+		vec3 objDir = normalize(hitPos);
+		vec3 texDir = viewMatrix * objDir;
+		tcGrid = dirToEquirect(texDir);
+		tc = dirToEquirectLeveled(texDir);
+		vec3 col = mix(testPattern(texDir), texture(equirect, tc).rgb, hasTexture);
+		col = applyGrid(col, tcGrid);
+
+		// ── Edge wireframe ──
+		float edgeW = 0.0025;
+		float edgeLine = smoothstep(edgeW * 0.15, edgeW, edgeDist);
+		edgeLine = mix(1.0, edgeLine, buckyOverlayAlpha);
+		col = mix(vec3(0.06), col, edgeLine);
+
+		// ── Lighting (view-space key light + ambient) ──
+		vec3 V = normalize(eye - hitPos);
+		vec3 L = normalize(vec3(0.4, 0.9, 0.7));
+
+		float NdotL = max(0.0, dot(normal, L));
+		float NdotV = max(0.0, dot(normal, V));
+		float diff = NdotL * 0.4 + 0.6; // diffuse + ambient
+		col *= diff;
+
+		// Specular (Blinn-Phong)
+		vec3 H = normalize(L + V);
+		float spec = pow(max(0.0, dot(normal, H)), 60.0);
+		col += vec3(0.18) * spec;
+
+		// Rim
+		float rim = pow(1.0 - NdotV, 3.5);
+		col += vec3(0.07, 0.09, 0.14) * rim;
 
 		fragColor = vec4(col, 1.0);
 		return;
@@ -1370,6 +1604,7 @@ void main() {
 		const uResolution = gl.getUniformLocation(program, 'resolution');
 		const uFov = gl.getUniformLocation(program, 'fov');
 		const uViewMatrix = gl.getUniformLocation(program, 'viewMatrix');
+		const uPreviewMatrix = gl.getUniformLocation(program, 'previewMatrix');
 		const uEquirect = gl.getUniformLocation(program, 'equirect');
 		const uEquirectNearest = gl.getUniformLocation(program, 'equirectNearest');
 		const uHasTexture = gl.getUniformLocation(program, 'hasTexture');
@@ -1896,7 +2131,7 @@ void main() {
 			ctx.clip('evenodd');
 			ctx.fillStyle = 'rgba(255, 180, 200, 0.15)';
 			ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
-			ctx.lineWidth = 2;
+			ctx.lineWidth = 1;
 			ctx.setLineDash([6, 4]);
 			for (let i = 0; i < 32; i++) {
 				if (!placed[i]) continue;
@@ -1936,7 +2171,7 @@ void main() {
 			// Solid semi-transparent black lines along all polygon boundaries.
 			// These represent the lines where the printed net should be cut.
 			ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-			ctx.lineWidth = 3;
+			ctx.lineWidth = 1.5;
 			ctx.lineJoin = 'round';
 			for (let i = 0; i < 32; i++) {
 				if (!placed[i]) continue;
@@ -2069,6 +2304,21 @@ void main() {
 		// Fixed offset: -90° yaw so equirect center faces the dome
 		const camQuatOffset = quatFromAxisAngle(0, 1, 0, -Math.PI / 2);
 
+		// Quaternion for the foldable buckyball net (M_FOLDABLE).
+		// Controls which panorama content appears on each face.
+		// Also used in preview mode (M_PREVIEW) via previewMatrix uniform.
+		let foldable32facesQuat = [0, 0, 0, 1];
+
+		// Return the "active" quaternion for the current projection mode.
+		function activeQuat() {
+			if (projectionModeIndex === M_FOLDABLE) return foldable32facesQuat;
+			return camQuat;
+		}
+		function setActiveQuat(q) {
+			if (projectionModeIndex === M_FOLDABLE) { foldable32facesQuat = q; return; }
+			camQuat = q;
+		}
+
 		let fovDeg = 135;
 		const fovSlider = document.getElementById('fov-slider');
 		const fovVal = document.getElementById('fov-val');
@@ -2098,7 +2348,7 @@ void main() {
 		let globeVisible = true;
 		let globeSize = 10;
 		let showGrid = false;
-		let buckyOverlayAlpha = 1.0;
+		let buckyOverlayAlpha = 0.33;
 		let levelMode = false;
 		let isLeveled = false;
 		let levelQuat = [0, 0, 0, 1];
@@ -2109,8 +2359,22 @@ void main() {
 		let magnifierRefractivity = 2.4;
 		let pointerX = 0.5, pointerY = 0.5; // identity – horizon leveling rotation
 
+		// Dirty flag: skip rendering when nothing changed since last frame
+		let needsRedraw = true;
+		function requestRedraw() { needsRedraw = true; }
+
 		// Projection modes as array for cycling
-		const projectionModes = ['equirectangular', 'perspective', 'foldable buckyball', 'azimuthal', 'azimuthal collage', 'stereographic'];
+		const projectionModes = ['equirectangular', 'perspective', 'buckyball-32 preview', 'azimuthal', 'azimuthal collage', 'stereographic', 'buckyball-32 foldable'];
+		// Mode index constants — derived from array order so reordering "just works" in JS.
+		// The GLSL shader uses these as float uniform `projection` with cascading > N.5 checks;
+		// if you reorder the array, reorder the shader cascade to match.
+		const M_EQUIRECT  = projectionModes.indexOf('equirectangular');
+		const M_PERSP     = projectionModes.indexOf('perspective');
+		const M_AZIMUTHAL = projectionModes.indexOf('azimuthal');
+		const M_COLLAGE   = projectionModes.indexOf('azimuthal collage');
+		const M_STEREO    = projectionModes.indexOf('stereographic');
+		const M_PREVIEW   = projectionModes.indexOf('buckyball-32 preview');
+		const M_FOLDABLE  = projectionModes.indexOf('buckyball-32 foldable');
 		let projectionModeIndex = 0;
 
 		// Collage parameters
@@ -2240,7 +2504,7 @@ void main() {
 			saveProjectionConfig();
 		});
 		globeToggle.addEventListener('change', () => { globeVisible = globeToggle.checked; saveProjectionConfig(); });
-		gridToggle.addEventListener('change', () => { showGrid = gridToggle.checked; });
+		gridToggle.addEventListener('change', () => { showGrid = gridToggle.checked; needsRedraw = true; });
 
 		// Magnifier controls
 		const magnifierToggle = document.getElementById('magnifier-toggle');
@@ -2248,7 +2512,7 @@ void main() {
 		const magRadiusVal = document.getElementById('mag-radius-val');
 		const magRefractSlider = document.getElementById('mag-refract');
 		const magRefractVal = document.getElementById('mag-refract-val');
-		magnifierToggle.addEventListener('change', () => { magnifierEnabled = magnifierToggle.checked; });
+		magnifierToggle.addEventListener('change', () => { magnifierEnabled = magnifierToggle.checked; needsRedraw = true; });
 		magRadiusSlider.addEventListener('input', () => {
 			magnifierRadius = +magRadiusSlider.value / 100;
 			magRadiusVal.textContent = magRadiusSlider.value + '%';
@@ -2266,6 +2530,8 @@ void main() {
 			projectionModeIndex = projectionModes.indexOf(projectionSelect.value);
 			if (projectionModeIndex < 0) projectionModeIndex = 0;
 			updateProjectionUI();
+			updateCamSliders();
+			updateFacesSliders();
 			saveProjectionConfig();
 		});
 
@@ -2412,25 +2678,28 @@ void main() {
 		const collageRotationRow = document.getElementById('collage-rotation-row');
 		const stereographicRow = document.getElementById('stereographic-row');
 		const netRow = document.getElementById('net-row');
+		const facesRow = document.getElementById('faces-row');
 		const globeRow = document.getElementById('globe-row');
 		const screenshotRow = document.getElementById('screenshot-row');
 		const magnifierGroup = document.getElementById('magnifier-group');
 		function updateProjectionUI() {
-			const isBucky = projectionModeIndex === 2;
-			const isPerspective = projectionModeIndex === 1;
-			const isAzimuthal = projectionModeIndex === 3;
-			const isCollage = projectionModeIndex === 4;
-			const isStereo = projectionModeIndex === 5;
-			fovRow.style.display = isPerspective ? 'contents' : 'none';
+			const isPerspective = projectionModeIndex === M_PERSP;
+			const isAzimuthal = projectionModeIndex === M_AZIMUTHAL;
+			const isCollage = projectionModeIndex === M_COLLAGE;
+			const isStereo = projectionModeIndex === M_STEREO;
+			const isBucky = projectionModeIndex === M_FOLDABLE;
+			const isBuckyPreview = projectionModeIndex === M_PREVIEW;
+			fovRow.style.display = (isPerspective || isBuckyPreview) ? 'contents' : 'none';
 			minecraftRow.style.display = (isStereo || isPerspective) ? 'contents' : 'none';
 			azimuthalRow.style.display = (isAzimuthal || isCollage) ? 'contents' : 'none';
 			azimuthalZoomRow.style.display = (isAzimuthal || isCollage || isStereo) ? 'contents' : 'none';
 			collageRow.style.display = isCollage ? 'contents' : 'none';
 			collageRotationRow.style.display = isCollage ? 'contents' : 'none';
 			stereographicRow.style.display = isStereo ? 'contents' : 'none';
-			netRow.style.display = isBucky ? '' : 'none';
-			globeRow.style.display = (isBucky || isAzimuthal || isCollage || isStereo) ? 'none' : '';
-			magnifierGroup.style.display = isBucky ? 'none' : '';
+			netRow.style.display = (isBucky || isBuckyPreview) ? 'contents' : 'none';
+			facesRow.style.display = isBuckyPreview ? 'contents' : 'none';
+			globeRow.style.display = (isBucky || isBuckyPreview || isAzimuthal || isCollage || isStereo) ? 'none' : '';
+			magnifierGroup.style.display = (isBucky || isBuckyPreview) ? 'none' : '';
 			if (screenshotRow) screenshotRow.style.display = hasTexture ? '' : 'none';
 		}
 		updateProjectionUI();
@@ -2445,7 +2714,11 @@ void main() {
 		});
 
 		function viewMatrix() {
-			return quatToMat3(quatNormalize(quatMul(camQuatOffset, camQuat)));
+			const q = projectionModeIndex === M_FOLDABLE ? foldable32facesQuat : camQuat;
+			return quatToMat3(quatNormalize(quatMul(camQuatOffset, q)));
+		}
+		function previewMatrix() {
+			return quatToMat3(quatNormalize(foldable32facesQuat));
 		}
 		function levelMatrix() {
 			return quatToMat3(quatNormalize(levelQuat));
@@ -2469,7 +2742,7 @@ void main() {
 			const fragY = (innerHeight - cy) * dpr; // WebGL Y-up
 			const resX = canvas.width;
 			const resY = canvas.height;
-			if (projectionModeIndex === 0) {
+			if (projectionModeIndex === M_EQUIRECT) {
 				// Equirectangular (mirrors shader logic exactly)
 				let eqU = fragX / resX;
 				let eqV = fragY / resY;
@@ -2485,7 +2758,7 @@ void main() {
 				const sinV = Math.sin(vAngle);
 				return [sinV * Math.sin(hAngle), Math.cos(vAngle), sinV * Math.cos(hAngle)];
 			}
-			if (projectionModeIndex === 3) {
+			if (projectionModeIndex === M_AZIMUTHAL) {
 				// Azimuthal equidistant (mirrors shader logic)
 				let u = fragX / resX * 2 - 1;
 				let v = fragY / resY * 2 - 1;
@@ -2503,7 +2776,7 @@ void main() {
 				// pre-rotation P=+90°: vec3(rd.x, rd.z, -rd.y)
 				return [rd0, rd2, -rd1];
 			}
-			if (projectionModeIndex === 4) {
+			if (projectionModeIndex === M_COLLAGE) {
 				// Azimuthal collage: two overlapping discs
 				let u = fragX / resX * 2 - 1;
 				let v = fragY / resY * 2 - 1;
@@ -2540,8 +2813,10 @@ void main() {
 				const rd2b = -sinT * Math.cos(phi);
 				return [rd1, rd2b, rd0];
 			}
-			if (projectionModeIndex === 5) {
-				// Stereographic
+			if (projectionModeIndex === M_STEREO) {
+				// Stereographic (JS mirror of the GLSL stereographic block).
+				// See shader comments for full derivation.
+				// Steps: screen→polar → Scaramuzza polynomial → inverse stereographic → ray
 				let u = fragX / resX * 2 - 1;
 				let v = fragY / resY * 2 - 1;
 				const aspect = resX / resY;
@@ -2549,11 +2824,12 @@ void main() {
 				u *= azimuthalZoom; v *= azimuthalZoom;
 				const angle = Math.atan2(-u, -v);
 				let l = Math.sqrt(u * u + v * v);
-				// Polynomial distortion
+				// Polynomial radial distortion (Scaramuzza model, ×8 scaling)
 				let l8 = l * 8.0;
 				let lp = stereoA0*l8 + stereoA1*l8*l8 + stereoA2*l8*l8*l8 + stereoA3*l8*l8*l8*l8;
 				const normF = stereoA0 + stereoA1 + stereoA2 + stereoA3;
 				if (normF > 0) lp /= normF;
+				// Inverse stereographic: q = D/lp, solve for θ
 				const dl = stereoD / Math.max(lp, 0.0001);
 				const dl2 = dl * dl;
 				const under = dl2 + 2*stereoD - stereoD*stereoD;
@@ -2562,9 +2838,29 @@ void main() {
 				const rd0 = sinT * Math.sin(angle);
 				const rd1 = Math.cos(theta);
 				const rd2 = -sinT * Math.cos(angle);
-				return [rd0, rd2, -rd1]; // pre-rotation P=+90°
+			return [rd0, rd2, -rd1]; // pre-rotation P=+90° (optical axis Y→Z)
 			}
-			return null; // perspective / buckyball – fall back to delta drag
+			if (projectionModeIndex === M_PERSP || projectionModeIndex === M_PREVIEW) {
+				// Perspective / buckyball-32 preview: same ray construction
+				return screenToPerspDir(cx, cy);
+			}
+			if (projectionModeIndex === M_FOLDABLE) {
+				// Foldable: use equirectangular-style mouse mapping
+				let eqU = fragX / resX;
+				let eqV = fragY / resY;
+				const aspect = resX / resY;
+				const eqAspect = aspect / 2.0;
+				if (eqAspect > 1.0) {
+					eqU = 0.5 + (eqU - 0.5) / eqAspect;
+				} else {
+					eqV = 0.5 + (eqV - 0.5) * (1.0 / eqAspect);
+				}
+				const hAngle = eqU * Math.PI * 2;
+				const vAngle = (1.0 - eqV) * Math.PI;
+				const sinV = Math.sin(vAngle);
+				return [sinV * Math.sin(hAngle), Math.cos(vAngle), sinV * Math.cos(hAngle)];
+			}
+			return null;
 		}
 
 		// Convert screen coords to local ray for perspective projection (dblclick centering only)
@@ -2600,7 +2896,8 @@ void main() {
 		function screenToWorldDir(cx, cy) {
 			const local = screenToLocalDir(cx, cy);
 			if (!local) return null;
-			const viewQ = quatNormalize(quatMul(camQuatOffset, camQuat));
+			const q = projectionModeIndex === M_FOLDABLE ? foldable32facesQuat : camQuat;
+			const viewQ = quatNormalize(quatMul(camQuatOffset, q));
 			return quatRotVec(viewQ, local);
 		}
 
@@ -2651,7 +2948,7 @@ void main() {
 		let flyAnim = null; // { startQuat, endQuat, startTime, duration, isLevel }
 
 		function startFlyTo(targetQuat, isLevel) {
-			const startQuat = isLevel ? Array.from(levelQuat) : Array.from(camQuat);
+			const startQuat = isLevel ? Array.from(levelQuat) : Array.from(activeQuat());
 			// Compute angular distance for adaptive duration (min 200ms, max 600ms)
 			let dot = Math.abs(startQuat[0] * targetQuat[0] + startQuat[1] * targetQuat[1]
 				+ startQuat[2] * targetQuat[2] + startQuat[3] * targetQuat[3]);
@@ -2671,43 +2968,45 @@ void main() {
 				levelQuat = q;
 				updateLevelSliders();
 			} else {
-				camQuat = q;
+				setActiveQuat(q);
 			}
+			needsRedraw = true;
 			if (t >= 1) {
 				flyAnim = null;
 				saveProjectionConfig();
 			}
 		}
 
-		// Relative quaternion rotation helpers
+		// Relative quaternion rotation helpers — operate on the active quat
 		function rotateYaw(angle) {
 			if (levelMode) {
 				levelQuat = quatNormalize(quatMul(quatFromAxisAngle(0, 1, 0, angle), levelQuat));
 				updateLevelSliders(); isLeveled = true; return;
 			}
-			camQuat = quatMul(quatFromAxisAngle(0, 1, 0, angle), camQuat);
-			camQuat = quatNormalize(camQuat);
+			const q = activeQuat();
+			setActiveQuat(quatNormalize(quatMul(quatFromAxisAngle(0, 1, 0, angle), q)));
 		}
 		function rotatePitch(angle) {
 			if (levelMode) {
 				levelQuat = quatNormalize(quatMul(levelQuat, quatFromAxisAngle(0, 0, 1, angle)));
 				updateLevelSliders(); isLeveled = true; return;
 			}
-			camQuat = quatMul(camQuat, quatFromAxisAngle(1, 0, 0, angle));
-			camQuat = quatNormalize(camQuat);
+			const q = activeQuat();
+			setActiveQuat(quatNormalize(quatMul(q, quatFromAxisAngle(1, 0, 0, angle))));
 		}
 		function rotateRoll(angle) {
 			if (levelMode) {
 				levelQuat = quatNormalize(quatMul(levelQuat, quatFromAxisAngle(1, 0, 0, angle)));
 				updateLevelSliders(); isLeveled = true; return;
 			}
-			camQuat = quatMul(camQuat, quatFromAxisAngle(0, 0, 1, angle));
-			camQuat = quatNormalize(camQuat);
+			const q = activeQuat();
+			setActiveQuat(quatNormalize(quatMul(q, quatFromAxisAngle(0, 0, 1, angle))));
 		}
 		function resetYPR() {
-			camQuat = [0, 0, 0, 1];
+			setActiveQuat([0, 0, 0, 1]);
 			angleYawIn.value = 0; anglePitchIn.value = 0; angleRollIn.value = 0;
-			onAngleInput();
+			updateCamSliders();
+			saveProjectionConfig();
 		}
 		// Expose for joystick module
 		window.rotateYaw = rotateYaw;
@@ -2734,12 +3033,13 @@ void main() {
 			// Snapshot for pixel-locked drag
 			dragStartDir = screenToLocalDir(e.clientX, e.clientY);
 			dragStartWorldDir = screenToWorldDir(e.clientX, e.clientY);
-			dragStartQuat = levelMode ? Array.from(levelQuat) : Array.from(camQuat);
+			dragStartQuat = levelMode ? Array.from(levelQuat) : Array.from(activeQuat());
 		});
 		canvas.addEventListener('pointermove', e => {
 			// Always update magnifier pointer
 			pointerX = e.clientX / canvas.clientWidth;
 			pointerY = 1.0 - e.clientY / canvas.clientHeight;
+			if (magnifierEnabled || dragging) needsRedraw = true;
 
 			if (!dragging) return;
 			if (levelMode) {
@@ -2788,18 +3088,19 @@ void main() {
 				if (dx !== 0) rotateRoll(dx * 0.003);
 				// Invalidate pixel-lock anchor after roll changes orientation
 				dragStartDir = screenToLocalDir(e.clientX, e.clientY);
-				dragStartQuat = Array.from(camQuat);
+				dragStartQuat = Array.from(activeQuat());
+				updateCamSliders();
 				return;
 			}
 			const dirNow = screenToLocalDir(e.clientX, e.clientY);
 			if (dragStartDir && dirNow) {
 				// Pixel-locked: rotate so the grabbed direction stays under cursor.
 				// Q_rot maps dirNow → dragStartDir in local space, then
-				// camQuat_new = camQuat_start · Q_rot keeps the world point fixed.
+				// quat_new = quat_start · Q_rot keeps the world point fixed.
 				const qRot = quatFromTwoVectors(dirNow, dragStartDir);
-				camQuat = quatNormalize(quatMul(dragStartQuat, qRot));
+				setActiveQuat(quatNormalize(quatMul(dragStartQuat, qRot)));
 			} else {
-				// Fallback (buckyball or edge cases): delta-based
+				// Fallback (preview / foldable / perspective): delta-based
 				const dx = e.clientX - lastX;
 				const dy = e.clientY - lastY;
 				lastX = e.clientX; lastY = e.clientY;
@@ -2807,6 +3108,7 @@ void main() {
 				if (dx !== 0) rotateYaw(-dx * sensitivity);
 				if (dy !== 0) rotatePitch(dy * sensitivity);
 			}
+			updateCamSliders();
 		});
 		canvas.addEventListener('pointerup', e => {
 			const wasDrag = Math.hypot(e.clientX - _clickStartX, e.clientY - _clickStartY) > 4;
@@ -2820,7 +3122,7 @@ void main() {
 
 		canvas.addEventListener('wheel', e => {
 			e.preventDefault();
-			if (projectionModeIndex === 3 || projectionModeIndex === 4 || projectionModeIndex === 5) {
+			if (projectionModeIndex === M_AZIMUTHAL || projectionModeIndex === M_COLLAGE || projectionModeIndex === M_STEREO) {
 				// Azimuthal / stereographic: zoom
 				azimuthalZoom = Math.max(0.1, Math.min(3.0, azimuthalZoom + e.deltaY * 0.001));
 				azimuthalZoomSlider.value = Math.round(azimuthalZoom * 100);
@@ -2828,9 +3130,9 @@ void main() {
 				saveProjectionConfig();
 				return;
 			}
-			if (projectionModeIndex !== 0) {
-				// Perspective / buckyball: FOV zoom as before
-				if (projectionModeIndex === 2) return;
+			if (projectionModeIndex !== M_EQUIRECT) {
+				// Perspective / buckyball preview: FOV zoom
+				if (projectionModeIndex === M_FOLDABLE) return;
 				fovDeg = Math.max(20, Math.min(170, fovDeg + e.deltaY * 0.05));
 				fovSlider.value = fovDeg;
 				fovVal.textContent = Math.round(fovDeg) + '°';
@@ -2867,14 +3169,14 @@ void main() {
 			// Cancel any ongoing fly animation
 			flyAnim = null;
 			let d = screenToLocalDir(e.clientX, e.clientY);
-			if (!d && projectionModeIndex === 1) d = screenToPerspDir(e.clientX, e.clientY);
 			if (!d) return;
 			if (levelMode) {
 				// Rotate levelQuat so the texture pixel under cursor moves to center
 				const worldDir = screenToWorldDir(e.clientX, e.clientY);
 				if (!worldDir) return;
 				// Center = screenToWorldDir at screen center = viewQ * [0,0,-1]
-				const viewQ = quatNormalize(quatMul(camQuatOffset, camQuat));
+				const q = projectionModeIndex === M_FOLDABLE ? foldable32facesQuat : camQuat;
+				const viewQ = quatNormalize(quatMul(camQuatOffset, q));
 				const centerWorld = quatRotVec(viewQ, [0, 0, -1]);
 				// Rotation that maps centerWorld → worldDir (post-multiply, analogous to drag pixel-lock)
 				const qRot = quatFromTwoVectors(centerWorld, worldDir);
@@ -2882,12 +3184,13 @@ void main() {
 				startFlyTo(target, true);
 				isLeveled = true;
 			} else {
-				// Rotate camQuat so clicked direction becomes center, preserving current roll
+				// Rotate active quat so clicked direction becomes center, preserving current roll
+				const aq = activeQuat();
 				const qRot = quatFromTwoVectors([0, 0, -1], d);
-				const raw = quatNormalize(quatMul(camQuat, qRot));
+				const raw = quatNormalize(quatMul(aq, qRot));
 				// Decompose into Euler, keep original roll, rebuild
 				const eNew = quatToEulerDeg(raw);
-				const eOld = quatToEulerDeg(camQuat);
+				const eOld = quatToEulerDeg(aq);
 				const target = quatFromEulerDeg(eNew.yaw, eNew.pitch, eOld.roll);
 				startFlyTo(target, false);
 			}
@@ -2954,7 +3257,7 @@ void main() {
 
 		let _sliderDragging = false;
 		function updateCamSliders() {
-			const e = quatToEulerDeg(camQuat);
+			const e = quatToEulerDeg(activeQuat());
 			angleYawIn.value = e.yaw.toFixed(1);
 			anglePitchIn.value = e.pitch.toFixed(1);
 			angleRollIn.value = e.roll.toFixed(1);
@@ -2966,7 +3269,7 @@ void main() {
 			const y = parseFloat(angleYawIn.value) || 0;
 			const p = parseFloat(anglePitchIn.value) || 0;
 			const r = parseFloat(angleRollIn.value) || 0;
-			camQuat = quatFromEulerDeg(y, p, r);
+			setActiveQuat(quatFromEulerDeg(y, p, r));
 			angleYawVal.textContent = y.toFixed(1) + '°';
 			anglePitchVal.textContent = p.toFixed(1) + '°';
 			angleRollVal.textContent = r.toFixed(1) + '°';
@@ -2985,17 +3288,52 @@ void main() {
 			saveProjectionConfig();
 		});
 		document.getElementById('cam-copy').addEventListener('click', () => {
-			_quatClip = [...camQuat];
+			_quatClip = [...activeQuat()];
 		});
 		document.getElementById('cam-paste').addEventListener('click', () => {
 			if (!_quatClip) return;
-			camQuat = [..._quatClip];
+			setActiveQuat([..._quatClip]);
 			updateCamSliders();
 			saveProjectionConfig();
 		});
 
 		[angleYawIn, anglePitchIn, angleRollIn].forEach(sl => {
 			sl.addEventListener('dblclick', () => { sl.value = 0; onAngleInput(); });
+		});
+
+		// ── Face rotation sliders (foldable32facesQuat) ──
+		const facesYawIn = document.getElementById('faces-yaw');
+		const facesPitchIn = document.getElementById('faces-pitch');
+		const facesRollIn = document.getElementById('faces-roll');
+		const facesYawVal = document.getElementById('faces-yaw-val');
+		const facesPitchVal = document.getElementById('faces-pitch-val');
+		const facesRollVal = document.getElementById('faces-roll-val');
+
+		function updateFacesSliders() {
+			const e = quatToEulerDeg(foldable32facesQuat);
+			facesYawIn.value = e.yaw.toFixed(1);
+			facesPitchIn.value = e.pitch.toFixed(1);
+			facesRollIn.value = e.roll.toFixed(1);
+			facesYawVal.textContent = e.yaw.toFixed(1) + '°';
+			facesPitchVal.textContent = e.pitch.toFixed(1) + '°';
+			facesRollVal.textContent = e.roll.toFixed(1) + '°';
+		}
+		function onFacesInput() {
+			const y = parseFloat(facesYawIn.value) || 0;
+			const p = parseFloat(facesPitchIn.value) || 0;
+			const r = parseFloat(facesRollIn.value) || 0;
+			foldable32facesQuat = quatFromEulerDeg(y, p, r);
+			facesYawVal.textContent = y.toFixed(1) + '°';
+			facesPitchVal.textContent = p.toFixed(1) + '°';
+			facesRollVal.textContent = r.toFixed(1) + '°';
+			needsRedraw = true;
+			saveProjectionConfig();
+		}
+		facesYawIn.addEventListener('input', onFacesInput);
+		facesPitchIn.addEventListener('input', onFacesInput);
+		facesRollIn.addEventListener('input', onFacesInput);
+		[facesYawIn, facesPitchIn, facesRollIn].forEach(sl => {
+			sl.addEventListener('dblclick', () => { sl.value = 0; onFacesInput(); });
 		});
 
 		function handleKeys() {
@@ -3025,8 +3363,9 @@ void main() {
 				anyKey = true;
 			}
 			// Update angle sliders only when keys drove a rotation (avoid feedback with slider drag)
-			if (anyKey && !_sliderDragging) {
-				updateCamSliders();
+			if (anyKey) {
+				needsRedraw = true;
+				if (!_sliderDragging) updateCamSliders();
 			}
 		}
 
@@ -3126,6 +3465,7 @@ void main() {
 		function configKey() { return 'cfg:' + sourceFileName; }
 
 		function saveProjectionConfig() {
+			needsRedraw = true;
 			if (!sourceFileName) return;
 			try {
 				const savedGlobeVisible = (_prevLevelState ? _prevLevelState.globeVisible : globeVisible);
@@ -3134,7 +3474,8 @@ void main() {
 				openDB().then(db => {
 					const tx = db.transaction(DB_STORE, 'readwrite');
 					tx.objectStore(DB_STORE).put({
-						camQuat: savedCamQuat,
+					camQuat: savedCamQuat,
+						foldable32facesQuat: [...foldable32facesQuat],
 						levelQuat: [...levelQuat],
 						isLeveled,
 						fovDeg,
@@ -3173,6 +3514,7 @@ void main() {
 		function applyProjectionConfig(cfg) {
 			if (!cfg) return;
 			if (cfg.camQuat && cfg.camQuat.length === 4) camQuat = cfg.camQuat;
+			if (cfg.foldable32facesQuat && cfg.foldable32facesQuat.length === 4) foldable32facesQuat = cfg.foldable32facesQuat;
 			if (cfg.levelQuat && cfg.levelQuat.length === 4) levelQuat = cfg.levelQuat;
 			if (typeof cfg.isLeveled === 'boolean') isLeveled = cfg.isLeveled;
 			if (typeof cfg.fovDeg === 'number') {
@@ -3248,6 +3590,7 @@ void main() {
 			}
 			// Update Euler angle sliders to reflect restored quaternion
 			updateCamSliders();
+			updateFacesSliders();
 			updateLevelSliders();
 			updateLevelBtnState();
 			updateProjectionUI();
@@ -3411,10 +3754,11 @@ void main() {
 		screenshotBtn.addEventListener('click', () => {
 			if (!texWidth || !texHeight) return;
 
-			const isAzimuthal = projectionModeIndex === 3;
-			const isCollage = projectionModeIndex === 4;
-			const isStereo = projectionModeIndex === 5;
-			const isBucky = projectionModeIndex === 2;
+			const isAzimuthal = projectionModeIndex === M_AZIMUTHAL;
+			const isCollage = projectionModeIndex === M_COLLAGE;
+			const isStereo = projectionModeIndex === M_STEREO;
+			const isBuckyPreview = projectionModeIndex === M_PREVIEW;
+			const isBucky = projectionModeIndex === M_FOLDABLE;
 			let w, h;
 
 			if (isAzimuthal) {
@@ -3422,15 +3766,26 @@ void main() {
 				w = texWidth;
 				h = texWidth;
 				gl.uniform4f(uExportClip, -1, -1, 1, 1);
-			} else if (isStereo) {
-				// Stereographic: export at original texture resolution
-				w = texWidth;
-				h = texHeight;
-				gl.uniform4f(uExportClip, -1, -1, 1, 1);
 			} else if (isCollage) {
 				// Collage: 3:2 aspect at source texture width
 				w = texWidth;
 				h = Math.round(texWidth * 2 / 3);
+				gl.uniform4f(uExportClip, -1, -1, 1, 1);
+			} else if (isStereo || isBuckyPreview || projectionModeIndex === M_PERSP) {
+				// Perspective / Stereographic / Preview:
+				// Export at viewport aspect ratio, but at least half the original texture size
+				const vpAspect = canvas.width / canvas.height;
+				const minW = Math.ceil(texWidth / 2);
+				const minH = Math.ceil(texHeight / 2);
+				if (vpAspect >= 1) {
+					// landscape or square: start from height, derive width
+					h = Math.max(minH, texHeight);
+					w = Math.max(minW, Math.round(h * vpAspect));
+				} else {
+					// portrait: start from width, derive height
+					w = Math.max(minW, texWidth);
+					h = Math.max(minH, Math.round(w / vpAspect));
+				}
 				gl.uniform4f(uExportClip, -1, -1, 1, 1);
 			} else if (isBucky && window.buckyBBox) {
 				// Export clipped tightly to the net bounding box
@@ -3471,9 +3826,11 @@ void main() {
 			gl.uniform2f(uResolution, w, h);
 			gl.uniform1f(uFov, fovDeg * Math.PI / 180);
 			gl.uniformMatrix3fv(uViewMatrix, false, viewMatrix());
+			gl.uniformMatrix3fv(uPreviewMatrix, false, previewMatrix());
 			gl.uniform1f(uHasTexture, hasTexture);
 			gl.uniform1f(uMinecraft, minecraft);
 			gl.uniform1f(uGlobeRadius, 0.0); // no globe in export
+			gl.uniform1f(uRefractivity, 1.0); // no magnifier in export
 			gl.uniform1f(uProjection, projectionModeIndex);
 			gl.uniform1f(uShowGrid, showGrid ? 1.0 : 0.0);
 			gl.uniform1f(uBuckyOverlayAlpha, buckyOverlayAlpha);
@@ -3546,6 +3903,7 @@ void main() {
 			texWidth = img.width;
 			texHeight = img.height;
 			hasTexture = 1;
+			needsRedraw = true;
 			updateProjectionUI();
 			document.getElementById('drop-zone').style.display = 'none';
 		}
@@ -3781,6 +4139,7 @@ void main() {
 			canvas.width = innerWidth * dpr;
 			canvas.height = innerHeight * dpr;
 			gl.viewport(0, 0, canvas.width, canvas.height);
+			needsRedraw = true;
 		}
 		window.addEventListener('resize', resize);
 		resize();
@@ -3790,9 +4149,21 @@ void main() {
 			updateFlyAnim();
 			handleKeys();
 
+			// Upload new video frame if playing (marks redraw)
+			if (videoActive && videoEl.readyState >= 2 && (!videoEl.paused ? true : needsVideoUpdate)) {
+				uploadVideoTexture();
+				needsVideoUpdate = false;
+				needsRedraw = true;
+			}
+			updateTimeline();
+
+			if (!needsRedraw) return;
+			needsRedraw = false;
+
 			gl.uniform2f(uResolution, canvas.width, canvas.height);
 			gl.uniform1f(uFov, fovDeg * Math.PI / 180);
 			gl.uniformMatrix3fv(uViewMatrix, false, viewMatrix());
+			gl.uniformMatrix3fv(uPreviewMatrix, false, previewMatrix());
 			gl.uniformMatrix3fv(uLevelMatrix, false, levelMatrix());
 			gl.uniform1f(uHasTexture, hasTexture);
 			gl.uniform1f(uMinecraft, minecraft);
@@ -3810,12 +4181,6 @@ void main() {
 			gl.uniform1f(uAzimuthalZoom, azimuthalZoom);
 			gl.uniform1f(uStereoD, stereoD);
 			gl.uniform4f(uStereoScaramuzza, stereoA0, stereoA1, stereoA2, stereoA3);
-
-			if (videoActive && videoEl.readyState >= 2 && (!videoEl.paused ? true : needsVideoUpdate)) {
-				uploadVideoTexture();
-				needsVideoUpdate = false;
-			}
-			updateTimeline();
 
 			gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 		}
