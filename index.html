@@ -67,6 +67,7 @@
 			border-radius: 12px;
 			max-width: 480px;
 			pointer-events: auto;
+			background: rgba(0, 0, 0, 0.7);
 		}
 
 		#drop-zone.active .hint {
@@ -655,6 +656,10 @@
 			<div class="grid">
 				<span>Size</span> <input type="range" id="globe-size" min="2" max="30" value="10" step="1"> <span
 					class="val" id="globe-size-val">10%</span>
+				<span>Opacity</span> <input type="range" id="globe-opacity" min="5" max="100" value="80" step="1"> <span
+					class="val" id="globe-opacity-val">80%</span>
+				<span>Reflect</span> <input type="range" id="globe-reflect" min="0" max="100" value="75" step="1"> <span
+					class="val" id="globe-reflect-val">75%</span>
 			</div>
 		</div>
 		<div class="slider-group hide-in-level-off" id="playback-row" style="display:none;">
@@ -666,8 +671,8 @@
 		<div id="magnifier-group" class="slider-group">
 			<div class="group-label">Magnifier <label><input type="checkbox" id="magnifier-toggle" checked></label></div>
 			<div class="grid">
-				<span>Radius</span> <input type="range" id="mag-radius" min="2" max="40" value="5" step="1"> <span
-					class="val" id="mag-radius-val">5%</span>
+				<span>Radius</span> <input type="range" id="mag-radius" min="2" max="40" value="6" step="1"> <span
+					class="val" id="mag-radius-val">6%</span>
 				<span>Refractivity</span> <input type="range" id="mag-refract" min="10" max="50" value="24" step="1">
 				<span class="val" id="mag-refract-val">2.4×</span>
 			</div>
@@ -715,9 +720,11 @@ uniform sampler2D equirectNearest;  // same texture, NEAREST filtering
 uniform float hasTexture;
 uniform float minecraft;             // 0.0 = linear (smooth), 1.0 = nearest (blocky)
 uniform float globeRadius;   // 0.0 = hidden, else screen-fraction radius
+uniform float globeOpacity;   // 0.0–1.0 overall globe opacity
+uniform float globeReflect;   // 0.0–1.0 environment reflection strength
 uniform float projection;    // 0.0 = equirectangular, 1.0 = perspective, 2.0 = buckyball
 uniform float showGrid;
-uniform float buckyOverlayAlpha; // 0.0–1.0 net overlay opacity (edges + flaps)
+uniform float buckyOverlayAlpha; // 0.0–1.0 net overlay opacity (edges only; flaps are always opaque)
 uniform vec4 buckyNet[32];   // flat net layout: (x, y, rotation, gnomonicScale) per face
 uniform float buckyScale;    // inverse normalization scale for polygon sizes
 uniform sampler2D buckyOverlay; // 2D canvas overlay: edges + glue tabs
@@ -881,119 +888,99 @@ vec3 testPattern(vec3 dir) {
 	return col;
 }
 
-// Render a miniature 3D globe overlay with geographic reference markers.
+// Render a miniature 3D globe overlay via analytic ray-sphere intersection.
 //
-// Draws a semi-transparent sphere in screen space with:
-//   - Latitude/longitude grid lines (30° spacing)
-//   - Volumetric orange equator ring (torus at latitude 0°)
-//   - Volumetric blue prime meridian ring (torus at longitude 0°)
-//   - Grey axis cylinder along the world Y axis
-//   - Environment-mapped reflection from the loaded panorama
-//   - Rim lighting for depth perception
-//
-// The globe respects the current camera rotation via viewMatrix, so its
-// orientation always matches the main viewport.
+// Uses the same view-space approach as the buckyball preview:
+//   - Camera fixed at (0, 0, camDist), rays cast from eye
+//   - Hit positions mapped back to world via viewMatrix for geo coords
 //
 // Parameters:
 //   screenUV — normalized screen coordinates in [-1, 1]²
 //   radius   — globe radius as fraction of screen height (0 = hidden)
 //
 // Returns:
-//   vec4(rgb, alpha) — premultiplied color for alpha compositing
+//   vec4(rgb, alpha) — straight-alpha color for compositing
 vec4 renderGlobe(vec2 screenUV, float radius) {
 	if (radius <= 0.0) return vec4(0.0);
 	float aspect = resolution.x / resolution.y;
+
+	float camDist = 2.5;
+	vec3 eye = vec3(0.0, 0.0, camDist);
 	vec2 p = screenUV;
 	p.x *= aspect;
-	float d = length(p);
+	float rs = 1.0 / (radius * camDist);
+	vec3 rd = normalize(vec3(-p.x * rs, p.y * rs, -1.0));
 
-	float px = 1.0 / resolution.y; // pixel size in UV space
-	float tubeR = radius * 0.035;  // tube radius for volumetric rings
-	float axisR = radius * 0.018;  // axis cylinder radius
-	float axisLen = radius * 1.4;  // axis extends beyond sphere
+	mat3 vm = viewMatrix;
 
-	vec3 color = vec3(0.0);
-	float alpha = 0.0;
+	// Analytic ray-sphere intersection
+	float b = dot(eye, rd);
+	float c = dot(eye, eye) - 1.0;
+	float disc = b * b - c;
+	if (disc < 0.0) return vec4(0.0);
+	float t = -b - sqrt(disc);
+	if (t <= 0.0) return vec4(0.0);
 
-	// ── Axis cylinder (world Y, transformed to view space) ──
-	vec3 axisDir = normalize(vec3(0.0, 1.0, 0.0) * viewMatrix);
-	// Closest point on infinite line through origin with direction axisDir to point p (in z=0 plane)
-	// Project screen point onto axis line in 3D: line is axisDir*t, we find t minimizing dist to (p.x, p.y, 0)
-	// For a 2D projection: the axis projects as a line in direction axisDir.xy
-	vec2 axisDir2 = axisDir.xy;
-	float axisLen2 = length(axisDir2);
-	if (axisLen2 > 0.001) {
-		vec2 ad = axisDir2 / axisLen2;
-		float t = dot(p, ad);
-		float distToAxis = abs(dot(p, vec2(-ad.y, ad.x)));
-		float axisAlpha = smoothstep(axisR + px, axisR - px, distToAxis);
-		// Limit length
-		float tMax = axisLen * axisLen2;
-		axisAlpha *= smoothstep(tMax + px, tMax - px, abs(t));
-		// Shading: darker at edges
-		float shade = 1.0 - (distToAxis / axisR) * 0.4;
-		vec3 axisCol = vec3(0.6, 0.65, 0.7) * shade;
-		alpha = max(alpha, axisAlpha * 0.9);
-		color = mix(color, axisCol, axisAlpha * 0.9);
-	}
+	vec3 hitPos = eye + t * rd;
+	vec3 n = normalize(hitPos);
+	vec3 wn = vm * n; // view→world
 
-	// ── Sphere body ──
-	if (d < radius + px * 2.0) {
-		float sphereAlpha = smoothstep(radius, radius - px * 2.0, d) * 0.8;
-		float z = (d < radius) ? sqrt(radius * radius - d * d) : 0.0;
-		vec3 n = normalize(vec3(p.x, p.y, z));
-		vec3 wn = viewMatrix * n;
+	float px = 1.0 / resolution.y;
+	vec3 L = normalize(vec3(0.4, 0.9, 0.7));
+	vec3 V = normalize(eye - hitPos);
 
-		float lat = asin(clamp(wn.y, -1.0, 1.0));
-		float lon = atan(wn.z, wn.x);
+	float lat = asin(clamp(wn.y, -1.0, 1.0));
+	float lon = atan(wn.z, wn.x);
 
-		// Grid lines (thin)
-		float thick = px * 1.5;
-		float latLines = smoothstep(thick, 0.0, abs(fract(lat / (PI / 6.0) + 0.5) - 0.5) - 0.48);
-		float lonLines = smoothstep(thick, 0.0, abs(fract(lon / (PI / 6.0) + 0.5) - 0.5) - 0.48);
+	// Grid lines (30° spacing)
+	float thick = px * 1.5;
+	float latLines = smoothstep(thick, 0.0, abs(fract(lat / (PI / 6.0) + 0.5) - 0.5) - 0.48);
+	float lonLines = smoothstep(thick, 0.0, abs(fract(lon / (PI / 6.0) + 0.5) - 0.5) - 0.48);
 
-		// Base sphere
-		vec3 base = vec3(0.08, 0.1, 0.14);
-		float rim = pow(1.0 - z / radius, 3.0);
-		base += vec3(0.15, 0.2, 0.3) * rim;
+	// Lighting
+	float NdotL = max(0.0, dot(n, L));
+	float NdotV = max(0.0, dot(n, V));
+	float diff = NdotL * 0.4 + 0.6;
 
-		// Environment reflection
-		vec3 viewDir = vec3(0.0, 0.0, 1.0);
-		vec3 refl = reflect(-viewDir, n);
-		refl = viewMatrix * refl;
-		vec2 reflUV = dirToEquirect(refl);
-		vec3 envCol = mix(testPattern(refl), texture(equirect, reflUV).rgb, hasTexture);
-		base = mix(base, envCol, 0.75 * (1.0 - rim * 0.5));
+	vec3 base = vec3(0.08, 0.1, 0.14);
+	float rim = pow(1.0 - NdotV, 3.0);
+	base += vec3(0.15, 0.2, 0.3) * rim;
 
-		vec3 gridCol = vec3(0.3, 0.4, 0.55);
-		float grid = max(latLines, lonLines);
-		base = mix(base, gridCol, grid * 0.7);
+	// Environment reflection
+	vec3 refl = reflect(-V, n);
+	vec3 reflWorld = vm * refl;
+	vec2 reflUV = dirToEquirect(reflWorld);
+	vec3 envCol = mix(testPattern(reflWorld), texture(equirect, reflUV).rgb, hasTexture);
+	base = mix(base, envCol, globeReflect * (1.0 - rim * 0.5));
 
-		// ── Volumetric equator (torus at lat=0) ──
-		// Distance from point on sphere to equator plane (Y=0 in world)
-		float eqDist = abs(wn.y) * radius; // approximate screen-space distance
-		float eqTube = smoothstep(tubeR + px, tubeR * 0.2, eqDist);
-		// Round shading
-		float eqShade = 1.0 - pow(eqDist / tubeR, 2.0) * 0.5;
-		vec3 eqCol = vec3(1.0, 0.45, 0.1) * max(eqShade, 0.5);
-		base = mix(base, eqCol, eqTube * 0.95);
+	// Grid overlay
+	float grid = max(latLines, lonLines);
+	base = mix(base, vec3(0.3, 0.4, 0.55), grid * 0.7);
 
-		// ── Volumetric prime meridian (torus at lon=0) ──
-		float pmDist = abs(sin(lon)) * cos(lat) * radius;
-		float pmTube = smoothstep(tubeR + px, tubeR * 0.2, pmDist);
-		// Only front half (cos(lon) > 0)
-		float pmFront = smoothstep(-0.1, 0.1, cos(lon));
-		pmTube *= pmFront + (1.0 - pmFront) * step(0.0, -wn.x) * 0.4; // dimmer on back
-		float pmShade = 1.0 - pow(pmDist / tubeR, 2.0) * 0.5;
-		vec3 pmCol = vec3(0.2, 0.55, 1.0) * max(pmShade, 0.5);
-		base = mix(base, pmCol, pmTube * 0.9);
+	// Equator ring
+	float tubeR = radius * 0.035;
+	float eqDist = abs(wn.y) * radius;
+	float eqTube = smoothstep(tubeR + px, tubeR * 0.2, eqDist);
+	float eqShade = 1.0 - pow(eqDist / tubeR, 2.0) * 0.5;
+	base = mix(base, vec3(1.0, 0.45, 0.1) * max(eqShade, 0.5), eqTube * 0.95);
 
-		float compositeAlpha = max(alpha, sphereAlpha);
-		color = mix(color, base, sphereAlpha / max(compositeAlpha, 0.001));
-		alpha = compositeAlpha;
-	}
+	// Prime meridian ring
+	float pmDist = abs(sin(lon)) * cos(lat) * radius;
+	float pmTube = smoothstep(tubeR + px, tubeR * 0.2, pmDist);
+	float pmFront = smoothstep(-0.1, 0.1, cos(lon));
+	pmTube *= pmFront + (1.0 - pmFront) * step(0.0, -wn.x) * 0.4;
+	float pmShade = 1.0 - pow(pmDist / tubeR, 2.0) * 0.5;
+	base = mix(base, vec3(0.2, 0.55, 1.0) * max(pmShade, 0.5), pmTube * 0.9);
 
-	return vec4(color, alpha);
+	base *= diff;
+	vec3 H = normalize(L + V);
+	base += vec3(0.12) * pow(max(0.0, dot(n, H)), 60.0);
+	base += vec3(0.07, 0.09, 0.14) * rim;
+
+	float dScreen = length(p);
+	float alpha = smoothstep(radius + px, radius - px * 2.0, dScreen) * globeOpacity;
+
+	return vec4(base, alpha);
 }
 
 // Compute a repeating border/grid line intensity for a tiled domain.
@@ -1184,8 +1171,11 @@ void main() {
 		vec2 overlayUV = (uv - buckyBBox.xy) / (buckyBBox.zw - buckyBBox.xy);
 		overlayUV.y = 1.0 - overlayUV.y;
 		vec4 overlay = texture(buckyOverlay, overlayUV);
-		float oa = overlay.a * buckyOverlayAlpha;
-		col = col * (1.0 - oa) + overlay.rgb * buckyOverlayAlpha;
+		// Flaps (pink, r > 0.5) always at full opacity; edges scale with slider
+		float isFlap = step(0.5, overlay.r);
+		float alphaScale = mix(buckyOverlayAlpha, 1.0, isFlap);
+		float oa = overlay.a * alphaScale;
+		col = col * (1.0 - oa) + overlay.rgb * alphaScale;
 
 		fragColor = vec4(col, 1.0);
 		return;
@@ -1314,7 +1304,7 @@ void main() {
 		bool m1 = d1 < 1.0;
 		bool m2 = d2 < 1.0;
 		if (!m1 && !m2) {
-			if (azimuthalMask < 0.5) { fragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+			if (azimuthalMask > 0.5) { fragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
 			// Background: extended left disc (wraps around the sphere)
 			float theta = d1 * PI;
 			float phi = atan(-off1.x, -off1.y);
@@ -1349,7 +1339,7 @@ void main() {
 		uv *= azimuthalZoom;
 		float r = length(uv);
 		if (r > 1.0) {
-			if (azimuthalMask < 0.5) { fragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+			if (azimuthalMask > 0.5) { fragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
 			// Background: extended disc (wraps around the sphere)
 			float theta = r * PI;
 			float phi = atan(-uv.x, -uv.y);
@@ -1376,8 +1366,9 @@ void main() {
 		// rotate on screen in the same direction as the background —
 		// matching perspective, globe, and all other projections.
 		//
-		// For texture, hitPos (in view space) is mapped back to world/
-		// panorama space via inverse(viewMatrix) = transpose(viewMatrix).
+		// Texture mapping uses viewMatrix · normalize(hitPos), which produces
+		// the same panorama direction as foldable mode thanks to the
+		// camQuatOffset pre-rotation baked into worldRot.
 
 		vec2 uv = lensUV;
 		uv.x *= aspect;
@@ -1387,9 +1378,20 @@ void main() {
 		vec3 rdLocal = normalize(vec3(-uv.x * scl, uv.y * scl, -1.0));
 
 		// Transform face normals to view space.
-		// Chain: object → buckyPreRot → previewMatrix (foldable32facesQuat) → world → view
-		// viewMatrix maps view→world, so world→view = transpose(viewMatrix).
-		mat3 worldRot = previewMatrix * buckyPreRot;
+		//
+		// Full chain: object → buckyPreRot → previewMatrix → camQuatOffset → view
+		//   worldRot = Ry(−90°) · previewMatrix · buckyPreRot
+		//
+		// Prepending camQuatOffset (Ry−90°, same as the JS camQuatOffset) ensures
+		// that viewMatrix · objDir produces the same panorama direction as
+		// foldable mode's viewMatrix · buckyPreRot · d_obj, and matches the
+		// background panorama seamlessly at silhouette edges.
+		const mat3 camQuatOffsetMat = mat3(
+			0.0, 0.0, 1.0,   // column 0
+			0.0, 1.0, 0.0,   // column 1   Ry(−90°)
+		   -1.0, 0.0, 0.0    // column 2
+		);
+		mat3 worldRot = camQuatOffsetMat * previewMatrix * buckyPreRot;
 		vec3 vFaces[32];
 		for (int i = 0; i < 32; i++) {
 			vFaces[i] = transpose(viewMatrix) * worldRot * buckyFaces[i];
@@ -1405,11 +1407,34 @@ void main() {
 		float cSph = dot(eye, eye) - 1.04; // slightly padded
 		float discSph = bSph * bSph - cSph;
 
-		// Background: same panorama direction as perspective (viewMatrix · rdLocal)
+		// Background: same panorama mapping as body (viewMatrix · direction)
 		vec3 perspDir = viewMatrix * rdLocal;
 		vec2 bgTC = dirToEquirectLeveled(perspDir);
 		vec3 bgCol = mix(testPattern(perspDir), texture(equirect, bgTC).rgb, hasTexture);
 		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
+
+		// Project net wireframe onto background panorama.
+		// The ray direction is tested against all 32 face planes to find edge
+		// proximity, producing the same wireframe pattern as the 3D body.
+		{
+			vec3 bgDir = normalize(rdLocal);
+			float bgMaxD = -1e9, bgSecD = -1e9;
+			for (int i = 0; i < 32; i++) {
+				float fd = i < 12 ? RFACE_PENT : RFACE_HEX;
+				float di = dot(bgDir, vFaces[i]) - fd;
+				if (di > bgMaxD) {
+					bgSecD = bgMaxD;
+					bgMaxD = di;
+				} else if (di > bgSecD) {
+					bgSecD = di;
+				}
+			}
+			float bgEdgeDist = bgMaxD - bgSecD;
+			float bgEdgeW = 0.003;
+			float bgEdgeLine = smoothstep(bgEdgeW * 0.15, bgEdgeW, bgEdgeDist);
+			bgEdgeLine = mix(1.0, bgEdgeLine, buckyOverlayAlpha);
+			bgCol = mix(vec3(0.06), bgCol, bgEdgeLine);
+		}
 
 		if (discSph < 0.0) {
 			fragColor = vec4(bgCol, 1.0);
@@ -1466,8 +1491,10 @@ void main() {
 		vec3 normal = normalize(mix(faceN, faceN + secN, bevel * 0.45));
 
 		// ── Texture mapping ──
-		// Map view-space surface point back to world/panorama space.
-		// viewMatrix maps view→world (same as globe's wn = viewMatrix * n).
+		// viewMatrix · objDir maps the view-space hit to world/panorama space.
+		// The camQuatOffset baked into worldRot ensures this produces the same
+		// texture direction as foldable mode and matches the background panorama
+		// seamlessly at silhouette edges.
 		vec3 objDir = normalize(hitPos);
 		vec3 texDir = viewMatrix * objDir;
 		tcGrid = dirToEquirect(texDir);
@@ -1610,6 +1637,8 @@ void main() {
 		const uHasTexture = gl.getUniformLocation(program, 'hasTexture');
 		const uMinecraft = gl.getUniformLocation(program, 'minecraft');
 		const uGlobeRadius = gl.getUniformLocation(program, 'globeRadius');
+		const uGlobeOpacity = gl.getUniformLocation(program, 'globeOpacity');
+		const uGlobeReflect = gl.getUniformLocation(program, 'globeReflect');
 		const uProjection = gl.getUniformLocation(program, 'projection');
 		const uShowGrid = gl.getUniformLocation(program, 'showGrid');
 		const uBuckyNet = gl.getUniformLocation(program, 'buckyNet');
@@ -2129,7 +2158,7 @@ void main() {
 				ctx.closePath();
 			}
 			ctx.clip('evenodd');
-			ctx.fillStyle = 'rgba(255, 180, 200, 0.15)';
+			ctx.fillStyle = 'rgba(255, 180, 200, 1.0)';
 			ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
 			ctx.lineWidth = 1;
 			ctx.setLineDash([6, 4]);
@@ -2344,9 +2373,15 @@ void main() {
 		const globeToggle = document.getElementById('globe-toggle');
 		const globeSizeSlider = document.getElementById('globe-size');
 		const globeSizeVal = document.getElementById('globe-size-val');
+		const globeOpacitySlider = document.getElementById('globe-opacity');
+		const globeOpacityVal = document.getElementById('globe-opacity-val');
+		const globeReflectSlider = document.getElementById('globe-reflect');
+		const globeReflectVal = document.getElementById('globe-reflect-val');
 
 		let globeVisible = true;
 		let globeSize = 10;
+		let globeOpacity = 0.8;
+		let globeReflect = 0.75;
 		let showGrid = false;
 		let buckyOverlayAlpha = 0.33;
 		let levelMode = false;
@@ -2355,9 +2390,9 @@ void main() {
 
 		// Magnifier state
 		let magnifierEnabled = true;
-		let magnifierRadius = 0.05;
+		let magnifierRadius = 0.06;
 		let magnifierRefractivity = 2.4;
-		let pointerX = 0.5, pointerY = 0.5; // identity – horizon leveling rotation
+		let pointerX = 0.5, pointerY = 0.5; // normalized mouse/touch position
 
 		// Dirty flag: skip rendering when nothing changed since last frame
 		let needsRedraw = true;
@@ -2375,7 +2410,7 @@ void main() {
 		const M_STEREO    = projectionModes.indexOf('stereographic');
 		const M_PREVIEW   = projectionModes.indexOf('buckyball-32 preview');
 		const M_FOLDABLE  = projectionModes.indexOf('buckyball-32 foldable');
-		let projectionModeIndex = 0;
+		let projectionModeIndex = M_STEREO;
 
 		// Collage parameters
 		let collageRotationDeg = 0;
@@ -2504,6 +2539,24 @@ void main() {
 			saveProjectionConfig();
 		});
 		globeToggle.addEventListener('change', () => { globeVisible = globeToggle.checked; saveProjectionConfig(); });
+		globeOpacitySlider.addEventListener('input', () => {
+			globeOpacity = +globeOpacitySlider.value / 100;
+			globeOpacityVal.textContent = globeOpacitySlider.value + '%';
+			saveProjectionConfig();
+		});
+		globeOpacitySlider.addEventListener('dblclick', () => {
+			globeOpacity = 0.8; globeOpacitySlider.value = 80; globeOpacityVal.textContent = '80%';
+			saveProjectionConfig();
+		});
+		globeReflectSlider.addEventListener('input', () => {
+			globeReflect = +globeReflectSlider.value / 100;
+			globeReflectVal.textContent = globeReflectSlider.value + '%';
+			saveProjectionConfig();
+		});
+		globeReflectSlider.addEventListener('dblclick', () => {
+			globeReflect = 0.75; globeReflectSlider.value = 75; globeReflectVal.textContent = '75%';
+			saveProjectionConfig();
+		});
 		gridToggle.addEventListener('change', () => { showGrid = gridToggle.checked; needsRedraw = true; });
 
 		// Magnifier controls
@@ -2702,6 +2755,7 @@ void main() {
 			magnifierGroup.style.display = (isBucky || isBuckyPreview) ? 'none' : '';
 			if (screenshotRow) screenshotRow.style.display = hasTexture ? '' : 'none';
 		}
+		projectionSelect.value = projectionModes[projectionModeIndex];
 		updateProjectionUI();
 		updateLevelBtnState();
 
@@ -3540,6 +3594,16 @@ void main() {
 				globeSizeSlider.value = globeSize;
 				globeSizeVal.textContent = globeSize + '%';
 			}
+			if (typeof cfg.globeOpacity === 'number') {
+				globeOpacity = cfg.globeOpacity;
+				globeOpacitySlider.value = Math.round(globeOpacity * 100);
+				globeOpacityVal.textContent = Math.round(globeOpacity * 100) + '%';
+			}
+			if (typeof cfg.globeReflect === 'number') {
+				globeReflect = cfg.globeReflect;
+				globeReflectSlider.value = Math.round(globeReflect * 100);
+				globeReflectVal.textContent = Math.round(globeReflect * 100) + '%';
+			}
 			if (typeof cfg.collageRotationDeg === 'number') {
 				collageRotationDeg = cfg.collageRotationDeg;
 				collageRotationSlider.value = collageRotationDeg;
@@ -3691,8 +3755,21 @@ void main() {
 							timelineEl.style.display = 'none';
 							gl.bindTexture(gl.TEXTURE_2D, tex);
 							gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
-							screenshotRow.style.display = 'none';
+							if (screenshotRow) screenshotRow.style.display = 'none';
+							// test pattern has a leveled horizon at identity
+							camQuat = [0, 0, 0, 1];
+							levelQuat = [0, 0, 0, 1];
+							isLeveled = true;
+							updateLevelSliders();
+							updateLevelBtnState();
+							updateCamSliders();
 							document.getElementById('drop-zone').style.display = '';
+							needsRedraw = true;
+							// clean up lastFile pointer
+							openDB().then(db => {
+								const tx = db.transaction(DB_STORE, 'readwrite');
+								tx.objectStore(DB_STORE).delete('lastFile');
+							}).catch(() => {});
 						}
 						await updateCachedFilesList();
 					});
@@ -4081,14 +4158,23 @@ void main() {
 					hideProgress();
 					return;
 				}
-				// No cache — try fetching default image (only works via HTTP, not file://)
-				if (location.protocol === 'file:') return;
+				// No cache — test pattern gets a leveled horizon at identity
+				levelQuat = [0, 0, 0, 1];
+				isLeveled = true;
+				updateLevelSliders();
+				updateLevelBtnState();
+				// try fetching default image (only works via HTTP, not file://)
+				if (location.protocol === 'file:') { progressEl.style.display = 'none'; return; }
 				setProgress(0, 'fetching ' + DEFAULT_IMAGE + '…');
 				const blob = await fetchWithProgress(encodeURI(DEFAULT_IMAGE));
 				const img = await loadImageFromBlob(blob);
 				uploadTexture(img);
 				await cacheStore(blob, DEFAULT_IMAGE, img.width, img.height);
 				sourceFileName = DEFAULT_IMAGE;
+				// Default image has no saved level config → reset the flag
+				// set earlier for the test pattern fallback
+				isLeveled = false;
+				updateLevelBtnState();
 				await updateCachedFilesList();
 				hideProgress();
 			} catch (e) {
@@ -4168,6 +4254,8 @@ void main() {
 			gl.uniform1f(uHasTexture, hasTexture);
 			gl.uniform1f(uMinecraft, minecraft);
 			gl.uniform1f(uGlobeRadius, globeVisible ? globeSize / 100.0 : 0.0);
+			gl.uniform1f(uGlobeOpacity, globeOpacity);
+			gl.uniform1f(uGlobeReflect, globeReflect);
 			gl.uniform1f(uProjection, projectionModeIndex);
 			gl.uniform1f(uShowGrid, showGrid ? 1.0 : 0.0);
 			gl.uniform1f(uBuckyOverlayAlpha, buckyOverlayAlpha);

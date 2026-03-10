@@ -123,8 +123,9 @@ This is the intersection of 32 half-spaces — 12 pentagons at face distance 0.9
 The ball is evaluated entirely in **view space** to ensure consistent rotation behavior:
 
 1. The camera is fixed at `(0, 0, 2.5)` in view space — it never moves.
-2. All 32 face normals are transformed from object space → world space → view space before raymarching: `vFaces[i] = transpose(viewMatrix) · previewMatrix · buckyPreRot · buckyFaces[i]`
-3. This means the ball rotates on screen in the same direction as mouse drag — matching the perspective projection, globe overlay, and all other modes.
+2. All 32 face normals are transformed from object space → world space → view space before raymarching: `vFaces[i] = transpose(viewMatrix) · camQuatOffsetMat · previewMatrix · buckyPreRot · buckyFaces[i]`
+3. The `camQuatOffsetMat` (Ry−90°) ensures the preview's texture mapping produces the same panorama direction as foldable mode's `viewMatrix · buckyPreRot · d_obj` chain.
+4. This means the ball rotates on screen in the same direction as mouse drag — matching the perspective projection, globe overlay, and all other modes.
 
 #### Shading Pipeline
 
@@ -134,10 +135,10 @@ The ball is evaluated entirely in **view space** to ensure consistent rotation b
 | **Sphere tracing** | Up to 80 steps, convergence threshold 0.0004 |
 | **Face ID** | The face with the maximum half-space value is the active face; second-maximum gives edge proximity |
 | **Bevel** | `smoothstep` blend of the two nearest face normals creates a subtle chamfer at edges |
-| **Texture** | View-space hit point → world direction via `viewMatrix` → equirectangular UV |
+| **Texture** | View-space hit point → world direction via `viewMatrix` → equirectangular UV; matches foldable mode exactly via `camQuatOffset` baked into `worldRot` |
 | **Edge wireframe** | `smoothstep` on edge distance, modulated by `buckyOverlayAlpha` (Net slider) |
 | **Lighting** | Key light at `(0.4, 0.9, 0.7)` in view space; diffuse + ambient, Blinn-Phong specular (exponent 60), rim light |
-| **Background** | Standard perspective panorama behind the ball (same ray as the Perspective mode) |
+| **Background** | Perspective panorama behind the ball with projected edge wireframe (same Net slider) |
 
 #### Face Orientation (Y / P / R Sliders)
 
@@ -315,7 +316,7 @@ For each pixel inside a polygon in the 2D net, the shader reconstructs the corre
 After the WebGL shader renders the textured polygons, a 2D canvas overlay is composited on top, providing:
 
 - **Polygon edges**: Solid lines along all face boundaries.
-- **Glue tabs**: Semi-transparent trapezoidal flaps on boundary edges (edges not shared with a neighbor in the net). These are clipped against all polygon interiors using an even-odd winding rule, so tabs never overlap face content.
+- **Glue tabs**: Opaque trapezoidal flaps on boundary edges (edges not shared with a neighbor in the net). These are clipped against all polygon interiors using an even-odd winding rule, so tabs never overlap face content. Flaps always render at full opacity regardless of the Net overlay slider.
 - **Face labels**: (optional) Numeric identifiers per face for assembly guidance.
 
 The overlay is rendered to an offscreen 2048px-tall canvas, uploaded as a WebGL texture, and alpha-composited in the fragment shader using the bounding box `buckyBBox` for UV mapping.
@@ -374,7 +375,7 @@ Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png`.
 | 📽️ **Video playback** | Timeline with seek bar, time display; click to play/pause; gamepad throttle controls speed (0×–4×) |
 | 🔎 **Magnifier** | Cursor-following lens with adjustable radius and refractivity (half-sphere refraction shader); toggle via `M` key |
 | 📐 **Pixelate** | Slider blending between linear (smooth) and nearest-neighbor (pixelated) texture filtering |
-| 🌐 **Globe overlay** | 3D globe with grid, equator, prime meridian, and axis; adjustable size; toggle via `G` key |
+| 🌐 **Globe overlay** | 3D sphere with lat/lon grid, equator (orange) and prime meridian (blue) rings; environment reflection from panorama; adjustable size, opacity, and reflectivity; toggle via `G` key |
 | 📏 **Grid overlay** | 32×16 grid with crosshairs for orientation (toggle via `X` key) |
 | 🎯 **Fly-to** | Double-click to smoothly animate camera toward any point; works in both camera and leveling mode |
 | ⚖️ **Horizon leveling** | Dedicated leveling mode with accept/discard; yaw/pitch/roll sliders; double-click horizon to auto-level; per-file persistence |
