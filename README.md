@@ -20,7 +20,7 @@ A single-file browser app that loads equirectangular images and videos and rende
 
 For each screen pixel the fragment shader:
 
-1. Computes a **ray direction** based on the active projection mode — one of seven: equirectangular, perspective, buckyball preview, azimuthal equidistant, azimuthal collage, stereographic, or foldable buckyball
+1. Computes a **ray direction** based on the active projection mode — one of nine: equirectangular, perspective, buckyball-32 preview, azimuthal equidistant, azimuthal collage, stereographic, buckyball-32 foldable, rhombic-30 foldable, or rhombic-30 preview
 2. Applies a **quaternion-derived rotation matrix** (controlled by mouse, keyboard, or gamepad) to orient the ray
 3. Optionally applies **horizon leveling** via a second quaternion
 4. Converts the ray direction to **spherical coordinates** (θ, φ)
@@ -90,33 +90,43 @@ The 3D joystick model in the bottom-left corner animates in real-time and shows 
 
 ## Projection Modes
 
-> **7 projection modes** — cycle with the gamepad hat switch (N/S) or the dropdown.
+> **9 projection modes** — cycle with the gamepad hat switch (N/S) or the dropdown.
 
 | # | Mode | Description |
 |:---:|---|---|
 | 0 | **Equirectangular** | Direct 2:1 equirectangular mapping; black bars when viewport aspect ≠ 2:1 |
 | 1 | **Perspective** | Gnomonic projection with adjustable FOV (20°–170°); mathematically a special case of the stereographic family at D=1 |
-| 2 | **Buckyball Preview** | SDF-raymarched truncated icosahedron floating over the panorama; Blinn-Phong lit, bevelled edges, real-time rotation via Y/P/R face sliders |
+| 2 | **Buckyball-32 Preview** | SDF-raymarched truncated icosahedron floating over the panorama; Blinn-Phong lit, bevelled edges, real-time rotation via Y/P/R face sliders |
 | 3 | **Azimuthal Equidistant** | Full sphere mapped into a disc (forward pole → center, backward pole → edge); optional circular mask |
 | 4 | **Azimuthal Collage** | Two overlapping azimuthal equidistant discs side-by-side (front/back hemispheres) with rotation, flip, and zoom |
 | 5 | **Stereographic** | Generalised stereographic with Scaramuzza polynomial lens distortion; D parameter (D=2 conformal, D=1 gnomonic) and a¹–a⁴ coefficients |
-| 6 | **Foldable Buckyball** | Flat 2D net of a truncated icosahedron unfolded onto the screen; gnomonic back-projection with 2D canvas overlay (edges, glue tabs) |
+| 6 | **Buckyball-32 Foldable** | Flat 2D net of a truncated icosahedron unfolded onto the screen; gnomonic back-projection with 2D canvas overlay (edges, glue tabs) |
+| 7 | **Rhombic-30 Foldable** | Flat 2D net of a rhombic triacontahedron (30 golden rhombi); half-flower chain layout with L1 norm point-in-rhombus test and gnomonic back-projection |
+| 8 | **Rhombic-30 Preview** | SDF-raymarched rhombic triacontahedron (30 equidistant faces) floating over the panorama; same lighting and interaction model as buckyball-32 preview |
 
 ---
 
-### Buckyball Preview — Technical Deep Dive
+### Polyhedron Preview Modes — Technical Deep Dive
 
-The preview mode renders a **3D truncated icosahedron** (buckyball) floating in front of the panorama background. It serves as a tangible preview of the face partitioning used by the foldable mode — you can rotate the ball to inspect how the panorama maps onto each face before printing.
+Both preview modes render a **3D polyhedron** floating in front of the panorama background via SDF sphere-tracing. They serve as tangible previews of the face partitioning used by the corresponding foldable modes — you can rotate the ball to inspect how the panorama maps onto each face before printing.
+
+| Property | Buckyball-32 | Rhombic-30 |
+|---|---|---|
+| Polyhedron | Truncated icosahedron | Rhombic triacontahedron |
+| Faces | 32 (12 pentagons + 20 hexagons) | 30 (identical golden rhombi) |
+| Face distances | 0.9393 (pent), 0.9149 (hex) | 0.8507 (all equal) |
+| Pre-rotation | Ry(180°)·Rx(45°)·Rz(−90°) | Ry(−144°)·Rx(−57°) |
+| Quaternion | `foldable32facesQuat` | `foldable30facesQuat` |
 
 #### Rendering Technique
 
-Unlike the other projections (which only compute a ray direction), the preview mode performs **SDF sphere-tracing** (raymarching) against an analytically defined solid:
+The SDF for both polyhedra is the intersection of N half-spaces:
 
 ```
-SDF(p) = max over all 32 faces of: dot(p, faceNormal) − faceDist
+SDF(p) = max over all N faces of: dot(p, faceNormal) − faceDist
 ```
 
-This is the intersection of 32 half-spaces — 12 pentagons at face distance 0.9393 and 20 hexagons at 0.9149. The result is a convex polyhedron rendered without any mesh geometry.
+32 half-spaces for the buckyball (with two different face distances), 30 equidistant half-spaces for the rhombic triacontahedron. Both are convex polyhedra rendered without any mesh geometry.
 
 #### View-Space Architecture
 
@@ -140,9 +150,19 @@ The ball is evaluated entirely in **view space** to ensure consistent rotation b
 | **Lighting** | Key light at `(0.4, 0.9, 0.7)` in view space; diffuse + ambient, Blinn-Phong specular (exponent 60), rim light |
 | **Background** | Perspective panorama behind the ball with projected edge wireframe (same Net slider) |
 
+#### Mouse Interaction (Ball vs. Background)
+
+In preview modes, mouse drag targets either the polyhedron or the background panorama, determined by a **circle test** at pointer-down:
+
+- The projected ball radius in pixels is computed from the camera distance (2.5) and the current FOV: `rPx = canvasHeight / 2 / (√(d²−1) · tan(fov/2))`
+- Clicks **inside** the circle manipulate the faces quaternion (`foldable32facesQuat` or `foldable30facesQuat`). The view-space drag rotation is conjugated into faces-quat space via `camQuat · q · camQuat⁻¹` so the ball surface follows the cursor naturally.
+- Clicks **outside** the circle manipulate `camQuat` with perspective-style pixel-locked rotation, orbiting the ball.
+
+Shift+drag applies roll in the same target-dependent manner.
+
 #### Face Orientation (Y / P / R Sliders)
 
-The preview shares the `foldable32facesQuat` quaternion with the foldable mode. Adjusting the **Yaw / Pitch / Roll** sliders under *Faces* rotates the face assignment on the ball — the same rotation is applied when switching to foldable mode, ensuring a seamless transition.
+Each preview shares its faces quaternion with the corresponding foldable mode. Adjusting the **Yaw / Pitch / Roll** sliders under *Faces* rotates the face assignment on the ball — the same rotation is applied when switching to foldable mode, ensuring a seamless transition.
 
 ---
 
@@ -243,7 +263,7 @@ The UI provides **Reset**, **Copy**, and **Paste** buttons for the stereographic
 
 ---
 
-### Foldable Buckyball Projection — Technical Deep Dive
+### Foldable Buckyball-32 Projection — Technical Deep Dive
 
 The buckyball projection unfolds the full 360° equirectangular panorama onto the **flat net of a truncated icosahedron** (soccer ball / C₆₀ fullerene). The result is a printable, foldable template that can be cut out and assembled into a physical 3D panorama ball.
 
@@ -348,6 +368,63 @@ The overlay is rendered to an offscreen 2048px-tall canvas, uploaded as a WebGL 
 
 ---
 
+### Foldable Rhombic-30 Projection — Technical Deep Dive
+
+The rhombic-30 projection unfolds the full 360° equirectangular panorama onto the **flat net of a rhombic triacontahedron** (RT) — a Catalan solid dual to the icosidodecahedron. All 30 faces are identical golden rhombi (diagonal ratio φ:1), making it an elegant alternative to the buckyball for physical panorama construction.
+
+#### Geometry
+
+A rhombic triacontahedron has **30 identical golden rhombus faces**, 32 vertices (12 icosahedron-type with valence 5, 20 dodecahedron-type with valence 3), and 60 edges.
+
+| Property | Value |
+|---|---|
+| Faces | 30 golden rhombi |
+| Face center distance | 0.8507 (all equal: φ/√(1+φ²)) |
+| Long half-diagonal (iB) | 0.8507 (toward 5-valent vertices) |
+| Short half-diagonal (iA) | 0.5257 (toward 3-valent vertices) |
+| Diagonal ratio | φ:1 ≈ 1.618:1 |
+| Inradius | 0.4472 |
+| Dihedral angle ψ | atan2(1, φ) ≈ 31.72° |
+
+Face normals are the 30 normalized midpoints of icosahedron edges. The three coordinate families are:
+- c₁ = ½, c₂ = (1+√5)/4 ≈ 0.809, c₃ = (√5−1)/4 ≈ 0.309
+
+#### Half-Flower Chain Layout
+
+Unlike the buckyball's BFS unfolding, the RT net uses a **deterministic half-flower chain** pattern:
+
+1. **10 icosahedron vertices** (valence 5) are visited in a fixed order: v1→v3→v7→v11→v5→v10→v6→v4→v2→v8.
+2. At each vertex, the 3 faces with the next chain vertex as neighbor are placed as a "half-flower" fan.
+3. Edge direction angles `[π−ψ, π+ψ, −ψ, ψ]` control the unfolding geometry.
+4. A post-unfolding rotation of −21.41° (−0.373726 rad) aligns flower centers horizontally.
+
+This produces a compact, reproducible layout without search or optimization.
+
+#### Point-in-Rhombus Test (Shader)
+
+Instead of the angular sector test used for regular polygons, the shader uses an **L1 norm** for the axis-aligned golden rhombus:
+
+```glsl
+float L1 = abs(rp.x) / ha + abs(rp.y) / hb;
+if (L1 < 1.0) { /* inside */ }
+```
+
+where `ha` and `hb` are the long and short half-diagonals scaled by `1/buckyScale`.
+
+#### Gnomonic Back-Projection
+
+Same principle as the buckyball: the 2D rhombus position is rotated by a `faceOffset` angle, scaled to gnomonic tangent-plane space (`buckyScale / (iA + iB)`), and projected back onto the unit sphere via `normalize(N + gno.x·T1 + gno.y·T2)`. The direction is then rotated by `viewMatrix · rhombicPreRot`.
+
+#### Flap Generation
+
+The 2D canvas overlay generates trapezoidal glue tabs on boundary edges with:
+
+- **Angle-aware corners**: Acute vertices get wider insets (`INRADIUS × 0.3 × φ ≈ 0.217`), obtuse vertices get narrower ones (`INRADIUS × 0.3 / φ ≈ 0.083`), based on vertex parity `k % 2`.
+- **Auto-flip**: `flapHitsAnyFace()` uses L1 norm probing to detect overlaps, automatically negating the flap normal.
+- **Manual ownership**: A `flipSet` of 10 edges swaps which face draws the flap for optimal layout.
+
+---
+
 ## PNG Export
 
 The export button renders the current view at high resolution and downloads the result as PNG. Each projection uses optimised dimensions:
@@ -355,11 +432,13 @@ The export button renders the current view at high resolution and downloads the 
 | Projection | Dimensions | Clipping |
 |---|---|---|
 | **Equirectangular / Perspective** | `texHeight × (texHeight · aspect)` | Full viewport |
-| **Buckyball Preview** | `texHeight × texHeight` (square) | Full viewport |
+| **Buckyball-32 Preview** | `texHeight × texHeight` (square) | Full viewport |
+| **Rhombic-30 Preview** | `texHeight × texHeight` (square) | Full viewport |
 | **Azimuthal** | `texWidth × texWidth` (square) | Full viewport |
 | **Azimuthal Collage** | `texWidth × (texWidth · ⅔)` (3:2) | Full viewport |
 | **Stereographic** | `texWidth × texHeight` (original) | Full viewport |
-| **Foldable Buckyball** | Longer bbox side → `max(texW, texH)` px | Tight net bounding box |
+| **Foldable Buckyball-32** | Longer bbox side → `max(texW, texH)` px | Tight net bounding box |
+| **Foldable Rhombic-30** | Longer bbox side → `max(texW, texH)` px | Tight net bounding box |
 
 The implementation resizes the WebGL canvas to export resolution, sets the `exportClip` uniform to remap `screenUV` from the default `(−1,−1)→(1,1)` range to the net's bounding box coordinates (with aspect-ratio compensation), renders a single frame, and reads pixels via `gl.readPixels()` within the same JS task. After export, the canvas and uniform are restored to viewport defaults.
 

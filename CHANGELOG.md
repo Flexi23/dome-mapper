@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-03-15
+
+### Added
+- **Rhombic-30 foldable projection mode** — flat 2D net of a rhombic triacontahedron (30 identical golden rhombus faces); deterministic half-flower chain layout visiting 10 icosahedron vertices in a fixed order (v1→v3→v7→v11→v5→v10→v6→v4→v2→v8), each placing 3 faces as a fan; L1 norm `abs(x)/ha + abs(y)/hb < 1` for point-in-rhombus test; gnomonic back-projection via `rhombicPreRot` (Ry(−144°)·Rx(−57°)); angle-aware flap corners (acute vertices get wider insets, obtuse get narrower); `flapHitsAnyFace()` auto-flip with L1 norm probing; manual flap ownership via `flipSet` for 10 edges
+- **Rhombic-30 preview mode** — SDF-raymarched rhombic triacontahedron floating over the panorama; 30 equidistant half-spaces at `RFACE_RHOMBIC = 0.8507`; same shading pipeline as buckyball-32 preview (bevel, Blinn-Phong, rim light, edge wireframe); shares `foldable30facesQuat` with rhombic-30 foldable mode
+- **Preview ball vs background drag** — pointer-down circle test (`rPx = canvasHeight / 2 / (√(d²−1) · tan(fov/2))`) determines drag target in both preview modes; clicks inside the circle manipulate the faces quaternion, clicks outside manipulate `camQuat` for perspective-style orbiting; shift+drag applies roll in the same target-dependent manner
+- **Intuitive ball drag via quaternion conjugation** — view-space drag rotation is conjugated into faces-quat space via `viewToFacesRot(q) = camQuat · q · camQuat⁻¹` so the ball surface follows the cursor naturally
+- **`isPreviewMode()` helper** — replaces repeated `M_PREVIEW || M_RHOMBIC_PREVIEW` checks
+- **`viewToFacesRot(q)` helper** — centralises the `camQuat · q · camQuat⁻¹` conjugation used by ball drag and shift+roll
+- **README: Rhombic-30 deep dives** — geometry table, half-flower chain layout, L1 norm shader test, gnomonic back-projection, flap generation with angle-aware corners
+- **README: unified Polyhedron Preview section** — comparison table (buckyball-32 vs rhombic-30), mouse interaction documentation (circle test, conjugation), replaces the old buckyball-only section
+
+### Changed
+- **Projection modes: 7 → 9** — added rhombic-30 foldable (index 7) and rhombic-30 preview (index 8) to `projectionModes` array with corresponding `M_RHOMBIC_FOLDABLE` and `M_RHOMBIC_PREVIEW` constants
+- **`activeQuat` / `setActiveQuat` routing** — preview → `foldable32facesQuat`, rhombic preview/foldable → `foldable30facesQuat`
+- **`previewMatrix()` routing** — returns the correct faces quaternion for rhombic vs bucky based on mode
+- **`screenToLocalDir` / `screenToWorldDir`** — handle `M_RHOMBIC_PREVIEW` via `screenToPerspDir` and `foldable30facesQuat`
+- **Face slider functions** — Y/P/R and reset/copy/paste now route through `activeFacesQuat()` / `setActiveFacesQuat()` for mode-aware quaternion selection
+- **Export handling** — rhombic-30 preview treated as square export (same as buckyball preview); rhombic-30 foldable uses tight net bounding box
+- **Level horizon** — fixed pitch/roll swap for rhombic mode
+- **Code cleanup** — `isPreviewBall` computed once per pointermove instead of twice; stale comments updated; circle radius calculation simplified
+
 ## [0.8.0] - 2026-03-10
 
 ### Added

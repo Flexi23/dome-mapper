@@ -610,6 +610,8 @@
 					<option value="stereographic">stereographic</option>
 					<option value="buckyball-32 preview">buckyball-32 preview</option>
 					<option value="buckyball-32 foldable">buckyball-32 foldable</option>
+					<option value="rhombic-30 preview">rhombic-30 preview</option>
+					<option value="rhombic-30 foldable">rhombic-30 foldable</option>
 				</select>
 				<span id="minecraft-row" class="span hide-in-level-off" style="display:contents">
 					<span>Pixelate</span> <input type="range" id="minecraft-slider" min="0" max="100" value="100" step="1"> <span class="val" id="minecraft-val">100%</span>
@@ -782,11 +784,22 @@ const float BUCKY_E = 0.3568220898;
 const float RFACE_PENT = 0.9392580;
 const float RFACE_HEX  = 0.9149168;
 
+// Face center distance of rhombic triacontahedron (circumradius = 1)
+// All 30 faces equidistant; rFace = φ/√(1+φ²) ≈ BUCKY_B
+const float RFACE_RHOMBIC = 0.8506508084;
+
 // Pre-rotation for buckyball texture: Ry(180°) · Rx(45°) · Rz(-90°)
 const mat3 buckyPreRot = mat3(
 	 0.0,        -0.70710678,  0.70710678,  // column 0
 	-1.0,         0.0,          0.0,         // column 1
 	 0.0,        -0.70710678, -0.70710678   // column 2
+);
+
+// Pre-rotation for rhombic-30 texture: Ry(-144°) · Rx(-57°)
+const mat3 rhombicPreRot = mat3(
+	-0.80901699,  0.00000000,  0.58778525,  // column 0
+	 0.49295819,  0.54463904,  0.67849874,  // column 1
+	-0.32013079,  0.83867057, -0.44062224   // column 2
 );
 
 const vec3 buckyFaces[32] = vec3[32](
@@ -808,6 +821,47 @@ const vec3 buckyFaces[32] = vec3[32](
 	vec3(-BUCKY_E,  0.0,  BUCKY_D), vec3(-BUCKY_E,  0.0, -BUCKY_D),
 	vec3( BUCKY_D,  BUCKY_E,  0.0), vec3( BUCKY_D, -BUCKY_E,  0.0),
 	vec3(-BUCKY_D,  BUCKY_E,  0.0), vec3(-BUCKY_D, -BUCKY_E,  0.0)
+);
+
+// ── Rhombic triacontahedron face centers (30 golden rhombi) ──
+// Each face normal is the normalized midpoint of an icosahedron edge.
+// All faces are identical golden rhombi with diagonal ratio φ:1.
+// c₁ = ½, c₂ = (1+√5)/4 ≈ 0.809, c₃ = (√5−1)/4 ≈ 0.309
+const float RHOMB_C1 = 0.5;
+const float RHOMB_C2 = 0.8090169944;
+const float RHOMB_C3 = 0.3090169944;
+
+const vec3 rhombicFaces[30] = vec3[30](
+	vec3( RHOMB_C3,  RHOMB_C2,  RHOMB_C1),  // face  0
+	vec3( RHOMB_C1,  RHOMB_C3,  RHOMB_C2),  // face  1
+	vec3(-RHOMB_C1,  RHOMB_C3,  RHOMB_C2),  // face  2
+	vec3( 0.0,       0.0,       1.0),        // face  3
+	vec3(-RHOMB_C3,  RHOMB_C2,  RHOMB_C1),  // face  4
+	vec3( RHOMB_C2,  RHOMB_C1,  RHOMB_C3),  // face  5
+	vec3( RHOMB_C3,  RHOMB_C2, -RHOMB_C1),  // face  6
+	vec3( 0.0,       1.0,       0.0),        // face  7
+	vec3( RHOMB_C2,  RHOMB_C1, -RHOMB_C3),  // face  8
+	vec3( RHOMB_C2, -RHOMB_C1,  RHOMB_C3),  // face  9
+	vec3( RHOMB_C1, -RHOMB_C3,  RHOMB_C2),  // face 10
+	vec3( 1.0,       0.0,       0.0),        // face 11
+	vec3(-RHOMB_C3,  RHOMB_C2, -RHOMB_C1),  // face 12
+	vec3( RHOMB_C1,  RHOMB_C3, -RHOMB_C2),  // face 13
+	vec3( 0.0,       0.0,      -1.0),        // face 14
+	vec3(-RHOMB_C1,  RHOMB_C3, -RHOMB_C2),  // face 15
+	vec3( RHOMB_C3, -RHOMB_C2,  RHOMB_C1),  // face 16
+	vec3( RHOMB_C2, -RHOMB_C1, -RHOMB_C3),  // face 17
+	vec3( RHOMB_C3, -RHOMB_C2, -RHOMB_C1),  // face 18
+	vec3( 0.0,      -1.0,       0.0),        // face 19
+	vec3(-RHOMB_C1, -RHOMB_C3,  RHOMB_C2),  // face 20
+	vec3(-RHOMB_C2,  RHOMB_C1,  RHOMB_C3),  // face 21
+	vec3(-RHOMB_C2, -RHOMB_C1,  RHOMB_C3),  // face 22
+	vec3(-1.0,       0.0,       0.0),        // face 23
+	vec3(-RHOMB_C3, -RHOMB_C2,  RHOMB_C1),  // face 24
+	vec3(-RHOMB_C2,  RHOMB_C1, -RHOMB_C3),  // face 25
+	vec3( RHOMB_C1, -RHOMB_C3, -RHOMB_C2),  // face 26
+	vec3(-RHOMB_C3, -RHOMB_C2, -RHOMB_C1),  // face 27
+	vec3(-RHOMB_C1, -RHOMB_C3, -RHOMB_C2),  // face 28
+	vec3(-RHOMB_C2, -RHOMB_C1, -RHOMB_C3)   // face 29
 );
 
 // Spherical Voronoi of buckyball face centers.
@@ -1055,7 +1109,220 @@ void main() {
 
 	// Projection cascade — threshold N.5 selects mode index N.
 	// Keep in sync with JS projectionModes array & M_* constants.
-	if (projection > 5.5) {
+	if (projection > 7.5) {
+		// ── Rhombic-30 preview (SDF-raymarched rhombic triacontahedron) ──
+		//
+		// Analogous to the buckyball preview: SDF sphere-trace of a 30-face
+		// golden-rhombus polyhedron.  All faces are equidistant (RFACE_RHOMBIC).
+
+		vec2 uv = lensUV;
+		uv.x *= aspect;
+		float halfFov = fov * 0.5;
+		float scl = tan(halfFov);
+
+		vec3 rdLocal = normalize(vec3(-uv.x * scl, uv.y * scl, -1.0));
+
+		const mat3 camQuatOffsetMat = mat3(
+			0.0, 0.0, 1.0,
+			0.0, 1.0, 0.0,
+		   -1.0, 0.0, 0.0
+		);
+		mat3 worldRot = camQuatOffsetMat * previewMatrix * rhombicPreRot;
+		vec3 vFaces[30];
+		for (int i = 0; i < 30; i++) {
+			vFaces[i] = transpose(viewMatrix) * worldRot * rhombicFaces[i];
+		}
+
+		float camDist = 2.5;
+		vec3 eye = vec3(0.0, 0.0, camDist);
+		vec3 rdW = rdLocal;
+
+		float bSph = dot(eye, rdW);
+		float cSph = dot(eye, eye) - 1.04;
+		float discSph = bSph * bSph - cSph;
+
+		vec3 perspDir = viewMatrix * rdLocal;
+		vec2 bgTC = dirToEquirectLeveled(perspDir);
+		vec3 bgCol = mix(testPattern(perspDir), texture(equirect, bgTC).rgb, hasTexture);
+		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
+
+		// Project wireframe onto background
+		{
+			vec3 bgDir = normalize(rdLocal);
+			float bgMaxD = -1e9, bgSecD = -1e9;
+			for (int i = 0; i < 30; i++) {
+				float di = dot(bgDir, vFaces[i]) - RFACE_RHOMBIC;
+				if (di > bgMaxD) { bgSecD = bgMaxD; bgMaxD = di; }
+				else if (di > bgSecD) { bgSecD = di; }
+			}
+			float bgEdgeDist = bgMaxD - bgSecD;
+			float bgEdgeW = 0.003;
+			float bgEdgeLine = smoothstep(bgEdgeW * 0.15, bgEdgeW, bgEdgeDist);
+			bgEdgeLine = mix(1.0, bgEdgeLine, buckyOverlayAlpha);
+			bgCol = mix(vec3(0.06), bgCol, bgEdgeLine);
+		}
+
+		if (discSph < 0.0) { fragColor = vec4(bgCol, 1.0); return; }
+		float t = max(0.0, -bSph - sqrt(discSph));
+		float tMax = -bSph + sqrt(discSph);
+
+		// Sphere-trace the RT SDF
+		bool hit = false;
+		for (int step = 0; step < 80; step++) {
+			vec3 p = eye + t * rdW;
+			float d = -1e9;
+			for (int i = 0; i < 30; i++) {
+				d = max(d, dot(p, vFaces[i]) - RFACE_RHOMBIC);
+			}
+			if (d < 0.0004) { hit = true; break; }
+			t += d;
+			if (t > tMax) break;
+		}
+
+		if (!hit) { fragColor = vec4(bgCol, 1.0); return; }
+
+		vec3 hitPos = eye + t * rdW;
+
+		// Identify active face + second-closest
+		float maxD = -1e9, secD = -1e9;
+		int bestI = 0, secI = 0;
+		for (int i = 0; i < 30; i++) {
+			float di = dot(hitPos, vFaces[i]) - RFACE_RHOMBIC;
+			if (di > maxD) { secD = maxD; secI = bestI; maxD = di; bestI = i; }
+			else if (di > secD) { secD = di; secI = i; }
+		}
+
+		vec3 faceN = vFaces[bestI];
+		float edgeDist = maxD - secD;
+
+		float bevelZone = 0.016;
+		float bevel = smoothstep(bevelZone, 0.0, edgeDist);
+		vec3 secN = vFaces[secI];
+		vec3 normal = normalize(mix(faceN, faceN + secN, bevel * 0.45));
+
+		// Texture mapping
+		vec3 objDir = normalize(hitPos);
+		vec3 texDir = viewMatrix * objDir;
+		tcGrid = dirToEquirect(texDir);
+		tc = dirToEquirectLeveled(texDir);
+		vec3 col = mix(testPattern(texDir), texture(equirect, tc).rgb, hasTexture);
+		col = applyGrid(col, tcGrid);
+
+		// Edge wireframe
+		float edgeW = 0.0025;
+		float edgeLine = smoothstep(edgeW * 0.15, edgeW, edgeDist);
+		edgeLine = mix(1.0, edgeLine, buckyOverlayAlpha);
+		col = mix(vec3(0.06), col, edgeLine);
+
+		// Lighting
+		vec3 V = normalize(eye - hitPos);
+		vec3 L = normalize(vec3(0.4, 0.9, 0.7));
+		float NdotL = max(0.0, dot(normal, L));
+		float NdotV = max(0.0, dot(normal, V));
+		float diff = NdotL * 0.4 + 0.6;
+		col *= diff;
+		vec3 H = normalize(L + V);
+		float spec = pow(max(0.0, dot(normal, H)), 60.0);
+		col += vec3(0.18) * spec;
+		float rim = pow(1.0 - NdotV, 3.5);
+		col += vec3(0.07, 0.09, 0.14) * rim;
+
+		fragColor = vec4(col, 1.0);
+		return;
+	} else if (projection > 6.5) {
+		// ── Foldable Rhombic Triacontahedron net (flat 2D layout, 30 golden rhombi) ──
+		//
+		// Each face is a golden rhombus (diagonals in ratio φ:1).
+		// Point-in-rhombus test uses L1 norm: |x/ha| + |y/hb| < 1.
+		// Gnomonic back-projection maps 2D rhombus position → unit sphere direction.
+
+		vec2 uv = screenUV;
+		uv.x *= aspect;
+		float bbHalfW = max(abs(buckyBBox.x), abs(buckyBBox.z));
+		float bbHalfH = max(abs(buckyBBox.y), abs(buckyBBox.w));
+		float fitScale = max(bbHalfW / aspect, bbHalfH);
+		uv *= fitScale;
+
+		float invS = 1.0 / buckyScale;
+		float insideAny = 0.0;
+		int bestI = 0;
+		float bestDist = 1e9;
+		vec2 bestRP = vec2(0.0);
+
+		// Half-diagonal lengths of the golden rhombus at the current net scale.
+		// Long half-diagonal = BUCKY_B / buckyScale (toward 5-valent / icosahedron vertices)
+		// Short half-diagonal = BUCKY_A / buckyScale (toward 3-valent / dodecahedron vertices)
+		float ha = BUCKY_B * invS;  // long half-diagonal
+		float hb = BUCKY_A * invS;  // short half-diagonal
+
+		// ── Point-in-rhombus test for all 30 faces ──
+		for (int i = 0; i < 30; i++) {
+			vec2 ctr = buckyNet[i].xy;
+			float rot = buckyNet[i].z;
+			vec2 p = uv - ctr;
+			float cs = cos(-rot), sn = sin(-rot);
+			vec2 rp = vec2(p.x*cs - p.y*sn, p.x*sn + p.y*cs);
+
+			// L1 norm test for golden rhombus.
+			// After unrotating by net rotation, rp is in the rhombus-axis-aligned
+			// frame (long diagonal = x, short diagonal = y).
+			float L1 = abs(rp.x) / ha + abs(rp.y) / hb;
+			if (L1 < 1.0) {
+				float cd = length(p);
+				if (cd < bestDist) {
+					bestDist = cd;
+					bestI = i;
+					bestRP = rp;
+					insideAny = 1.0;
+				}
+			}
+		}
+
+		vec3 col = vec3(1.0);
+
+		if (insideAny > 0.5) {
+			// ── Gnomonic back-projection for rhombic face ──
+			vec3 N = rhombicFaces[bestI];
+			float faceOffset = buckyNet[bestI].w;
+			vec3 tUp = abs(N.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+			vec3 T1 = normalize(cross(N, tUp));
+			vec3 T2 = cross(N, T1);
+
+			// Rotate bestRP from rhombus-axis-aligned frame to tangent frame {T1, T2}.
+			// faceOffset = angle from T1 to the long diagonal direction.
+			float co = cos(faceOffset), so = sin(faceOffset);
+			vec2 tangentRP = vec2(bestRP.x*co - bestRP.y*so, bestRP.x*so + bestRP.y*co);
+
+			// Scale from flat net to gnomonic tangent plane.
+			// Gnomonic half-diags: 1/φ (long) and 1/φ² (short).
+			// Flat half-diags: BUCKY_B/buckyScale, BUCKY_A/buckyScale.
+			// Uniform scale = (1/φ) / (BUCKY_B/buckyScale) = buckyScale / (φ·BUCKY_B)
+			// Since φ·BUCKY_B = BUCKY_A + BUCKY_B:
+			float gnoScale = buckyScale / (BUCKY_A + BUCKY_B);
+			vec2 gno = tangentRP * gnoScale;
+
+			// Back-project: face center is on the unit sphere (rFace = 1.0 for Voronoi)
+			vec3 dir = normalize(N + gno.x * T1 + gno.y * T2);
+			dir = viewMatrix * rhombicPreRot * dir;
+
+			tcGrid = dirToEquirect(dir);
+			tc = dirToEquirectLeveled(dir);
+			col = mix(testPattern(dir), texture(equirect, tc).rgb, hasTexture);
+			col = applyGrid(col, tcGrid);
+		}
+
+		// ── Composite overlay ──
+		vec2 overlayUV = (uv - buckyBBox.xy) / (buckyBBox.zw - buckyBBox.xy);
+		overlayUV.y = 1.0 - overlayUV.y;
+		vec4 overlay = texture(buckyOverlay, overlayUV);
+		float isFlap = step(0.5, overlay.r);
+		float alphaScale = mix(buckyOverlayAlpha, 1.0, isFlap);
+		float oa = overlay.a * alphaScale;
+		col = col * (1.0 - oa) + overlay.rgb * alphaScale;
+
+		fragColor = vec4(col, 1.0);
+		return;
+	} else if (projection > 5.5) {
 		// ── Foldable Buckyball net (flat 2D layout) ──
 		//
 		// Renders all 32 faces of the truncated icosahedron as a flat 2D net.
@@ -2234,7 +2501,400 @@ void main() {
 
 			// Expose bounding box to outer scope for screenshot export clipping
 			window.buckyBBox = { x0: bbX0, y0: bbY0, x1: bbX1, y1: bbY1 };
+
+			// ── Store data for mode-switching re-upload ──
+			window._bucky32Data = data;
+			window._bucky32Scale = scale;
+			window._bucky32BBox = [bbX0, bbY0, bbX1, bbY1];
+			window._bucky32OverlayTex = overlayTex;
 		})();
+
+		// ── Compute rhombic triacontahedron flat net layout (30 golden rhombi) ──
+		// Classic zone unfolding: 6 zigzag strips of 5 rhombi each.
+		// Each strip corresponds to one of the 6 zones (equatorial bands) of
+		// the zonohedron.  No BFS needed — the layout is fully deterministic.
+		// Reference: paulbourke.net/geometry/Rhombic_triacontahedron/
+		(function uploadRhombicNet() {
+			const PHI = (1 + Math.sqrt(5)) / 2;
+			const iA = 1 / Math.sqrt(1 + PHI * PHI);  // short half-diagonal ≈ 0.5257
+			const iB = PHI * iA;                        // long half-diagonal  ≈ 0.8507
+			const INRADIUS = iA * iB;                   // 1/√5 ≈ 0.4472
+
+			// ── 3D vector math utilities ──
+			function dot3(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+			function cross3(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
+			function norm3(v) { const l = Math.sqrt(dot3(v, v)); return [v[0] / l, v[1] / l, v[2] / l]; }
+			function scale3(v, s) { return [v[0] * s, v[1] * s, v[2] * s]; }
+			function sub3(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
+
+			// ── Icosahedron vertices (normalized) ──
+			const icoVerts = [];
+			for (const s1 of [1, -1])
+				for (const s2 of [1, -1]) {
+					icoVerts.push(norm3([0, s1, s2 * PHI]));
+					icoVerts.push(norm3([s1, s2 * PHI, 0]));
+					icoVerts.push(norm3([s2 * PHI, 0, s1]));
+				}
+
+			// ── Find 30 icosahedron edges (= 30 RT faces) ──
+			const threshold = 1 / Math.sqrt(5);
+			const edges = [];
+			for (let i = 0; i < 12; i++)
+				for (let j = i + 1; j < 12; j++)
+					if (Math.abs(dot3(icoVerts[i], icoVerts[j]) - threshold) < 0.01)
+						edges.push([i, j]);
+
+			// ── Face normals = edge midpoints, normalized ──
+			const c3 = edges.map(([i, j]) => {
+				const m = [icoVerts[i][0] + icoVerts[j][0], icoVerts[i][1] + icoVerts[j][1], icoVerts[i][2] + icoVerts[j][2]];
+				return norm3(m);
+			});
+
+			// ── Build tangent frames per face ──
+			const frames = [];
+			for (let i = 0; i < 30; i++) {
+				const N = c3[i];
+				let up = [0, 1, 0];
+				if (Math.abs(dot3(N, up)) > 0.9) up = [1, 0, 0];
+				const T1 = norm3(cross3(N, up));
+				const T2 = cross3(N, T1);
+				frames.push([T1, T2]);
+			}
+
+			// ── Face offsets: angle from T1 to the long diagonal (icos vertex direction) ──
+			const faceOffsets = [];
+			for (let fi = 0; fi < 30; fi++) {
+				const N = c3[fi], [T1, T2] = frames[fi];
+				const va = icoVerts[edges[fi][0]];
+				const proj = sub3(va, scale3(N, dot3(va, N)));
+				faceOffsets.push(Math.atan2(dot3(proj, T2), dot3(proj, T1)));
+			}
+
+			// ── Build adjacency ──
+			const vertexEdges = Array.from({ length: 12 }, () => []);
+			edges.forEach(([a, b], ei) => { vertexEdges[a].push(ei); vertexEdges[b].push(ei); });
+
+			function cyclicOrderEdges(vIdx, edgeList) {
+				const N = icoVerts[vIdx];
+				let up = [0, 1, 0];
+				if (Math.abs(dot3(N, up)) > 0.9) up = [1, 0, 0];
+				const T1 = norm3(cross3(N, up));
+				const T2 = cross3(N, T1);
+				const withAngle = edgeList.map(ei => {
+					const [a, b] = edges[ei];
+					const other = a === vIdx ? b : a;
+					const d = sub3(icoVerts[other], scale3(N, dot3(icoVerts[other], N)));
+					return { ei, angle: Math.atan2(dot3(d, T2), dot3(d, T1)) };
+				});
+				withAngle.sort((a, b) => a.angle - b.angle);
+				return withAngle.map(x => x.ei);
+			}
+
+			const adj = Array.from({ length: 30 }, () => []);
+			for (let v = 0; v < 12; v++) {
+				const ring = cyclicOrderEdges(v, vertexEdges[v]);
+				for (let k = 0; k < ring.length; k++) {
+					const ei = ring[k], ej = ring[(k + 1) % ring.length];
+					if (!adj[ei].includes(ej)) adj[ei].push(ej);
+					if (!adj[ej].includes(ei)) adj[ej].push(ei);
+				}
+			}
+
+			// ── Edge index: which of the 4 edges of face i faces toward face j ──
+			// The 4 rhombus edges have outward normals at angles π/2±PSI and
+			// 3π/2±PSI relative to the long diagonal.  These fall neatly into
+			// floor-based quadrants [0,π/2), [π/2,π), [π,3π/2), [3π/2,2π),
+			// so Math.floor(rel/(π/2)) gives the correct edge index.
+			// (Math.round would be wrong here: unlike the regular-polygon
+			// faces in buckyball-32, the rhombus edges are NOT evenly spaced.)
+			const PSI = Math.atan2(1, PHI);
+			const rhombVtx = [[iB, 0], [0, iA], [-iB, 0], [0, -iA]];
+			const edgeDirAngles = [Math.PI - PSI, Math.PI + PSI, -PSI, PSI];
+			function edgeIdx(i, j) {
+				const N = c3[i], [T1, T2] = frames[i];
+				const proj = sub3(c3[j], scale3(N, dot3(c3[j], N)));
+				const pn = norm3(proj);
+				let a = Math.atan2(dot3(pn, T2), dot3(pn, T1));
+				if (a < 0) a += 2 * Math.PI;
+				let rel = a - faceOffsets[i];
+				if (rel < 0) rel += 2 * Math.PI;
+				if (rel >= 2 * Math.PI) rel -= 2 * Math.PI;
+				return Math.floor(rel / (Math.PI / 2)) % 4;
+			}
+
+			// ══════════════════════════════════════════════════════════
+			// Half-flower chain: 10 groups of 3 faces (icosahedron
+			// vertices), alternating top/bottom, chained left→right
+			// ══════════════════════════════════════════════════════════
+
+			const placement = [
+				[0,-1],[7,0],[6,7],           // v1 (TOP)
+				[12,6],[15,12],[14,15],       // v3 (BOT)
+				[25,12],[21,25],[4,21],       // v7 (TOP)
+				[23,25],[29,23],[28,29],      // v11 (BOT)
+				[22,23],[20,22],[2,20],       // v5 (TOP)
+				[24,22],[19,24],[27,19],      // v10 (BOT)
+				[16,24],[10,16],[3,10],       // v6 (TOP)
+				[9,16],[17,9],[18,17],        // v4 (BOT)
+				[11,9],[5,11],[1,5],          // v2 (TOP)
+				[8,11],[13,8],[26,13]         // v8 (BOT)
+			];
+
+			const placed = new Array(30).fill(false);
+			const parent = new Array(30).fill(-1);
+			const res = new Array(30);
+
+			// Place root face
+			res[placement[0][0]] = { x: 0, y: 0, r: Math.PI / 2 };
+			placed[placement[0][0]] = true;
+
+			// Unfold spanning tree
+			for (let s = 1; s < placement.length; s++) {
+				const [fi, par] = placement[s];
+				const ki = edgeIdx(par, fi);
+				const kj = edgeIdx(fi, par);
+				const r2 = res[par].r + edgeDirAngles[ki] - edgeDirAngles[kj] + Math.PI;
+				const qi = (ki + 1) % 4;
+				const cr1 = Math.cos(res[par].r), sr1 = Math.sin(res[par].r);
+				const Qx = res[par].x + rhombVtx[qi][0] * cr1 - rhombVtx[qi][1] * sr1;
+				const Qy = res[par].y + rhombVtx[qi][0] * sr1 + rhombVtx[qi][1] * cr1;
+				const cr2 = Math.cos(r2), sr2 = Math.sin(r2);
+				res[fi] = {
+					x: Qx - (rhombVtx[kj][0] * cr2 - rhombVtx[kj][1] * sr2),
+					y: Qy - (rhombVtx[kj][0] * sr2 + rhombVtx[kj][1] * cr2),
+					r: r2
+				};
+				placed[fi] = true;
+				parent[fi] = par;
+			}
+
+			// Rotate net so flower centers align horizontally
+			const netAngle = -0.373726;
+			const cNA = Math.cos(netAngle), sNA = Math.sin(netAngle);
+			for (let i = 0; i < 30; i++) {
+				if (!placed[i]) continue;
+				const x = res[i].x, y = res[i].y;
+				res[i].x = x * cNA - y * sNA;
+				res[i].y = x * sNA + y * cNA;
+				res[i].r += netAngle;
+			}
+
+			// ── Fit bounding box (exact vertex extents) ──
+			let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
+			for (let i = 0; i < 30; i++) {
+				if (!placed[i]) continue;
+				for (const [lx, ly] of rhombVtx) {
+					const cr = Math.cos(res[i].r), sr = Math.sin(res[i].r);
+					const gx = res[i].x + lx * cr - ly * sr;
+					const gy = res[i].y + lx * sr + ly * cr;
+					mnX = Math.min(mnX, gx); mxX = Math.max(mxX, gx);
+					mnY = Math.min(mnY, gy); mxY = Math.max(mxY, gy);
+				}
+			}
+			if ((mxY - mnY) > (mxX - mnX)) {
+				for (let i = 0; i < 30; i++) {
+					if (!placed[i]) continue;
+					const x = res[i].x, y = res[i].y;
+					res[i].x = -y; res[i].y = x; res[i].r += Math.PI / 2;
+				}
+				const tmpMnX = mnX, tmpMxX = mxX;
+				mnX = -mxY; mxX = -mnY; mnY = tmpMnX; mxY = tmpMxX;
+			}
+
+			const cx = (mnX + mxX) / 2, cy = (mnY + mxY) / 2;
+			const scale = (mxY - mnY) / 2 / 0.95;
+
+			// ── Pack uniform data (reuse buckyNet[32], elements 0–29) ──
+			const data = new Float32Array(32 * 4);
+			for (let i = 0; i < 30; i++) {
+				if (!placed[i]) { data[i * 4] = 9.0; data[i * 4 + 1] = 9.0; continue; }
+				data[i * 4] = (res[i].x - cx) / scale;
+				data[i * 4 + 1] = (res[i].y - cy) / scale;
+				data[i * 4 + 2] = res[i].r;
+				data[i * 4 + 3] = faceOffsets[i];
+			}
+			data[30 * 4] = 9.0; data[30 * 4 + 1] = 9.0;
+			data[31 * 4] = 9.0; data[31 * 4 + 1] = 9.0;
+
+			// ── Classify edges for overlay ──
+			const edgeNeighbor = [];
+			for (let i = 0; i < 30; i++) {
+				edgeNeighbor.push(new Array(4).fill(null));
+				if (!placed[i]) continue;
+				for (const j of adj[i]) {
+					const k = edgeIdx(i, j);
+					const isInternal = placed[j] && (parent[j] === i || parent[i] === j);
+					edgeNeighbor[i][k] = { j, isInternal };
+				}
+			}
+
+			// Compute rhombus vertices for drawing (4 vertices per face)
+			function rhombVerts(fx, fy, rot) {
+				const haS = iB / scale, hbS = iA / scale;
+				const localVerts = [[haS, 0], [0, hbS], [-haS, 0], [0, -hbS]];
+				const cr = Math.cos(rot), sr = Math.sin(rot);
+				return localVerts.map(([lx, ly]) => [fx + lx * cr - ly * sr, fy + lx * sr + ly * cr]);
+			}
+
+			// Bounding box for overlay (exact rotated vertices)
+			let bbX0 = Infinity, bbX1 = -Infinity, bbY0 = Infinity, bbY1 = -Infinity;
+			for (let i = 0; i < 30; i++) {
+				if (!placed[i]) continue;
+				const fx = data[i * 4], fy = data[i * 4 + 1], fr = data[i * 4 + 2];
+				const cosR = Math.cos(fr), sinR = Math.sin(fr);
+				for (const [lx, ly] of rhombVtx) {
+					const vx = fx + (lx * cosR - ly * sinR) / scale;
+					const vy = fy + (lx * sinR + ly * cosR) / scale;
+					bbX0 = Math.min(bbX0, vx); bbX1 = Math.max(bbX1, vx);
+					bbY0 = Math.min(bbY0, vy); bbY1 = Math.max(bbY1, vy);
+				}
+			}
+			const bbPad = 0.02 + INRADIUS / scale * 0.35;
+			bbX0 -= bbPad; bbX1 += bbPad; bbY0 -= bbPad; bbY1 += bbPad;
+			const bbW = bbX1 - bbX0, bbH = bbY1 - bbY0;
+
+			// ── Render overlay canvas ──
+			const OVH = 2048, OVW = Math.round(OVH * bbW / bbH);
+			const oCanvas = document.createElement('canvas');
+			oCanvas.width = OVW; oCanvas.height = OVH;
+			const ctx = oCanvas.getContext('2d');
+			const ovSX = OVW / bbW, ovSY = OVH / bbH;
+			function ovX(x) { return (x - bbX0) * ovSX; }
+			function ovY(y) { return OVH - (y - bbY0) * ovSY; }
+			ctx.clearRect(0, 0, OVW, OVH);
+
+			// ── Draw glue tabs on boundary edges ──
+			const tabH = INRADIUS / scale * 0.3;
+			// Per-vertex insets: acute corners need more, obtuse corners less
+			const tabInsetAcute = INRADIUS * 0.3 * PHI;   // ~0.217
+			const tabInsetObtuse = INRADIUS * 0.3 / PHI;  // ~0.083
+
+			// Test if point (px,py) falls inside any placed rhombus except face idx
+			const haS = iB / scale, hbS = iA / scale;
+			function flapHitsAnyFace(px, py, excludeIdx) {
+				for (let f = 0; f < 30; f++) {
+					if (f === excludeIdx) continue;
+					const cr = Math.cos(-data[f * 4 + 2]), sr = Math.sin(-data[f * 4 + 2]);
+					const dx = px - data[f * 4], dy = py - data[f * 4 + 1];
+					if (Math.abs(dx * cr - dy * sr) / haS + Math.abs(dx * sr + dy * cr) / hbS < 1.0) return true;
+				}
+				return false;
+			}
+
+			ctx.save();
+			ctx.beginPath();
+			ctx.rect(0, 0, OVW, OVH);
+			for (let i = 0; i < 30; i++) {
+				if (!placed[i]) continue;
+				const verts = rhombVerts(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
+				ctx.moveTo(ovX(verts[0][0]), ovY(verts[0][1]));
+				for (let k = 1; k < 4; k++) ctx.lineTo(ovX(verts[k][0]), ovY(verts[k][1]));
+				ctx.closePath();
+			}
+			ctx.clip('evenodd');
+			ctx.fillStyle = 'rgba(255, 180, 200, 1.0)';
+			ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+			ctx.lineWidth = 1;
+			ctx.setLineDash([6, 4]);
+			const flipSet = new Set(['4-7','7-4','2-21','21-2','3-20','20-3','1-10','10-1','9-10','10-9','27-29','29-27','18-19','19-18','22-29','29-22','16-19','19-16','11-17','17-11']);
+			for (let i = 0; i < 30; i++) {
+				if (!placed[i]) continue;
+				const fx = data[i * 4], fy = data[i * 4 + 1];
+				const verts = rhombVerts(fx, fy, data[i * 4 + 2]);
+				for (let k = 0; k < 4; k++) {
+					const info = edgeNeighbor[i][k];
+					if (info && info.isInternal) continue;
+					// Dedup: normally smaller index draws; flipSet edges: larger index draws
+					const isFlipEdge = info && flipSet.has(i + '-' + info.j);
+					if (info && (isFlipEdge ? (info.j > i) : (info.j < i))) continue;
+					const v1 = verts[k], v2 = verts[(k + 1) % 4];
+					const emx = (v1[0] + v2[0]) / 2 - fx, emy = (v1[1] + v2[1]) / 2 - fy;
+					const eml = Math.sqrt(emx * emx + emy * emy);
+					let nx = emx / eml, ny = emy / eml;
+					// Flip flap direction if outward side overlaps another face
+					const probeCX = (v1[0] + v2[0]) / 2 + nx * tabH * 0.5;
+					const probeCY = (v1[1] + v2[1]) / 2 + ny * tabH * 0.5;
+					if (flapHitsAnyFace(probeCX, probeCY, i)) { nx = -nx; ny = -ny; }
+					const dx = v2[0] - v1[0], dy = v2[1] - v1[1];
+					// Angle-based insets: vertex k and (k+1)%4 alternate acute/obtuse
+					const ins1 = (k % 2 === 0) ? tabInsetAcute : tabInsetObtuse;
+					const ins2 = (k % 2 === 0) ? tabInsetObtuse : tabInsetAcute;
+					const o1x = v1[0] + nx * tabH + dx * ins1, o1y = v1[1] + ny * tabH + dy * ins1;
+					const o2x = v2[0] + nx * tabH - dx * ins2, o2y = v2[1] + ny * tabH - dy * ins2;
+					ctx.beginPath();
+					ctx.moveTo(ovX(v1[0]), ovY(v1[1]));
+					ctx.lineTo(ovX(o1x), ovY(o1y));
+					ctx.lineTo(ovX(o2x), ovY(o2y));
+					ctx.lineTo(ovX(v2[0]), ovY(v2[1]));
+					ctx.closePath();
+					ctx.fill(); ctx.stroke();
+				}
+			}
+			ctx.setLineDash([]);
+			ctx.restore();
+
+			// ── Draw rhombus edges ──
+			ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+			ctx.lineWidth = 1.5;
+			ctx.lineJoin = 'round';
+			for (let i = 0; i < 30; i++) {
+				if (!placed[i]) continue;
+				const verts = rhombVerts(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
+				ctx.beginPath();
+				ctx.moveTo(ovX(verts[0][0]), ovY(verts[0][1]));
+				for (let k = 1; k < 4; k++) ctx.lineTo(ovX(verts[k][0]), ovY(verts[k][1]));
+				ctx.closePath();
+				ctx.stroke();
+			}
+
+			// ── Upload overlay texture ──
+			const overlayTex = gl.createTexture();
+			gl.activeTexture(gl.TEXTURE1);
+			gl.bindTexture(gl.TEXTURE_2D, overlayTex);
+			gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, oCanvas);
+			gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+			gl.generateMipmap(gl.TEXTURE_2D);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+			// Store data for mode-switching re-upload
+			window._rhombic30Data = data;
+			window._rhombic30Scale = scale;
+			window._rhombic30BBox = [bbX0, bbY0, bbX1, bbY1];
+			window._rhombic30OverlayTex = overlayTex;
+		})();
+
+		// ── Upload the correct net layout data based on current projection mode ──
+		function uploadActiveNetData() {
+			const isRhombic = projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_RHOMBIC_PREVIEW;
+			const d = isRhombic ? window._rhombic30Data : window._bucky32Data;
+			const s = isRhombic ? window._rhombic30Scale : window._bucky32Scale;
+			const bb = isRhombic ? window._rhombic30BBox : window._bucky32BBox;
+			const tex = isRhombic ? window._rhombic30OverlayTex : window._bucky32OverlayTex;
+			if (!d) return;
+			gl.uniform4fv(uBuckyNet, d);
+			gl.uniform1f(uBuckyScale, s);
+			gl.uniform4f(uBuckyBBox, bb[0], bb[1], bb[2], bb[3]);
+			gl.activeTexture(gl.TEXTURE1);
+			gl.bindTexture(gl.TEXTURE_2D, tex);
+			window.buckyBBox = { x0: bb[0], y0: bb[1], x1: bb[2], y1: bb[3] };
+		}
+		// Initialize with buckyball-32 data (default mode is not foldable anyway).
+		// Can't call uploadActiveNetData() here because projectionModeIndex
+		// isn't declared yet — upload bucky-32 data directly instead.
+		{
+			const d = window._bucky32Data, s = window._bucky32Scale;
+			const bb = window._bucky32BBox, t = window._bucky32OverlayTex;
+			gl.uniform4fv(uBuckyNet, d);
+			gl.uniform1f(uBuckyScale, s);
+			gl.uniform4f(uBuckyBBox, bb[0], bb[1], bb[2], bb[3]);
+			gl.activeTexture(gl.TEXTURE1);
+			gl.bindTexture(gl.TEXTURE_2D, t);
+			window.buckyBBox = { x0: bb[0], y0: bb[1], x1: bb[2], y1: bb[3] };
+		}
 
 		// Placeholder texture (1×1 black)
 		const tex = gl.createTexture();
@@ -2337,14 +2997,20 @@ void main() {
 		// Controls which panorama content appears on each face.
 		// Also used in preview mode (M_PREVIEW) via previewMatrix uniform.
 		let foldable32facesQuat = [0, 0, 0, 1];
+		// Quaternion for the rhombic-30 foldable net (M_RHOMBIC_FOLDABLE).
+		let foldable30facesQuat = [0, 0, 0, 1];
 
 		// Return the "active" quaternion for the current projection mode.
 		function activeQuat() {
 			if (projectionModeIndex === M_FOLDABLE) return foldable32facesQuat;
+			if (projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_RHOMBIC_PREVIEW) return foldable30facesQuat;
+			if (projectionModeIndex === M_PREVIEW) return foldable32facesQuat;
 			return camQuat;
 		}
 		function setActiveQuat(q) {
 			if (projectionModeIndex === M_FOLDABLE) { foldable32facesQuat = q; return; }
+			if (projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_RHOMBIC_PREVIEW) { foldable30facesQuat = q; return; }
+			if (projectionModeIndex === M_PREVIEW) { foldable32facesQuat = q; return; }
 			camQuat = q;
 		}
 
@@ -2399,7 +3065,7 @@ void main() {
 		function requestRedraw() { needsRedraw = true; }
 
 		// Projection modes as array for cycling
-		const projectionModes = ['equirectangular', 'perspective', 'buckyball-32 preview', 'azimuthal', 'azimuthal collage', 'stereographic', 'buckyball-32 foldable'];
+		const projectionModes = ['equirectangular', 'perspective', 'buckyball-32 preview', 'azimuthal', 'azimuthal collage', 'stereographic', 'buckyball-32 foldable', 'rhombic-30 foldable', 'rhombic-30 preview'];
 		// Mode index constants — derived from array order so reordering "just works" in JS.
 		// The GLSL shader uses these as float uniform `projection` with cascading > N.5 checks;
 		// if you reorder the array, reorder the shader cascade to match.
@@ -2410,6 +3076,8 @@ void main() {
 		const M_STEREO    = projectionModes.indexOf('stereographic');
 		const M_PREVIEW   = projectionModes.indexOf('buckyball-32 preview');
 		const M_FOLDABLE  = projectionModes.indexOf('buckyball-32 foldable');
+		const M_RHOMBIC_FOLDABLE = projectionModes.indexOf('rhombic-30 foldable');
+		const M_RHOMBIC_PREVIEW = projectionModes.indexOf('rhombic-30 preview');
 		let projectionModeIndex = M_STEREO;
 
 		// Collage parameters
@@ -2611,16 +3279,16 @@ void main() {
 		function updateLevelSliders() {
 			const e = quatToEulerDeg(levelQuat);
 			levelYawIn.value = e.yaw.toFixed(1);
-			levelPitchIn.value = e.pitch.toFixed(1);
-			levelRollIn.value = e.roll.toFixed(1);
+			levelPitchIn.value = e.roll.toFixed(1);
+			levelRollIn.value = e.pitch.toFixed(1);
 			levelYawVal.textContent = e.yaw.toFixed(1) + '°';
-			levelPitchVal.textContent = e.pitch.toFixed(1) + '°';
-			levelRollVal.textContent = e.roll.toFixed(1) + '°';
+			levelPitchVal.textContent = e.roll.toFixed(1) + '°';
+			levelRollVal.textContent = e.pitch.toFixed(1) + '°';
 		}
 		function onLevelAngleInput() {
 			const yaw = +levelYawIn.value * Math.PI / 180;
-			const pitch = +levelPitchIn.value * Math.PI / 180;
-			const roll = +levelRollIn.value * Math.PI / 180;
+			const pitch = +levelRollIn.value * Math.PI / 180;
+			const roll = +levelPitchIn.value * Math.PI / 180;
 			let q = [0, 0, 0, 1];
 			q = quatMul(quatFromAxisAngle(0, 1, 0, yaw), q);
 			q = quatMul(q, quatFromAxisAngle(1, 0, 0, pitch));
@@ -2742,18 +3410,24 @@ void main() {
 			const isStereo = projectionModeIndex === M_STEREO;
 			const isBucky = projectionModeIndex === M_FOLDABLE;
 			const isBuckyPreview = projectionModeIndex === M_PREVIEW;
-			fovRow.style.display = (isPerspective || isBuckyPreview) ? 'contents' : 'none';
+			const isRhombic = projectionModeIndex === M_RHOMBIC_FOLDABLE;
+			const isRhombicPreview = projectionModeIndex === M_RHOMBIC_PREVIEW;
+			const isFoldable = isBucky || isRhombic;
+			const isAnyPreview = isBuckyPreview || isRhombicPreview;
+			fovRow.style.display = (isPerspective || isAnyPreview) ? 'contents' : 'none';
 			minecraftRow.style.display = (isStereo || isPerspective) ? 'contents' : 'none';
 			azimuthalRow.style.display = (isAzimuthal || isCollage) ? 'contents' : 'none';
 			azimuthalZoomRow.style.display = (isAzimuthal || isCollage || isStereo) ? 'contents' : 'none';
 			collageRow.style.display = isCollage ? 'contents' : 'none';
 			collageRotationRow.style.display = isCollage ? 'contents' : 'none';
 			stereographicRow.style.display = isStereo ? 'contents' : 'none';
-			netRow.style.display = (isBucky || isBuckyPreview) ? 'contents' : 'none';
-			facesRow.style.display = isBuckyPreview ? 'contents' : 'none';
-			globeRow.style.display = (isBucky || isBuckyPreview || isAzimuthal || isCollage || isStereo) ? 'none' : '';
-			magnifierGroup.style.display = (isBucky || isBuckyPreview) ? 'none' : '';
+			netRow.style.display = (isFoldable || isAnyPreview) ? 'contents' : 'none';
+			facesRow.style.display = isAnyPreview ? 'contents' : 'none';
+			globeRow.style.display = (isFoldable || isAnyPreview || isAzimuthal || isCollage || isStereo) ? 'none' : '';
+			magnifierGroup.style.display = (isFoldable || isAnyPreview) ? 'none' : '';
 			if (screenshotRow) screenshotRow.style.display = hasTexture ? '' : 'none';
+			// Swap net overlay data when switching between foldable modes
+			if (isFoldable || isAnyPreview) uploadActiveNetData();
 		}
 		projectionSelect.value = projectionModes[projectionModeIndex];
 		updateProjectionUI();
@@ -2768,11 +3442,15 @@ void main() {
 		});
 
 		function viewMatrix() {
-			const q = projectionModeIndex === M_FOLDABLE ? foldable32facesQuat : camQuat;
+			const q = projectionModeIndex === M_FOLDABLE ? foldable32facesQuat
+				: projectionModeIndex === M_RHOMBIC_FOLDABLE ? foldable30facesQuat
+				: camQuat;
 			return quatToMat3(quatNormalize(quatMul(camQuatOffset, q)));
 		}
 		function previewMatrix() {
-			return quatToMat3(quatNormalize(foldable32facesQuat));
+			const q = (projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_RHOMBIC_FOLDABLE)
+				? foldable30facesQuat : foldable32facesQuat;
+			return quatToMat3(quatNormalize(q));
 		}
 		function levelMatrix() {
 			return quatToMat3(quatNormalize(levelQuat));
@@ -2894,11 +3572,11 @@ void main() {
 				const rd2 = -sinT * Math.cos(angle);
 			return [rd0, rd2, -rd1]; // pre-rotation P=+90° (optical axis Y→Z)
 			}
-			if (projectionModeIndex === M_PERSP || projectionModeIndex === M_PREVIEW) {
-				// Perspective / buckyball-32 preview: same ray construction
+			if (projectionModeIndex === M_PERSP || projectionModeIndex === M_PREVIEW || projectionModeIndex === M_RHOMBIC_PREVIEW) {
+				// Perspective / preview: same ray construction
 				return screenToPerspDir(cx, cy);
 			}
-			if (projectionModeIndex === M_FOLDABLE) {
+			if (projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE) {
 				// Foldable: use equirectangular-style mouse mapping
 				let eqU = fragX / resX;
 				let eqV = fragY / resY;
@@ -2950,7 +3628,9 @@ void main() {
 		function screenToWorldDir(cx, cy) {
 			const local = screenToLocalDir(cx, cy);
 			if (!local) return null;
-			const q = projectionModeIndex === M_FOLDABLE ? foldable32facesQuat : camQuat;
+			const q = projectionModeIndex === M_FOLDABLE ? foldable32facesQuat
+				: (projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_RHOMBIC_PREVIEW) ? foldable30facesQuat
+				: camQuat;
 			const viewQ = quatNormalize(quatMul(camQuatOffset, q));
 			return quatRotVec(viewQ, local);
 		}
@@ -3079,18 +3759,38 @@ void main() {
 			set(v) { globeSize = v; }
 		});
 
+		let _previewDragBg = false;
+		function isPreviewMode() {
+			return projectionModeIndex === M_PREVIEW || projectionModeIndex === M_RHOMBIC_PREVIEW;
+		}
+		// Conjugate a view-space rotation q into faces-quat space:
+		// camQuat · q · camQuat⁻¹
+		function viewToFacesRot(q) {
+			const ci = [-camQuat[0], -camQuat[1], -camQuat[2], camQuat[3]];
+			return quatNormalize(quatMul(camQuat, quatMul(q, ci)));
+		}
 		canvas.addEventListener('pointerdown', e => {
 			dragging = true; lastX = e.clientX; lastY = e.clientY;
 			_clickStartX = e.clientX; _clickStartY = e.clientY;
-			flyAnim = null; // cancel fly-to on new drag
+			flyAnim = null;
 			canvas.setPointerCapture(e.pointerId);
-			// Snapshot for pixel-locked drag
 			dragStartDir = screenToLocalDir(e.clientX, e.clientY);
 			dragStartWorldDir = screenToWorldDir(e.clientX, e.clientY);
 			dragStartQuat = levelMode ? Array.from(levelQuat) : Array.from(activeQuat());
+			// Preview: circle test separates ball drag from background drag
+			_previewDragBg = false;
+			if (!levelMode && isPreviewMode()) {
+				const camDist = 2.5;
+				const rPx = canvas.clientHeight / 2 / (Math.sqrt(camDist * camDist - 1.0) * Math.tan(fovDeg * Math.PI / 360));
+				const dx = e.clientX - canvas.clientWidth / 2;
+				const dy = e.clientY - canvas.clientHeight / 2;
+				if (dx * dx + dy * dy > rPx * rPx) {
+					_previewDragBg = true;
+					dragStartQuat = Array.from(camQuat);
+				}
+			}
 		});
 		canvas.addEventListener('pointermove', e => {
-			// Always update magnifier pointer
 			pointerX = e.clientX / canvas.clientWidth;
 			pointerY = 1.0 - e.clientY / canvas.clientHeight;
 			if (magnifierEnabled || dragging) needsRedraw = true;
@@ -3098,25 +3798,21 @@ void main() {
 			if (!dragging) return;
 			if (levelMode) {
 				if (e.shiftKey) {
-					// Roll: Shift + drag horizontal (delta-based)
 					const dx = e.clientX - lastX;
 					lastX = e.clientX; lastY = e.clientY;
 					if (dx !== 0) {
 						const qr = quatFromAxisAngle(0, 0, 1, dx * 0.003);
 						levelQuat = quatNormalize(quatMul(qr, levelQuat));
 					}
-					// Re-anchor after roll
 					dragStartWorldDir = screenToWorldDir(e.clientX, e.clientY);
 					dragStartQuat = Array.from(levelQuat);
 				} else {
 					// Pixel-locked: adjust levelQuat so the grabbed texture pixel stays under cursor
 					const worldNow = screenToWorldDir(e.clientX, e.clientY);
 					if (dragStartWorldDir && worldNow) {
-						// levelQuat_new = levelQuat_start · rot(worldNow → worldStart)
 						const qRot = quatFromTwoVectors(worldNow, dragStartWorldDir);
 						levelQuat = quatNormalize(quatMul(dragStartQuat, qRot));
 					} else {
-						// Fallback: delta-based
 						const dx = e.clientX - lastX;
 						const dy = e.clientY - lastY;
 						lastX = e.clientX; lastY = e.clientY;
@@ -3135,26 +3831,45 @@ void main() {
 				isLeveled = true;
 				return;
 			}
+			const previewBall = !_previewDragBg && isPreviewMode();
 			if (e.shiftKey) {
-				// Roll: Shift + drag horizontal (delta-based)
+				// Roll: Shift + horizontal drag
 				const dx = e.clientX - lastX;
 				lastX = e.clientX; lastY = e.clientY;
-				if (dx !== 0) rotateRoll(dx * 0.003);
-				// Invalidate pixel-lock anchor after roll changes orientation
+				if (dx !== 0) {
+					const qr = quatFromAxisAngle(0, 0, 1, dx * 0.003);
+					if (_previewDragBg) {
+						camQuat = quatNormalize(quatMul(camQuat, qr));
+					} else if (previewBall) {
+						setActiveQuat(quatNormalize(quatMul(viewToFacesRot(qr), activeQuat())));
+					} else {
+						rotateRoll(dx * 0.003);
+					}
+				}
 				dragStartDir = screenToLocalDir(e.clientX, e.clientY);
-				dragStartQuat = Array.from(activeQuat());
+				dragStartQuat = _previewDragBg ? Array.from(camQuat) : Array.from(activeQuat());
 				updateCamSliders();
+				if (previewBall) updateFacesSliders();
 				return;
 			}
 			const dirNow = screenToLocalDir(e.clientX, e.clientY);
 			if (dragStartDir && dirNow) {
-				// Pixel-locked: rotate so the grabbed direction stays under cursor.
-				// Q_rot maps dirNow → dragStartDir in local space, then
-				// quat_new = quat_start · Q_rot keeps the world point fixed.
-				const qRot = quatFromTwoVectors(dirNow, dragStartDir);
-				setActiveQuat(quatNormalize(quatMul(dragStartQuat, qRot)));
+				if (previewBall) {
+					// Ball surface follows cursor: conjugate view-space rotation
+					// into faces-quat space via camQuat
+					const q = quatFromTwoVectors(dragStartDir, dirNow);
+					setActiveQuat(quatNormalize(quatMul(viewToFacesRot(q), dragStartQuat)));
+				} else {
+					// Background / other projections: pixel-locked rotation
+					const qRot = quatFromTwoVectors(dirNow, dragStartDir);
+					if (_previewDragBg) {
+						camQuat = quatNormalize(quatMul(dragStartQuat, qRot));
+					} else {
+						setActiveQuat(quatNormalize(quatMul(dragStartQuat, qRot)));
+					}
+				}
 			} else {
-				// Fallback (preview / foldable / perspective): delta-based
+				// Delta-based (non-pixel-lockable projections)
 				const dx = e.clientX - lastX;
 				const dy = e.clientY - lastY;
 				lastX = e.clientX; lastY = e.clientY;
@@ -3163,10 +3878,11 @@ void main() {
 				if (dy !== 0) rotatePitch(dy * sensitivity);
 			}
 			updateCamSliders();
+			if (previewBall) updateFacesSliders();
 		});
 		canvas.addEventListener('pointerup', e => {
 			const wasDrag = Math.hypot(e.clientX - _clickStartX, e.clientY - _clickStartY) > 4;
-			dragging = false; dragStartDir = null; dragStartWorldDir = null; dragStartQuat = null;
+			dragging = false; dragStartDir = null; dragStartWorldDir = null; dragStartQuat = null; _previewDragBg = false;
 			updateCamSliders();
 			saveProjectionConfig();
 			if (!wasDrag && videoActive) {
@@ -3185,8 +3901,8 @@ void main() {
 				return;
 			}
 			if (projectionModeIndex !== M_EQUIRECT) {
-				// Perspective / buckyball preview: FOV zoom
-				if (projectionModeIndex === M_FOLDABLE) return;
+				// Perspective / preview: FOV zoom
+				if (projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE) return;
 				fovDeg = Math.max(20, Math.min(170, fovDeg + e.deltaY * 0.05));
 				fovSlider.value = fovDeg;
 				fovVal.textContent = Math.round(fovDeg) + '°';
@@ -3229,7 +3945,9 @@ void main() {
 				const worldDir = screenToWorldDir(e.clientX, e.clientY);
 				if (!worldDir) return;
 				// Center = screenToWorldDir at screen center = viewQ * [0,0,-1]
-				const q = projectionModeIndex === M_FOLDABLE ? foldable32facesQuat : camQuat;
+				const q = projectionModeIndex === M_FOLDABLE ? foldable32facesQuat
+					: (projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_RHOMBIC_PREVIEW) ? foldable30facesQuat
+					: camQuat;
 				const viewQ = quatNormalize(quatMul(camQuatOffset, q));
 				const centerWorld = quatRotVec(viewQ, [0, 0, -1]);
 				// Rotation that maps centerWorld → worldDir (post-multiply, analogous to drag pixel-lock)
@@ -3355,7 +4073,7 @@ void main() {
 			sl.addEventListener('dblclick', () => { sl.value = 0; onAngleInput(); });
 		});
 
-		// ── Face rotation sliders (foldable32facesQuat) ──
+		// ── Face rotation sliders (preview quaternions) ──
 		const facesYawIn = document.getElementById('faces-yaw');
 		const facesPitchIn = document.getElementById('faces-pitch');
 		const facesRollIn = document.getElementById('faces-roll');
@@ -3363,8 +4081,19 @@ void main() {
 		const facesPitchVal = document.getElementById('faces-pitch-val');
 		const facesRollVal = document.getElementById('faces-roll-val');
 
+		function activeFacesQuat() {
+			return (projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_RHOMBIC_FOLDABLE)
+				? foldable30facesQuat : foldable32facesQuat;
+		}
+		function setActiveFacesQuat(q) {
+			if (projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_RHOMBIC_FOLDABLE)
+				foldable30facesQuat = q;
+			else
+				foldable32facesQuat = q;
+		}
+
 		function updateFacesSliders() {
-			const e = quatToEulerDeg(foldable32facesQuat);
+			const e = quatToEulerDeg(activeFacesQuat());
 			facesYawIn.value = e.yaw.toFixed(1);
 			facesPitchIn.value = e.pitch.toFixed(1);
 			facesRollIn.value = e.roll.toFixed(1);
@@ -3376,7 +4105,7 @@ void main() {
 			const y = parseFloat(facesYawIn.value) || 0;
 			const p = parseFloat(facesPitchIn.value) || 0;
 			const r = parseFloat(facesRollIn.value) || 0;
-			foldable32facesQuat = quatFromEulerDeg(y, p, r);
+			setActiveFacesQuat(quatFromEulerDeg(y, p, r));
 			facesYawVal.textContent = y.toFixed(1) + '°';
 			facesPitchVal.textContent = p.toFixed(1) + '°';
 			facesRollVal.textContent = r.toFixed(1) + '°';
@@ -3530,6 +4259,7 @@ void main() {
 					tx.objectStore(DB_STORE).put({
 					camQuat: savedCamQuat,
 						foldable32facesQuat: [...foldable32facesQuat],
+						foldable30facesQuat: [...foldable30facesQuat],
 						levelQuat: [...levelQuat],
 						isLeveled,
 						fovDeg,
@@ -3569,6 +4299,7 @@ void main() {
 			if (!cfg) return;
 			if (cfg.camQuat && cfg.camQuat.length === 4) camQuat = cfg.camQuat;
 			if (cfg.foldable32facesQuat && cfg.foldable32facesQuat.length === 4) foldable32facesQuat = cfg.foldable32facesQuat;
+			if (cfg.foldable30facesQuat && cfg.foldable30facesQuat.length === 4) foldable30facesQuat = cfg.foldable30facesQuat;
 			if (cfg.levelQuat && cfg.levelQuat.length === 4) levelQuat = cfg.levelQuat;
 			if (typeof cfg.isLeveled === 'boolean') isLeveled = cfg.isLeveled;
 			if (typeof cfg.fovDeg === 'number') {
@@ -3834,8 +4565,8 @@ void main() {
 			const isAzimuthal = projectionModeIndex === M_AZIMUTHAL;
 			const isCollage = projectionModeIndex === M_COLLAGE;
 			const isStereo = projectionModeIndex === M_STEREO;
-			const isBuckyPreview = projectionModeIndex === M_PREVIEW;
-			const isBucky = projectionModeIndex === M_FOLDABLE;
+			const isBuckyPreview = projectionModeIndex === M_PREVIEW || projectionModeIndex === M_RHOMBIC_PREVIEW;
+			const isBucky = projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE;
 			let w, h;
 
 			if (isAzimuthal) {
