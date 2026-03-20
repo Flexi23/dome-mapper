@@ -472,10 +472,27 @@ Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png`.
 
 ```
 dome-mapper/
-├── index.html      # Self-contained viewer (HTML + GLSL + JS + Three.js joystick overlay)
-├── CHANGELOG.md    # Version history
-└── README.md       # This file
+├── index.html                    # Self-contained viewer (HTML + GLSL + JS + Three.js joystick overlay)
+├── buckyball-net-optimizer.html  # Interactive net layout editor for the truncated icosahedron
+├── CHANGELOG.md                  # Version history
+└── README.md                     # This file
 ```
+
+### Buckyball Net Optimizer
+
+A standalone single-file HTML tool (`buckyball-net-optimizer.html`) for interactively optimizing the flat net layout of the truncated icosahedron used by the Buckyball-32 Foldable projection mode.
+
+**Features:**
+- **Interactive reparenting** — click any face to reassign its parent in the unfolding tree; the net recomputes instantly
+- **Paper format presets** — predefined optimized layouts for DIN A, Letter, Legal, Tabloid, and B5 JIS paper aspect ratios
+- **Flip H / V** — mirror the net layout horizontally or vertically
+- **Auto-rotation optimization** — finds the rotation angle that maximizes page fill for the selected paper format
+- **Tree visualization** — displays the parent tree as a miniature graph; hover to preview subtree reparenting
+- **Ghost polygon preview** — shows where a face would land before committing a reparent
+- **Undo / Redo** — browser history-based undo/redo for all layout changes
+- **Copy / Paste** — exports the 32-element parent tree array to clipboard; paste to import any layout
+
+The tool uses Canvas 2D rendering (no WebGL) and operates entirely on the 2D net geometry — no panorama texture is involved. Optimized parent trees from this tool can be pasted into the main viewer's foldable mode.
 
 ---
 

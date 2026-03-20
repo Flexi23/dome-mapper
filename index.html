@@ -324,6 +324,21 @@
 			color: #8f8 !important;
 		}
 
+		#fullscreen-btn {
+			width: 100%;
+			padding: 4px 0 !important;
+			font-size: 12px !important;
+			border-radius: 4px !important;
+			color: #aac;
+			border: 1px solid #668;
+			background: #1a1a2a;
+			cursor: pointer;
+		}
+		#fullscreen-btn:hover {
+			background: #2a2a4a;
+			color: #ccf;
+		}
+
 		/* ── Custom checkbox toggle ── */
 		#controls input[type=checkbox] {
 			-webkit-appearance: none;
@@ -562,6 +577,7 @@
 		<table id="cached-files"></table>
 	</div>
 	<div id="controls">
+		<button id="fullscreen-btn" title="Toggle fullscreen">⛶ Fullscreen</button>
 		<div id="angles" class="slider-group hide-in-level-off">
 			<div class="group-label">Perspective <button id="level-btn"></button></div>
 			<div class="grid">
@@ -612,6 +628,8 @@
 					<option value="buckyball-32 foldable">buckyball-32 foldable</option>
 					<option value="rhombic-30 preview">rhombic-30 preview</option>
 					<option value="rhombic-30 foldable">rhombic-30 foldable</option>
+					<option value="truncoct-14 preview">truncoct-14 preview</option>
+					<option value="truncoct-14 foldable">truncoct-14 foldable</option>
 				</select>
 				<span id="minecraft-row" class="span hide-in-level-off" style="display:contents">
 					<span>Pixelate</span> <input type="range" id="minecraft-slider" min="0" max="100" value="100" step="1"> <span class="val" id="minecraft-val">100%</span>
@@ -864,6 +882,43 @@ const vec3 rhombicFaces[30] = vec3[30](
 	vec3(-RHOMB_C2, -RHOMB_C1, -RHOMB_C3)   // face 29
 );
 
+// ── Truncated octahedron face centers (14 faces: 8 hexagons + 6 squares) ──
+// Vertices are even permutations of (0, ±1, ±2); edge length = √2, circumradius = √5.
+// Face centers normalized to unit sphere.
+// Indices 0–7: hexagonal faces (cube corner directions)
+// Indices 8–13: square faces (axis-aligned directions)
+const float TO_INV_SQRT3 = 0.5773502692;  // 1/√3
+
+// Face inradius on the unit sphere (plane distance from origin)
+const float RFACE_TO_HEX = 0.7745966692;  // √3/√5  (hexagonal faces)
+const float RFACE_TO_SQ  = 0.8944271910;  // 2/√5   (square faces)
+
+// Pre-rotation for truncated octahedron texture: Rx(45°) · Rz(−110°)
+const mat3 truncOctPreRot = mat3(
+	-0.34202014, -0.66446302, -0.66446302,  // column 0
+	 0.93969262, -0.24184476, -0.24184476,  // column 1
+	 0.0,        -0.70710678,  0.70710678   // column 2
+);
+
+const vec3 truncOctFaces[14] = vec3[14](
+	// 8 hexagon centers (indices 0–7) — cube vertex directions
+	vec3( TO_INV_SQRT3,  TO_INV_SQRT3,  TO_INV_SQRT3),  // face  0
+	vec3( TO_INV_SQRT3,  TO_INV_SQRT3, -TO_INV_SQRT3),  // face  1
+	vec3( TO_INV_SQRT3, -TO_INV_SQRT3,  TO_INV_SQRT3),  // face  2
+	vec3( TO_INV_SQRT3, -TO_INV_SQRT3, -TO_INV_SQRT3),  // face  3
+	vec3(-TO_INV_SQRT3,  TO_INV_SQRT3,  TO_INV_SQRT3),  // face  4
+	vec3(-TO_INV_SQRT3,  TO_INV_SQRT3, -TO_INV_SQRT3),  // face  5
+	vec3(-TO_INV_SQRT3, -TO_INV_SQRT3,  TO_INV_SQRT3),  // face  6
+	vec3(-TO_INV_SQRT3, -TO_INV_SQRT3, -TO_INV_SQRT3),  // face  7
+	// 6 square centers (indices 8–13) — axis-aligned directions
+	vec3( 1.0,  0.0,  0.0),   // face  8  (+X)
+	vec3(-1.0,  0.0,  0.0),   // face  9  (−X)
+	vec3( 0.0,  1.0,  0.0),   // face 10  (+Y)
+	vec3( 0.0, -1.0,  0.0),   // face 11  (−Y)
+	vec3( 0.0,  0.0,  1.0),   // face 12  (+Z)
+	vec3( 0.0,  0.0, -1.0)    // face 13  (−Z)
+);
+
 // Spherical Voronoi of buckyball face centers.
 //
 // Partitions the unit sphere into 32 regions (12 pentagons + 20 hexagons)
@@ -1109,7 +1164,199 @@ void main() {
 
 	// Projection cascade — threshold N.5 selects mode index N.
 	// Keep in sync with JS projectionModes array & M_* constants.
-	if (projection > 7.5) {
+	if (projection > 9.5) {
+		// ── Truncated octahedron preview (SDF-raymarched, 14 faces) ──
+
+		vec2 uv = lensUV;
+		uv.x *= aspect;
+		float halfFov = fov * 0.5;
+		float scl = tan(halfFov);
+
+		vec3 rdLocal = normalize(vec3(-uv.x * scl, uv.y * scl, -1.0));
+
+		const mat3 camQuatOffsetMat = mat3(
+			0.0, 0.0, 1.0,
+			0.0, 1.0, 0.0,
+		   -1.0, 0.0, 0.0
+		);
+		mat3 worldRot = camQuatOffsetMat * previewMatrix * truncOctPreRot;
+		vec3 vFaces[14];
+		float vRFace[14];
+		for (int i = 0; i < 14; i++) {
+			vFaces[i] = transpose(viewMatrix) * worldRot * truncOctFaces[i];
+			vRFace[i] = i < 8 ? RFACE_TO_HEX : RFACE_TO_SQ;
+		}
+
+		float camDist = 2.5;
+		vec3 eye = vec3(0.0, 0.0, camDist);
+		vec3 rdW = rdLocal;
+
+		float bSph = dot(eye, rdW);
+		float cSph = dot(eye, eye) - 1.04;
+		float discSph = bSph * bSph - cSph;
+
+		vec3 perspDir = viewMatrix * rdLocal;
+		vec2 bgTC = dirToEquirectLeveled(perspDir);
+		vec3 bgCol = mix(testPattern(perspDir), texture(equirect, bgTC).rgb, hasTexture);
+		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
+
+		// Project wireframe onto background
+		{
+			vec3 bgDir = normalize(rdLocal);
+			float bgMaxD = -1e9, bgSecD = -1e9;
+			for (int i = 0; i < 14; i++) {
+				float di = dot(bgDir, vFaces[i]) - vRFace[i];
+				if (di > bgMaxD) { bgSecD = bgMaxD; bgMaxD = di; }
+				else if (di > bgSecD) { bgSecD = di; }
+			}
+			float bgEdgeDist = bgMaxD - bgSecD;
+			float bgEdgeW = 0.003;
+			float bgEdgeLine = smoothstep(bgEdgeW * 0.15, bgEdgeW, bgEdgeDist);
+			bgEdgeLine = mix(1.0, bgEdgeLine, buckyOverlayAlpha);
+			bgCol = mix(vec3(0.06), bgCol, bgEdgeLine);
+		}
+
+		if (discSph < 0.0) { fragColor = vec4(bgCol, 1.0); return; }
+		float t = max(0.0, -bSph - sqrt(discSph));
+		float tMax = -bSph + sqrt(discSph);
+
+		// Sphere-trace the truncated octahedron SDF
+		bool hit = false;
+		for (int step = 0; step < 80; step++) {
+			vec3 p = eye + t * rdW;
+			float d = -1e9;
+			for (int i = 0; i < 14; i++) {
+				d = max(d, dot(p, vFaces[i]) - vRFace[i]);
+			}
+			if (d < 0.0004) { hit = true; break; }
+			t += d;
+			if (t > tMax) break;
+		}
+
+		if (!hit) { fragColor = vec4(bgCol, 1.0); return; }
+
+		vec3 hitPos = eye + t * rdW;
+
+		float maxD = -1e9, secD = -1e9;
+		int bestI = 0, secI = 0;
+		for (int i = 0; i < 14; i++) {
+			float di = dot(hitPos, vFaces[i]) - vRFace[i];
+			if (di > maxD) { secD = maxD; secI = bestI; maxD = di; bestI = i; }
+			else if (di > secD) { secD = di; secI = i; }
+		}
+
+		vec3 faceN = vFaces[bestI];
+		float edgeDist = maxD - secD;
+		float bevelZone = 0.016;
+		float bevel = smoothstep(bevelZone, 0.0, edgeDist);
+		vec3 secN = vFaces[secI];
+		vec3 normal = normalize(mix(faceN, faceN + secN, bevel * 0.45));
+
+		vec3 objDir = normalize(hitPos);
+		vec3 texDir = viewMatrix * objDir;
+		tcGrid = dirToEquirect(texDir);
+		tc = dirToEquirectLeveled(texDir);
+		vec3 col = mix(testPattern(texDir), texture(equirect, tc).rgb, hasTexture);
+		col = applyGrid(col, tcGrid);
+
+		float edgeW = 0.0025;
+		float edgeLine = smoothstep(edgeW * 0.15, edgeW, edgeDist);
+		edgeLine = mix(1.0, edgeLine, buckyOverlayAlpha);
+		col = mix(vec3(0.06), col, edgeLine);
+
+		vec3 V = normalize(eye - hitPos);
+		vec3 L = normalize(vec3(0.4, 0.9, 0.7));
+		float NdotL = max(0.0, dot(normal, L));
+		float NdotV = max(0.0, dot(normal, V));
+		float diff = NdotL * 0.4 + 0.6;
+		col *= diff;
+		vec3 H = normalize(L + V);
+		float spec = pow(max(0.0, dot(normal, H)), 60.0);
+		col += vec3(0.18) * spec;
+		float rim = pow(1.0 - NdotV, 3.5);
+		col += vec3(0.07, 0.09, 0.14) * rim;
+
+		fragColor = vec4(col, 1.0);
+		return;
+	} else if (projection > 8.5) {
+		// ── Foldable truncated octahedron net (flat 2D layout, 14 faces) ──
+		//
+		// 8 hexagons (n=6) + 6 squares (n=4).
+		// Point-in-regular-polygon test + gnomonic back-projection.
+
+		vec2 uv = screenUV;
+		uv.x *= aspect;
+		float bbHalfW = max(abs(buckyBBox.x), abs(buckyBBox.z));
+		float bbHalfH = max(abs(buckyBBox.y), abs(buckyBBox.w));
+		float fitScale = max(bbHalfW / aspect, bbHalfH);
+		uv *= fitScale;
+
+		float invS = 1.0 / buckyScale;
+		float insideAny = 0.0;
+		int bestI = 0;
+		float bestDist = 1e9;
+		vec2 bestRP = vec2(0.0);
+
+		for (int i = 0; i < 14; i++) {
+			vec2 ctr = buckyNet[i].xy;
+			float rot = buckyNet[i].z;
+			float n = (i < 8) ? 6.0 : 4.0;
+			float an = PI / n;
+			float ap = invS / (2.0 * tan(an));
+			vec2 p = uv - ctr;
+			float cs = cos(-rot), sn = sin(-rot);
+			vec2 rp = vec2(p.x*cs - p.y*sn, p.x*sn + p.y*cs);
+			float a = mod(atan(rp.y, rp.x) + an, 2.0 * an) - an;
+			float d = length(rp) * cos(a) - ap;
+			if (d < 0.0) {
+				float cd = length(p);
+				if (cd < bestDist) {
+					bestDist = cd;
+					bestI = i;
+					bestRP = rp;
+					insideAny = 1.0;
+				}
+			}
+		}
+
+		vec3 col = vec3(1.0);
+
+		if (insideAny > 0.5) {
+			vec3 N = truncOctFaces[bestI];
+			float faceOffset = buckyNet[bestI].w;
+			float rFace = bestI < 8 ? RFACE_TO_HEX : RFACE_TO_SQ;
+			vec3 tUp = abs(N.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+			vec3 T1 = normalize(cross(N, tUp));
+			vec3 T2 = cross(N, T1);
+
+			float co = cos(faceOffset), so = sin(faceOffset);
+			vec2 alignedRP = vec2(bestRP.x*co - bestRP.y*so, bestRP.x*so + bestRP.y*co);
+
+			float gnoCircumR = sqrt(1.0 - rFace * rFace);
+			float nSides = (bestI < 8) ? 6.0 : 4.0;
+			float flatCircumR = 1.0 / (2.0 * sin(PI / nSides));
+			vec2 gno = alignedRP * buckyScale * (gnoCircumR / flatCircumR);
+
+			vec3 dir = normalize(rFace * N + gno.x * T1 + gno.y * T2);
+			dir = viewMatrix * truncOctPreRot * dir;
+
+			tcGrid = dirToEquirect(dir);
+			tc = dirToEquirectLeveled(dir);
+			col = mix(testPattern(dir), texture(equirect, tc).rgb, hasTexture);
+			col = applyGrid(col, tcGrid);
+		}
+
+		vec2 overlayUV = (uv - buckyBBox.xy) / (buckyBBox.zw - buckyBBox.xy);
+		overlayUV.y = 1.0 - overlayUV.y;
+		vec4 overlay = texture(buckyOverlay, overlayUV);
+		float isFlap = step(0.5, overlay.r);
+		float alphaScale = mix(buckyOverlayAlpha, 1.0, isFlap);
+		float oa = overlay.a * alphaScale;
+		col = col * (1.0 - oa) + overlay.rgb * alphaScale;
+
+		fragColor = vec4(col, 1.0);
+		return;
+	} else if (projection > 7.5) {
 		// ── Rhombic-30 preview (SDF-raymarched rhombic triacontahedron) ──
 		//
 		// Analogous to the buckyball preview: SDF sphere-trace of a 30-face
@@ -2867,13 +3114,383 @@ void main() {
 			window._rhombic30OverlayTex = overlayTex;
 		})();
 
+		// ── Compute truncated octahedron flat net layout (14 faces: 8 hex + 6 sq) ──
+		// BFS unfolding with overlap detection, same architecture as uploadBuckyNet().
+		(function uploadTruncOctNet() {
+			// Face centers on the unit sphere (must match GLSL truncOctFaces[14])
+			const INV_SQRT3 = 1 / Math.sqrt(3);
+			const c3 = [
+				// 8 hexagon centers (indices 0–7)
+				[INV_SQRT3, INV_SQRT3, INV_SQRT3], [INV_SQRT3, INV_SQRT3, -INV_SQRT3],
+				[INV_SQRT3, -INV_SQRT3, INV_SQRT3], [INV_SQRT3, -INV_SQRT3, -INV_SQRT3],
+				[-INV_SQRT3, INV_SQRT3, INV_SQRT3], [-INV_SQRT3, INV_SQRT3, -INV_SQRT3],
+				[-INV_SQRT3, -INV_SQRT3, INV_SQRT3], [-INV_SQRT3, -INV_SQRT3, -INV_SQRT3],
+				// 6 square centers (indices 8–13)
+				[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]
+			];
+			const nSides = i => i < 8 ? 6 : 4;
+
+			function dot3(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+			function cross3(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
+			function norm3(v) { const l = Math.sqrt(dot3(v, v)); return [v[0] / l, v[1] / l, v[2] / l]; }
+			function scale3(v, s) { return [v[0] * s, v[1] * s, v[2] * s]; }
+			function sub3(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
+
+			// Build adjacency (angular threshold: hex↔hex ≈ 70.5°≈1.23, hex↔sq ≈ 54.7°≈0.955)
+			const adj = Array.from({ length: 14 }, () => []);
+			for (let i = 0; i < 14; i++)
+				for (let j = i + 1; j < 14; j++) {
+					const d = Math.acos(Math.min(1, Math.max(-1, dot3(c3[i], c3[j]))));
+					if (d < 1.3) { adj[i].push(j); adj[j].push(i); }
+				}
+
+			// Build tangent frames
+			const frames = [];
+			for (let i = 0; i < 14; i++) {
+				const N = c3[i];
+				let up = [0, 1, 0];
+				if (Math.abs(dot3(N, up)) > 0.9) up = [1, 0, 0];
+				const T1 = norm3(cross3(N, up));
+				const T2 = cross3(N, T1);
+				frames.push([T1, T2]);
+			}
+
+			function edgeIdx(i, j) {
+				const N = c3[i], [T1, T2] = frames[i], M = c3[j];
+				const proj = sub3(M, scale3(N, dot3(M, N)));
+				const pn = norm3(proj);
+				let a = Math.atan2(dot3(pn, T2), dot3(pn, T1));
+				if (a < 0) a += 2 * Math.PI;
+				const n = nSides(i);
+				return Math.round(a * n / (2 * Math.PI) + 1e-10) % n;
+			}
+
+			const ap6 = Math.sqrt(3) / 2;
+			const ap4 = 0.5;
+			function ap(i) { return nSides(i) === 6 ? ap6 : ap4; }
+			function circumR(i) { return nSides(i) === 6 ? 1.0 : Math.SQRT1_2; }
+
+			function tryPlace(i, j, res, placed) {
+				const pi = res[i], ni = nSides(i);
+				const ki = edgeIdx(i, j), kj = edgeIdx(j, i), nj = nSides(j);
+				const phi = pi.r + 2 * Math.PI * ki / ni;
+				const dist = ap(i) + ap(j);
+				const px = pi.x + dist * Math.cos(phi);
+				const py = pi.y + dist * Math.sin(phi);
+				const theta = phi + Math.PI - 2 * Math.PI * kj / nj;
+				for (let k = 0; k < 14; k++) {
+					if (!placed[k] || k === i) continue;
+					const dx = px - res[k].x, dy = py - res[k].y;
+					const d = Math.sqrt(dx * dx + dy * dy);
+					if (d < (ap(j) + ap(k)) * 0.85) return null;
+				}
+				return { x: px, y: py, r: theta };
+			}
+
+			function unfold(startFace) {
+				const placed = new Array(14).fill(false);
+				const parent = new Array(14).fill(-1);
+				const res = new Array(14);
+				res[startFace] = { x: 0, y: 0, r: 0 };
+				placed[startFace] = true;
+				let count = 1;
+				let changed = true;
+				while (changed) {
+					changed = false;
+					for (let j = 0; j < 14; j++) {
+						if (placed[j]) continue;
+						for (const i of adj[j]) {
+							if (!placed[i]) continue;
+							const pos = tryPlace(i, j, res, placed);
+							if (pos) {
+								res[j] = pos;
+								placed[j] = true;
+								parent[j] = i;
+								count++;
+								changed = true;
+								break;
+							}
+						}
+					}
+				}
+				return { res, placed, parent, count };
+			}
+
+			function bboxArea(res, placed, angle) {
+				const cs = Math.cos(angle), sn = Math.sin(angle);
+				let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
+				for (let i = 0; i < 14; i++) {
+					if (!placed[i]) continue;
+					const cr = circumR(i);
+					const rx = res[i].x * cs - res[i].y * sn;
+					const ry = res[i].x * sn + res[i].y * cs;
+					mnX = Math.min(mnX, rx - cr); mxX = Math.max(mxX, rx + cr);
+					mnY = Math.min(mnY, ry - cr); mxY = Math.max(mxY, ry + cr);
+				}
+				return (mxX - mnX) * (mxY - mnY);
+			}
+
+			// Try all 14 seed faces, pick the most compact complete layout
+			let best = null, bestScore = Infinity;
+			for (let s = 0; s < 14; s++) {
+				const layout = unfold(s);
+				if (layout.count < 14) continue;
+				let bestA = 0, bestAr = Infinity;
+				for (let deg = 0; deg < 180; deg += 2) {
+					const rad = deg * Math.PI / 180;
+					const ar = bboxArea(layout.res, layout.placed, rad);
+					if (ar < bestAr) { bestAr = ar; bestA = rad; }
+				}
+				if (bestAr < bestScore) {
+					bestScore = bestAr;
+					best = { ...layout, angle: bestA };
+				}
+			}
+			if (!best) {
+				let maxCount = 0;
+				for (let s = 0; s < 14; s++) {
+					const layout = unfold(s);
+					if (layout.count > maxCount) { maxCount = layout.count; best = { ...layout, angle: 0 }; }
+				}
+			}
+
+			const { res, placed, parent, angle } = best;
+
+			// Apply optimal rotation
+			const cs = Math.cos(angle), sn = Math.sin(angle);
+			for (let i = 0; i < 14; i++) {
+				if (!placed[i]) continue;
+				const x = res[i].x, y = res[i].y;
+				res[i].x = x * cs - y * sn;
+				res[i].y = x * sn + y * cs;
+				res[i].r += angle;
+			}
+
+			// Apply user-requested −270° rotation (CCW for viewport aesthetics / DIN A4 fit)
+			const userAngle = -3 * Math.PI / 2;
+			const cs2 = Math.cos(userAngle), sn2 = Math.sin(userAngle);
+			for (let i = 0; i < 14; i++) {
+				if (!placed[i]) continue;
+				const x = res[i].x, y = res[i].y;
+				res[i].x = x * cs2 - y * sn2;
+				res[i].y = x * sn2 + y * cs2;
+				res[i].r += userAngle;
+			}
+
+			// Ensure landscape orientation
+			let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
+			for (let i = 0; i < 14; i++) {
+				if (!placed[i]) continue;
+				const cr = circumR(i);
+				mnX = Math.min(mnX, res[i].x - cr); mxX = Math.max(mxX, res[i].x + cr);
+				mnY = Math.min(mnY, res[i].y - cr); mxY = Math.max(mxY, res[i].y + cr);
+			}
+			if ((mxY - mnY) > (mxX - mnX)) {
+				for (let i = 0; i < 14; i++) {
+					if (!placed[i]) continue;
+					const x = res[i].x, y = res[i].y;
+					res[i].x = -y; res[i].y = x; res[i].r += Math.PI / 2;
+				}
+				const tmpMnX = mnX, tmpMxX = mxX;
+				mnX = -mxY; mxX = -mnY; mnY = tmpMnX; mxY = tmpMxX;
+			}
+
+			const cx = (mnX + mxX) / 2, cy = (mnY + mxY) / 2;
+			const scale = (mxY - mnY) / 2 / 0.95;
+
+			const data = new Float32Array(32 * 4); // reuse 32-slot uniform, only 14 used
+
+			// Compute face offsets (tangent frame alignment)
+			// Generate truncated octahedron vertices: even permutations of (0, ±1, ±2)
+			const SQRT5 = Math.sqrt(5);
+			const toVerts = [];
+			function addEvenPermsTO(a, b, c) {
+				for (const [x, y, z] of [[a, b, c], [b, c, a], [c, a, b]]) {
+					const signs = x === 0
+						? [[0]].flatMap(_ => [-1, 1].flatMap(sb => [-1, 1].map(sc => [0, sb * y, sc * z])))
+						: [-1, 1].flatMap(sa => [-1, 1].flatMap(sb => [-1, 1].map(sc => [sa * x, sb * y, sc * z])));
+					for (const v of signs) {
+						const n = norm3(v);
+						if (!toVerts.some(u => Math.abs(u[0] - n[0]) + Math.abs(u[1] - n[1]) + Math.abs(u[2] - n[2]) < 1e-8))
+							toVerts.push(n);
+					}
+				}
+			}
+			addEvenPermsTO(0, 1, 2);
+
+			const faceOffsets = [];
+			for (let i = 0; i < 14; i++) {
+				const N = c3[i], [T1, T2] = frames[i], n = nSides(i);
+				let vAngle = 0;
+				// Find a vertex belonging to this face (angular distance threshold)
+				const threshold = i < 8 ? 0.55 : 0.5; // hex faces wider than square
+				for (const v of toVerts) {
+					if (Math.acos(Math.min(1, dot3(v, N))) < threshold) {
+						vAngle = Math.atan2(dot3(v, T2), dot3(v, T1));
+						break;
+					}
+				}
+				let off = vAngle - Math.PI / n;
+				const step = 2 * Math.PI / n;
+				while (off > Math.PI / n + 1e-9) off -= step;
+				while (off < -Math.PI / n - 1e-9) off += step;
+				if (adj[i].length > 0 && Math.abs(Math.abs(off) - Math.PI / n) < 0.01) {
+					const j = adj[i][0], M = c3[j];
+					const proj = sub3(M, scale3(N, dot3(M, N)));
+					const pn = norm3(proj);
+					const a = Math.atan2(dot3(pn, T2), dot3(pn, T1));
+					const ki = edgeIdx(i, j);
+					let req = a - 2 * Math.PI * ki / n;
+					while (req > Math.PI) req -= 2 * Math.PI;
+					while (req < -Math.PI) req += 2 * Math.PI;
+					off = req > 0 ? Math.PI / n : -Math.PI / n;
+				}
+				faceOffsets.push(off);
+			}
+
+			for (let i = 0; i < 14; i++) {
+				if (!placed[i]) { data[i * 4] = 9.0; data[i * 4 + 1] = 9.0; continue; }
+				data[i * 4] = (res[i].x - cx) / scale;
+				data[i * 4 + 1] = (res[i].y - cy) / scale;
+				data[i * 4 + 2] = res[i].r;
+				data[i * 4 + 3] = faceOffsets[i];
+			}
+			for (let i = 14; i < 32; i++) { data[i * 4] = 9.0; data[i * 4 + 1] = 9.0; }
+
+			// Classify edges
+			const edgeNeighbor = [];
+			for (let i = 0; i < 14; i++) {
+				const n = nSides(i);
+				edgeNeighbor.push(new Array(n).fill(null));
+				if (!placed[i]) continue;
+				for (const j of adj[i]) {
+					const k = edgeIdx(i, j);
+					const isInternal = placed[j] && (parent[j] === i || parent[i] === j);
+					edgeNeighbor[i][(k - 1 + n) % n] = { j, isInternal };
+				}
+			}
+
+			// Bounding box for overlay
+			let bbX0 = Infinity, bbX1 = -Infinity, bbY0 = Infinity, bbY1 = -Infinity;
+			for (let i = 0; i < 14; i++) {
+				if (!placed[i]) continue;
+				const cr = circumR(i) / scale;
+				bbX0 = Math.min(bbX0, data[i * 4] - cr); bbX1 = Math.max(bbX1, data[i * 4] + cr);
+				bbY0 = Math.min(bbY0, data[i * 4 + 1] - cr); bbY1 = Math.max(bbY1, data[i * 4 + 1] + cr);
+			}
+			const bbPad = 0.02 + ap4 / scale * 0.35;
+			bbX0 -= bbPad; bbX1 += bbPad; bbY0 -= bbPad; bbY1 += bbPad;
+			const bbW = bbX1 - bbX0, bbH = bbY1 - bbY0;
+
+			// Render overlay canvas
+			const OVH = 2048, OVW = Math.round(OVH * bbW / bbH);
+			const oCanvas = document.createElement('canvas');
+			oCanvas.width = OVW; oCanvas.height = OVH;
+			const ctx = oCanvas.getContext('2d');
+			const ovSX = OVW / bbW, ovSY = OVH / bbH;
+			function ovX(x) { return (x - bbX0) * ovSX; }
+			function ovY(y) { return OVH - (y - bbY0) * ovSY; }
+			ctx.clearRect(0, 0, OVW, OVH);
+
+			// Glue tabs
+			const tabH = ap4 / scale * 0.3;
+			const tabInset = 0.15;
+			ctx.save();
+			ctx.beginPath();
+			ctx.rect(0, 0, OVW, OVH);
+			for (let i = 0; i < 14; i++) {
+				if (!placed[i]) continue;
+				const fx = data[i * 4], fy = data[i * 4 + 1], rot = data[i * 4 + 2];
+				const n = nSides(i), cr = circumR(i) / scale;
+				for (let k = 0; k < n; k++) {
+					const a = rot + (2 * k + 1) * Math.PI / n;
+					const vx = fx + cr * Math.cos(a), vy = fy + cr * Math.sin(a);
+					if (k === 0) ctx.moveTo(ovX(vx), ovY(vy));
+					else ctx.lineTo(ovX(vx), ovY(vy));
+				}
+				ctx.closePath();
+			}
+			ctx.clip('evenodd');
+			ctx.fillStyle = 'rgba(255, 180, 200, 1.0)';
+			ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+			ctx.lineWidth = 1;
+			ctx.setLineDash([6, 4]);
+			for (let i = 0; i < 14; i++) {
+				if (!placed[i]) continue;
+				const fx = data[i * 4], fy = data[i * 4 + 1], rot = data[i * 4 + 2];
+				const n = nSides(i), cr = circumR(i) / scale;
+				for (let k = 0; k < n; k++) {
+					const info = edgeNeighbor[i][k];
+					if (info && info.isInternal) continue;
+					if (info && info.j < i) continue;
+					const a1 = rot + (2 * k + 1) * Math.PI / n;
+					const a2 = rot + (2 * (k + 1) + 1) * Math.PI / n;
+					const v1x = fx + cr * Math.cos(a1), v1y = fy + cr * Math.sin(a1);
+					const v2x = fx + cr * Math.cos(a2), v2y = fy + cr * Math.sin(a2);
+					const emx = (v1x + v2x) / 2 - fx, emy = (v1y + v2y) / 2 - fy;
+					const eml = Math.sqrt(emx * emx + emy * emy);
+					const nx = emx / eml, ny = emy / eml;
+					const dx = v2x - v1x, dy = v2y - v1y;
+					const o1x = v1x + nx * tabH + dx * tabInset, o1y = v1y + ny * tabH + dy * tabInset;
+					const o2x = v2x + nx * tabH - dx * tabInset, o2y = v2y + ny * tabH - dy * tabInset;
+					ctx.beginPath();
+					ctx.moveTo(ovX(v1x), ovY(v1y));
+					ctx.lineTo(ovX(o1x), ovY(o1y));
+					ctx.lineTo(ovX(o2x), ovY(o2y));
+					ctx.lineTo(ovX(v2x), ovY(v2y));
+					ctx.closePath();
+					ctx.fill(); ctx.stroke();
+				}
+			}
+			ctx.setLineDash([]);
+			ctx.restore();
+
+			// Polygon edges
+			ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+			ctx.lineWidth = 1.5;
+			ctx.lineJoin = 'round';
+			for (let i = 0; i < 14; i++) {
+				if (!placed[i]) continue;
+				const fx = data[i * 4], fy = data[i * 4 + 1], rot = data[i * 4 + 2];
+				const n = nSides(i), cr = circumR(i) / scale;
+				ctx.beginPath();
+				for (let k = 0; k <= n; k++) {
+					const a = rot + (2 * k + 1) * Math.PI / n;
+					const vx = fx + cr * Math.cos(a), vy = fy + cr * Math.sin(a);
+					if (k === 0) ctx.moveTo(ovX(vx), ovY(vy));
+					else ctx.lineTo(ovX(vx), ovY(vy));
+				}
+				ctx.closePath();
+				ctx.stroke();
+			}
+
+			// Upload overlay texture
+			const overlayTex = gl.createTexture();
+			gl.activeTexture(gl.TEXTURE1);
+			gl.bindTexture(gl.TEXTURE_2D, overlayTex);
+			gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, oCanvas);
+			gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+			gl.generateMipmap(gl.TEXTURE_2D);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+			window._truncOct14Data = data;
+			window._truncOct14Scale = scale;
+			window._truncOct14BBox = [bbX0, bbY0, bbX1, bbY1];
+			window._truncOct14OverlayTex = overlayTex;
+		})();
+
 		// ── Upload the correct net layout data based on current projection mode ──
 		function uploadActiveNetData() {
 			const isRhombic = projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_RHOMBIC_PREVIEW;
-			const d = isRhombic ? window._rhombic30Data : window._bucky32Data;
-			const s = isRhombic ? window._rhombic30Scale : window._bucky32Scale;
-			const bb = isRhombic ? window._rhombic30BBox : window._bucky32BBox;
-			const tex = isRhombic ? window._rhombic30OverlayTex : window._bucky32OverlayTex;
+			const isTruncOct = projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_TRUNCOCT_PREVIEW;
+			const d = isTruncOct ? window._truncOct14Data : isRhombic ? window._rhombic30Data : window._bucky32Data;
+			const s = isTruncOct ? window._truncOct14Scale : isRhombic ? window._rhombic30Scale : window._bucky32Scale;
+			const bb = isTruncOct ? window._truncOct14BBox : isRhombic ? window._rhombic30BBox : window._bucky32BBox;
+			const tex = isTruncOct ? window._truncOct14OverlayTex : isRhombic ? window._rhombic30OverlayTex : window._bucky32OverlayTex;
 			if (!d) return;
 			gl.uniform4fv(uBuckyNet, d);
 			gl.uniform1f(uBuckyScale, s);
@@ -2999,17 +3616,21 @@ void main() {
 		let foldable32facesQuat = [0, 0, 0, 1];
 		// Quaternion for the rhombic-30 foldable net (M_RHOMBIC_FOLDABLE).
 		let foldable30facesQuat = [0, 0, 0, 1];
+		// Quaternion for the truncated octahedron net (M_TRUNCOCT_FOLDABLE).
+		let foldable14facesQuat = [0, 0, 0, 1];
 
 		// Return the "active" quaternion for the current projection mode.
 		function activeQuat() {
 			if (projectionModeIndex === M_FOLDABLE) return foldable32facesQuat;
 			if (projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_RHOMBIC_PREVIEW) return foldable30facesQuat;
+			if (projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_TRUNCOCT_PREVIEW) return foldable14facesQuat;
 			if (projectionModeIndex === M_PREVIEW) return foldable32facesQuat;
 			return camQuat;
 		}
 		function setActiveQuat(q) {
 			if (projectionModeIndex === M_FOLDABLE) { foldable32facesQuat = q; return; }
 			if (projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_RHOMBIC_PREVIEW) { foldable30facesQuat = q; return; }
+			if (projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_TRUNCOCT_PREVIEW) { foldable14facesQuat = q; return; }
 			if (projectionModeIndex === M_PREVIEW) { foldable32facesQuat = q; return; }
 			camQuat = q;
 		}
@@ -3065,7 +3686,7 @@ void main() {
 		function requestRedraw() { needsRedraw = true; }
 
 		// Projection modes as array for cycling
-		const projectionModes = ['equirectangular', 'perspective', 'buckyball-32 preview', 'azimuthal', 'azimuthal collage', 'stereographic', 'buckyball-32 foldable', 'rhombic-30 foldable', 'rhombic-30 preview'];
+		const projectionModes = ['equirectangular', 'perspective', 'buckyball-32 preview', 'azimuthal', 'azimuthal collage', 'stereographic', 'buckyball-32 foldable', 'rhombic-30 foldable', 'rhombic-30 preview', 'truncoct-14 foldable', 'truncoct-14 preview'];
 		// Mode index constants — derived from array order so reordering "just works" in JS.
 		// The GLSL shader uses these as float uniform `projection` with cascading > N.5 checks;
 		// if you reorder the array, reorder the shader cascade to match.
@@ -3078,6 +3699,8 @@ void main() {
 		const M_FOLDABLE  = projectionModes.indexOf('buckyball-32 foldable');
 		const M_RHOMBIC_FOLDABLE = projectionModes.indexOf('rhombic-30 foldable');
 		const M_RHOMBIC_PREVIEW = projectionModes.indexOf('rhombic-30 preview');
+		const M_TRUNCOCT_FOLDABLE = projectionModes.indexOf('truncoct-14 foldable');
+		const M_TRUNCOCT_PREVIEW = projectionModes.indexOf('truncoct-14 preview');
 		let projectionModeIndex = M_STEREO;
 
 		// Collage parameters
@@ -3412,10 +4035,12 @@ void main() {
 			const isBuckyPreview = projectionModeIndex === M_PREVIEW;
 			const isRhombic = projectionModeIndex === M_RHOMBIC_FOLDABLE;
 			const isRhombicPreview = projectionModeIndex === M_RHOMBIC_PREVIEW;
-			const isFoldable = isBucky || isRhombic;
-			const isAnyPreview = isBuckyPreview || isRhombicPreview;
+			const isTruncOct = projectionModeIndex === M_TRUNCOCT_FOLDABLE;
+			const isTruncOctPreview = projectionModeIndex === M_TRUNCOCT_PREVIEW;
+			const isFoldable = isBucky || isRhombic || isTruncOct;
+			const isAnyPreview = isBuckyPreview || isRhombicPreview || isTruncOctPreview;
 			fovRow.style.display = (isPerspective || isAnyPreview) ? 'contents' : 'none';
-			minecraftRow.style.display = (isStereo || isPerspective) ? 'contents' : 'none';
+			minecraftRow.style.display = (isStereo || isPerspective || isAzimuthal || isCollage) ? 'contents' : 'none';
 			azimuthalRow.style.display = (isAzimuthal || isCollage) ? 'contents' : 'none';
 			azimuthalZoomRow.style.display = (isAzimuthal || isCollage || isStereo) ? 'contents' : 'none';
 			collageRow.style.display = isCollage ? 'contents' : 'none';
@@ -3444,11 +4069,14 @@ void main() {
 		function viewMatrix() {
 			const q = projectionModeIndex === M_FOLDABLE ? foldable32facesQuat
 				: projectionModeIndex === M_RHOMBIC_FOLDABLE ? foldable30facesQuat
+				: projectionModeIndex === M_TRUNCOCT_FOLDABLE ? foldable14facesQuat
 				: camQuat;
 			return quatToMat3(quatNormalize(quatMul(camQuatOffset, q)));
 		}
 		function previewMatrix() {
-			const q = (projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_RHOMBIC_FOLDABLE)
+			const q = (projectionModeIndex === M_TRUNCOCT_PREVIEW || projectionModeIndex === M_TRUNCOCT_FOLDABLE)
+				? foldable14facesQuat
+				: (projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_RHOMBIC_FOLDABLE)
 				? foldable30facesQuat : foldable32facesQuat;
 			return quatToMat3(quatNormalize(q));
 		}
@@ -3572,11 +4200,11 @@ void main() {
 				const rd2 = -sinT * Math.cos(angle);
 			return [rd0, rd2, -rd1]; // pre-rotation P=+90° (optical axis Y→Z)
 			}
-			if (projectionModeIndex === M_PERSP || projectionModeIndex === M_PREVIEW || projectionModeIndex === M_RHOMBIC_PREVIEW) {
+			if (projectionModeIndex === M_PERSP || projectionModeIndex === M_PREVIEW || projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_TRUNCOCT_PREVIEW) {
 				// Perspective / preview: same ray construction
 				return screenToPerspDir(cx, cy);
 			}
-			if (projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE) {
+			if (projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_TRUNCOCT_FOLDABLE) {
 				// Foldable: use equirectangular-style mouse mapping
 				let eqU = fragX / resX;
 				let eqV = fragY / resY;
@@ -3630,6 +4258,7 @@ void main() {
 			if (!local) return null;
 			const q = projectionModeIndex === M_FOLDABLE ? foldable32facesQuat
 				: (projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_RHOMBIC_PREVIEW) ? foldable30facesQuat
+				: (projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_TRUNCOCT_PREVIEW) ? foldable14facesQuat
 				: camQuat;
 			const viewQ = quatNormalize(quatMul(camQuatOffset, q));
 			return quatRotVec(viewQ, local);
@@ -3761,7 +4390,7 @@ void main() {
 
 		let _previewDragBg = false;
 		function isPreviewMode() {
-			return projectionModeIndex === M_PREVIEW || projectionModeIndex === M_RHOMBIC_PREVIEW;
+			return projectionModeIndex === M_PREVIEW || projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_TRUNCOCT_PREVIEW;
 		}
 		// Conjugate a view-space rotation q into faces-quat space:
 		// camQuat · q · camQuat⁻¹
@@ -3902,7 +4531,7 @@ void main() {
 			}
 			if (projectionModeIndex !== M_EQUIRECT) {
 				// Perspective / preview: FOV zoom
-				if (projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE) return;
+				if (projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_TRUNCOCT_FOLDABLE) return;
 				fovDeg = Math.max(20, Math.min(170, fovDeg + e.deltaY * 0.05));
 				fovSlider.value = fovDeg;
 				fovVal.textContent = Math.round(fovDeg) + '°';
@@ -3947,6 +4576,7 @@ void main() {
 				// Center = screenToWorldDir at screen center = viewQ * [0,0,-1]
 				const q = projectionModeIndex === M_FOLDABLE ? foldable32facesQuat
 					: (projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_RHOMBIC_PREVIEW) ? foldable30facesQuat
+					: (projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_TRUNCOCT_PREVIEW) ? foldable14facesQuat
 					: camQuat;
 				const viewQ = quatNormalize(quatMul(camQuatOffset, q));
 				const centerWorld = quatRotVec(viewQ, [0, 0, -1]);
@@ -4082,11 +4712,15 @@ void main() {
 		const facesRollVal = document.getElementById('faces-roll-val');
 
 		function activeFacesQuat() {
-			return (projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_RHOMBIC_FOLDABLE)
+			return (projectionModeIndex === M_TRUNCOCT_PREVIEW || projectionModeIndex === M_TRUNCOCT_FOLDABLE)
+				? foldable14facesQuat
+				: (projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_RHOMBIC_FOLDABLE)
 				? foldable30facesQuat : foldable32facesQuat;
 		}
 		function setActiveFacesQuat(q) {
-			if (projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_RHOMBIC_FOLDABLE)
+			if (projectionModeIndex === M_TRUNCOCT_PREVIEW || projectionModeIndex === M_TRUNCOCT_FOLDABLE)
+				foldable14facesQuat = q;
+			else if (projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_RHOMBIC_FOLDABLE)
 				foldable30facesQuat = q;
 			else
 				foldable32facesQuat = q;
@@ -4260,6 +4894,7 @@ void main() {
 					camQuat: savedCamQuat,
 						foldable32facesQuat: [...foldable32facesQuat],
 						foldable30facesQuat: [...foldable30facesQuat],
+						foldable14facesQuat: [...foldable14facesQuat],
 						levelQuat: [...levelQuat],
 						isLeveled,
 						fovDeg,
@@ -4300,6 +4935,7 @@ void main() {
 			if (cfg.camQuat && cfg.camQuat.length === 4) camQuat = cfg.camQuat;
 			if (cfg.foldable32facesQuat && cfg.foldable32facesQuat.length === 4) foldable32facesQuat = cfg.foldable32facesQuat;
 			if (cfg.foldable30facesQuat && cfg.foldable30facesQuat.length === 4) foldable30facesQuat = cfg.foldable30facesQuat;
+			if (cfg.foldable14facesQuat && cfg.foldable14facesQuat.length === 4) foldable14facesQuat = cfg.foldable14facesQuat;
 			if (cfg.levelQuat && cfg.levelQuat.length === 4) levelQuat = cfg.levelQuat;
 			if (typeof cfg.isLeveled === 'boolean') isLeveled = cfg.isLeveled;
 			if (typeof cfg.fovDeg === 'number') {
@@ -4390,6 +5026,19 @@ void main() {
 			updateLevelBtnState();
 			updateProjectionUI();
 		}
+
+		const fullscreenBtn = document.getElementById('fullscreen-btn');
+		fullscreenBtn.addEventListener('click', () => {
+			if (!document.fullscreenElement) {
+				document.documentElement.requestFullscreen();
+			} else {
+				document.exitFullscreen();
+			}
+		});
+		document.addEventListener('fullscreenchange', () => {
+			fullscreenBtn.textContent = document.fullscreenElement ? '⛶ Exit Fullscreen' : '⛶ Fullscreen';
+			needsRedraw = true;
+		});
 
 		const screenshotBtn = document.getElementById('screenshot-btn');
 		const cachedFilesEl = document.getElementById('cached-files');
@@ -4565,8 +5214,8 @@ void main() {
 			const isAzimuthal = projectionModeIndex === M_AZIMUTHAL;
 			const isCollage = projectionModeIndex === M_COLLAGE;
 			const isStereo = projectionModeIndex === M_STEREO;
-			const isBuckyPreview = projectionModeIndex === M_PREVIEW || projectionModeIndex === M_RHOMBIC_PREVIEW;
-			const isBucky = projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE;
+			const isBuckyPreview = projectionModeIndex === M_PREVIEW || projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_TRUNCOCT_PREVIEW;
+			const isBucky = projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_TRUNCOCT_FOLDABLE;
 			let w, h;
 
 			if (isAzimuthal) {

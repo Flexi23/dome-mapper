@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-03-20
+
+### Added
+- **Truncated octahedron projection modes** — two new projection modes for a 14-face polyhedron (8 hexagons + 6 squares):
+  - **Truncoct-14 preview** — SDF-raymarched truncated octahedron floating over the panorama; 14 half-spaces with two face distances (`RFACE_TO_HEX = √3/√5`, `RFACE_TO_SQ = 2/√5`); same shading pipeline as the other preview modes (bevel, Blinn-Phong, rim light, edge wireframe); shares `foldable14facesQuat` with the foldable mode
+  - **Truncoct-14 foldable** — flat 2D net of a truncated octahedron; BFS unfolding with overlap detection (tries all 14 seed faces, picks most compact layout); regular polygon point-in-polygon test for both hexagons (n=6) and squares (n=4); gnomonic back-projection via `truncOctPreRot` (Rx(45°)·Rz(−110°)); 2D canvas overlay with polygon edges and trapezoidal glue tabs
+- **Fullscreen button** — toggle button at the top of the controls panel using the Fullscreen API; label switches between "⛶ Fullscreen" and "⛶ Exit Fullscreen"
+- **Buckyball Net Optimizer** (`buckyball-net-optimizer.html`) — standalone Canvas 2D tool for interactively optimizing the buckyball-32 flat net layout; features: click-to-reparent, paper format presets (DIN A, Letter, Legal, Tabloid, B5 JIS), flip H/V, auto-rotation optimization, tree visualization with ghost subtree preview, undo/redo via browser history, copy/paste of 32-element parent tree arrays
+- **README: Buckyball Net Optimizer section** — feature list and description of the standalone tool; updated project structure listing
+
+### Changed
+- **Projection modes: 9 → 11** — added truncoct-14 preview (index 9) and truncoct-14 foldable (index 10) to `projectionModes` array with corresponding `M_TRUNCOCT_PREVIEW` and `M_TRUNCOCT_FOLDABLE` constants
+- **`activeQuat` / `setActiveQuat` routing** — truncoct preview/foldable → `foldable14facesQuat`
+- **`previewMatrix()` routing** — returns the correct faces quaternion for truncoct vs rhombic vs bucky based on mode
+- **`isPreviewMode()` helper** — updated to include `M_TRUNCOCT_PREVIEW`
+- **`screenToLocalDir` / `screenToWorldDir`** — handle `M_TRUNCOCT_PREVIEW` and `M_TRUNCOCT_FOLDABLE`
+- **`uploadActiveNetData()`** — routes to `_truncOct14Data/Scale/BBox/OverlayTex` for truncoct modes
+- **Face slider functions** — Y/P/R and copy/paste now route through `activeFacesQuat()` / `setActiveFacesQuat()` for truncoct quaternion selection
+- **Export handling** — truncoct-14 preview treated as square export; truncoct-14 foldable uses tight net bounding box
+- **Fly-to** — disabled in truncoct foldable mode (same as other foldable modes)
+
 ## [0.9.0] - 2026-03-15
 
 ### Added

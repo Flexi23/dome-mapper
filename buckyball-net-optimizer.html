@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Buckyball Net Optimizer</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1a1a2e; color: #ccc; font-family: system-ui, sans-serif; overflow: hidden; }
+canvas { display: block; }
+#ui {
+	position: fixed; top: 12px; left: 12px;
+	background: rgba(20, 20, 40, 0.9); padding: 12px 16px; border-radius: 8px;
+	font-size: 13px; line-height: 1.6; z-index: 10; min-width: 220px;
+}
+#ui label { display: block; margin: 4px 0; }
+#ui select, #ui input[type=range] { width: 100%; }
+#ui .row { display: flex; align-items: center; gap: 8px; }
+#ui .val { min-width: 32px; text-align: right; font-variant-numeric: tabular-nums; }
+#ui button { width: 100%; margin: 3px 0; padding: 4px 8px; cursor: pointer; border-radius: 4px; border: 1px solid #555; background: #2a2a4a; color: #ccc; font-size: 12px; }
+#ui button:hover { background: #3a3a6a; }
+#ui .btn-row { display: flex; gap: 6px; }
+#ui .btn-row button { flex: 1; }
+#score { color: #8f8; margin-top: 6px; }
+#tooltip {
+	position: fixed; pointer-events: none; z-index: 20;
+	background: rgba(10, 10, 30, 0.92); color: #eee; padding: 6px 10px;
+	border-radius: 5px; font-size: 12px; display: none; white-space: nowrap;
+}
+</style>
+</head>
+<body>
+<div id="ui">
+	<label>
+		Paper format:
+		<select id="paper-fmt">
+			<option value="1.41421" selected>DIN A (1:√2)</option>
+			<option value="1.29412">US Letter (8.5×11 in)</option>
+			<option value="1.64706">US Legal (8.5×14 in)</option>
+			<option value="1.54362">US Tabloid (11×17 in)</option>
+			<option value="1.29870">B5 JIS (182×257 mm)</option>
+		</select>
+	</label>
+
+	<div class="btn-row">
+		<button id="btn-flip-h">↔ Flip H</button>
+		<button id="btn-flip-v">↕ Flip V</button>
+	</div>
+	<div class="btn-row">
+		<button id="btn-export-clip">📋 Copy</button>
+		<button id="btn-import-clip">📥 Paste</button>
+	</div>
+	<div id="score"></div>
+</div>
+<div id="tooltip"></div>
+<canvas id="c"></canvas>
+
+<script>
+'use strict';
+
+// ── Vector helpers ──
+function dot3(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+function cross3(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
+function norm3(v) { const l = Math.sqrt(dot3(v, v)); return [v[0] / l, v[1] / l, v[2] / l]; }
+function scale3(v, s) { return [v[0] * s, v[1] * s, v[2] * s]; }
+function sub3(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
+
+// ── Truncated icosahedron geometry ──
+const PHI = (1 + Math.sqrt(5)) / 2;
+const iA = 1 / Math.sqrt(1 + PHI * PHI);
+const iB = PHI * iA;
+const dC = 1 / Math.sqrt(3);
+const dD = PHI * dC;
+const dE = dC / PHI;
+
+const c3 = [
+	[0, iA, iB], [0, iA, -iB], [0, -iA, iB], [0, -iA, -iB],
+	[iA, iB, 0], [iA, -iB, 0], [-iA, iB, 0], [-iA, -iB, 0],
+	[iB, 0, iA], [iB, 0, -iA], [-iB, 0, iA], [-iB, 0, -iA],
+	[dC, dC, dC], [dC, dC, -dC], [dC, -dC, dC], [dC, -dC, -dC],
+	[-dC, dC, dC], [-dC, dC, -dC], [-dC, -dC, dC], [-dC, -dC, -dC],
+	[0, dD, dE], [0, dD, -dE], [0, -dD, dE], [0, -dD, -dE],
+	[dE, 0, dD], [dE, 0, -dD], [-dE, 0, dD], [-dE, 0, -dD],
+	[dD, dE, 0], [dD, -dE, 0], [-dD, dE, 0], [-dD, -dE, 0]
+];
+
+const nSides = i => i < 12 ? 5 : 6;
+
+// Adjacency (< 0.8 rad)
+const adj = Array.from({ length: 32 }, () => []);
+for (let i = 0; i < 32; i++)
+	for (let j = i + 1; j < 32; j++) {
+		const d = Math.acos(Math.min(1, Math.max(-1, dot3(c3[i], c3[j]))));
+		if (d < 0.8) { adj[i].push(j); adj[j].push(i); }
+	}
+
+// Tangent frames
+const frames = [];
+for (let i = 0; i < 32; i++) {
+	const N = c3[i];
+	let up = [0, 1, 0];
+	if (Math.abs(dot3(N, up)) > 0.9) up = [1, 0, 0];
+	const T1 = norm3(cross3(N, up));
+	const T2 = cross3(N, T1);
+	frames.push([T1, T2]);
+}
+
+function edgeIdx(i, j) {
+	const N = c3[i], [T1, T2] = frames[i], M = c3[j];
+	const proj = sub3(M, scale3(N, dot3(M, N)));
+	const pn = norm3(proj);
+	let a = Math.atan2(dot3(pn, T2), dot3(pn, T1));
+	if (a < 0) a += 2 * Math.PI;
+	const n = nSides(i);
+	return Math.round(a * n / (2 * Math.PI) + 1e-10) % n;
+}
+
+const ap5 = 1 / (2 * Math.tan(Math.PI / 5));
+const ap6 = Math.sqrt(3) / 2;
+function ap(i) { return nSides(i) === 5 ? ap5 : ap6; }
+function circumR(i) { return nSides(i) === 5 ? 1 / (2 * Math.sin(Math.PI / 5)) : 1.0; }
+
+// ── Net unfolding ──
+function tryPlace(i, j, res, placed, mirrored) {
+	const pi = res[i], ni = nSides(i);
+	const ki = edgeIdx(i, j), kj = edgeIdx(j, i), nj = nSides(j);
+	const s = mirrored ? -1 : 1;
+	const phi = pi.r + s * 2 * Math.PI * ki / ni;
+	const dist = ap(i) + ap(j);
+	const px = pi.x + dist * Math.cos(phi);
+	const py = pi.y + dist * Math.sin(phi);
+	const theta = phi + Math.PI - s * 2 * Math.PI * kj / nj;
+	for (let k = 0; k < 32; k++) {
+		if (!placed[k] || k === i) continue;
+		const dx = px - res[k].x, dy = py - res[k].y;
+		const d = Math.sqrt(dx * dx + dy * dy);
+		if (d < (ap(j) + ap(k)) * 0.85) return null;
+	}
+	return { x: px, y: py, r: theta };
+}
+
+function guidedUnfold(startFace, predefinedParents) {
+	const placed = new Array(32).fill(false);
+	const parent = predefinedParents.slice();
+	const res = new Array(32);
+	res[startFace] = { x: 0, y: 0, r: 0 };
+	placed[startFace] = true;
+	let count = 1;
+	const queue = [startFace];
+	let qi = 0;
+	while (qi < queue.length) {
+		const p = queue[qi++];
+		for (let j = 0; j < 32; j++) {
+			if (placed[j] || parent[j] !== p) continue;
+			res[j] = ghostPlace(p, j, res, false);
+			placed[j] = true;
+			count++;
+			queue.push(j);
+		}
+	}
+	return { res, placed, parent, count, mirrored: false };
+}
+
+// Predefined optimized parent trees per paper format (keyed by aspect ratio string)
+const predefinedParents = {
+	'1.41421': [12, 13, 14, 15, 13, 15, 21, 23, 28, -1, 30, 19, 4, 9, 5, 9, 20, 1, 2, 3, 4, 13, 5, 15, 12, 9, 0, 25, 9, 9, 6, 19],
+	'1.29412': [20, 13, 24, 25, 20, 29, 20, 31, 24, 28, 16, 17, 0, 4, 29, 5, 20, 6, 26, 3, -1, 4, 18, 15, 0, 13, 0, 1, 4, 28, 6, 30],
+	'1.64706': [12, 21, 14, 27, 12, 14, 20, 22, -1, 28, 18, 30, 8, 1, 8, 5, 0, 1, 2, 11, 12, 20, 14, 22, 8, 1, 24, 1, 8, 8, 6, 18],
+	'1.54362': [24, 25, 14, 15, 12, -1, 16, 22, 14, 15, 26, 19, 0, 21, 5, 5, 0, 1, 2, 3, 0, 4, 5, 5, 14, 15, 24, 25, 8, 5, 16, 19],
+	'1.29870': [24, 21, 24, 27, 21, 29, 21, 18, 12, 29, 30, 17, 4, 9, 24, 9, 20, 21, 2, 27, 4, -1, 14, 15, 12, 1, 16, 1, 29, 8, 6, 30]
+};
+
+// ── Scoring ──
+function bboxDims(res, placed, angle) {
+	const cs = Math.cos(angle), sn = Math.sin(angle);
+	let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
+	for (let i = 0; i < 32; i++) {
+		if (!placed[i]) continue;
+		const cr = circumR(i);
+		const rx = res[i].x * cs - res[i].y * sn;
+		const ry = res[i].x * sn + res[i].y * cs;
+		mnX = Math.min(mnX, rx - cr); mxX = Math.max(mxX, rx + cr);
+		mnY = Math.min(mnY, ry - cr); mxY = Math.max(mxY, ry + cr);
+	}
+	return { w: mxX - mnX, h: mxY - mnY };
+}
+
+// Paper area for a given rotation angle (lower = better fill)
+function paperScore(res, placed, angle) {
+	const d = bboxDims(res, placed, angle);
+	const aspect = parseFloat(document.getElementById('paper-fmt').value);
+	const s = Math.min(aspect / d.w, 1 / d.h);
+	return aspect / (s * s);
+}
+
+// Sum of placed polygon face areas
+function netArea(placed) {
+	let area = 0;
+	for (let i = 0; i < 32; i++) {
+		if (!placed[i]) continue;
+		const n = nSides(i), R = circumR(i);
+		area += (n / 2) * R * R * Math.sin(2 * Math.PI / n);
+	}
+	return area;
+}
+
+// ── State ──
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const paperFmt = document.getElementById('paper-fmt');
+
+const scoreDiv = document.getElementById('score');
+const tooltip = document.getElementById('tooltip');
+
+function seedFromParents(pp) { return pp.indexOf(-1); }
+
+let currentLayout = null;
+let hoveredEdge = null;    // { face, edge, targetFace, ghostPos } of hovered boundary edge
+let hoveredFace = -1;      // index of hovered polygon face (-1 = none)
+let boundaryEdges = [];    // all open boundary edges with ghost polygon data
+const undoStack = [];      // snapshots of layout state for undo
+const redoStack = [];      // snapshots of layout state for redo
+let historyIndex = 0;
+history.replaceState({ idx: 0 }, '');
+
+function cloneLayout(layout) {
+	return {
+		res: layout.res.map(r => r ? { x: r.x, y: r.y, r: r.r } : r),
+		placed: layout.placed.slice(),
+		parent: layout.parent.slice(),
+		count: layout.count,
+		seed: layout.seed,
+		mirrored: layout.mirrored || false
+	};
+}
+
+// Compute ghost position: where face j would be if unfolded from face i along their shared edge
+function ghostPlace(i, j, res, mirrored) {
+	const pi = res[i], ni = nSides(i);
+	const ki = edgeIdx(i, j), kj = edgeIdx(j, i), nj = nSides(j);
+	const s = mirrored ? -1 : 1;
+	const phi = pi.r + s * 2 * Math.PI * ki / ni;
+	const dist = ap(i) + ap(j);
+	return {
+		x: pi.x + dist * Math.cos(phi),
+		y: pi.y + dist * Math.sin(phi),
+		r: phi + Math.PI - s * 2 * Math.PI * kj / nj
+	};
+}
+
+// Get all BFS descendants of face j
+function getDescendants(j, parent, placed) {
+	const descs = [];
+	for (let k = 0; k < 32; k++) {
+		if (!placed[k] || k === j) continue;
+		let p = k;
+		while (p !== -1 && p !== j) p = parent[p];
+		if (p === j) descs.push(k);
+	}
+	return descs;
+}
+
+// Reparent: move face `child` (and its subtree) so it's unfolded from `newParent`
+function reparent(layout, newParent, child) {
+	const { res, placed, parent, mirrored } = layout;
+	const descs = getDescendants(child, parent, placed);
+	// Remove child and all its descendants
+	placed[child] = false; parent[child] = -1;
+	for (const d of descs) { placed[d] = false; parent[d] = -1; }
+	// Place child at ghost position
+	const pos = ghostPlace(newParent, child, res, mirrored);
+	res[child] = pos;
+	placed[child] = true;
+	parent[child] = newParent;
+	// Re-place removed descendants via BFS
+	let changed = true;
+	while (changed) {
+		changed = false;
+		for (const d of descs) {
+			if (placed[d]) continue;
+			for (const i of adj[d]) {
+				if (!placed[i]) continue;
+				const p = tryPlace(i, d, res, placed, mirrored);
+				if (p) {
+					res[d] = p; placed[d] = true; parent[d] = i;
+					changed = true; break;
+				}
+			}
+		}
+	}
+	layout.count = placed.filter(Boolean).length;
+}
+
+// Optimize rotation for best paper fit and apply it in-place
+function optimizeAndApplyRotation(layout) {
+	const { res, placed } = layout;
+	let bestA = 0, bestAr = Infinity;
+	for (let deg = 0; deg < 180; deg += 1) {
+		const rad = deg * Math.PI / 180;
+		const ar = paperScore(res, placed, rad);
+		if (ar < bestAr) { bestAr = ar; bestA = rad; }
+	}
+	if (bestA > Math.PI / 2) bestA -= Math.PI; // prefer small rotation over near-flip
+	if (bestA !== 0) {
+		const cs = Math.cos(bestA), sn = Math.sin(bestA);
+		for (let i = 0; i < 32; i++) {
+			if (!placed[i]) continue;
+			const x = res[i].x, y = res[i].y;
+			res[i].x = x * cs - y * sn;
+			res[i].y = x * sn + y * cs;
+			res[i].r += bestA;
+		}
+	}
+}
+
+// Get polygon vertices in world coords
+function polyVerts(fx, fy, rot, n, cr) {
+	const verts = [];
+	for (let k = 0; k < n; k++) {
+		const a = rot + (2 * k + 1) * Math.PI / n;
+		verts.push({ x: fx + cr * Math.cos(a), y: fy + cr * Math.sin(a) });
+	}
+	return verts;
+}
+
+function computeLayout() {
+	const pp = predefinedParents[paperFmt.value];
+	const seed = seedFromParents(pp);
+	const layout = guidedUnfold(seed, pp);
+	layout.seed = seed;
+	currentLayout = layout;
+	optimizeAndApplyRotation(currentLayout);
+	draw();
+}
+
+// ── Canvas coordinate transform ──
+let viewOX = 0, viewOY = 0, viewScale = 1;
+
+function toScreen(x, y) {
+	return [canvas.width / 2 + (x - viewOX) * viewScale, canvas.height / 2 - (y - viewOY) * viewScale];
+}
+function toWorld(sx, sy) {
+	return [(sx - canvas.width / 2) / viewScale + viewOX, -(sy - canvas.height / 2) / viewScale + viewOY];
+}
+
+// ── Classify edges ──
+function classifyEdges(layout) {
+	const { res, placed, parent, mirrored } = layout;
+	const edgeNeighbor = [];
+	for (let i = 0; i < 32; i++) {
+		const n = nSides(i);
+		edgeNeighbor.push(new Array(n).fill(null));
+		if (!placed[i]) continue;
+		for (const j of adj[i]) {
+			const k = edgeIdx(i, j);
+			const isInternal = placed[j] && (parent[j] === i || parent[i] === j);
+			const slot = mirrored ? (n - k - 1 + n) % n : (k - 1 + n) % n;
+			edgeNeighbor[i][slot] = { j, isInternal };
+		}
+	}
+	return edgeNeighbor;
+}
+
+// Point-in-polygon test (convex, either winding)
+function pointInPoly(wx, wy, verts) {
+	let pos = 0, neg = 0;
+	for (let p = 0; p < verts.length; p++) {
+		const a = verts[p], b = verts[(p + 1) % verts.length];
+		const cross = (b.x - a.x) * (wy - a.y) - (b.y - a.y) * (wx - a.x);
+		if (cross > 0) pos++; else if (cross < 0) neg++;
+		if (pos && neg) return false;
+	}
+	return true;
+}
+
+// ── Draw ──
+function draw() {
+	if (!currentLayout) return;
+	const { res, placed, parent, count, seed, mirrored } = currentLayout;
+
+	canvas.width = window.innerWidth;
+	canvas.height = window.innerHeight;
+
+	// Compute bounding box
+	let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
+	for (let i = 0; i < 32; i++) {
+		if (!placed[i]) continue;
+		const cr = circumR(i);
+		mnX = Math.min(mnX, res[i].x - cr); mxX = Math.max(mxX, res[i].x + cr);
+		mnY = Math.min(mnY, res[i].y - cr); mxY = Math.max(mxY, res[i].y + cr);
+	}
+
+	const bbPad = 0.5;
+	const bbW = (mxX - mnX) + 2 * bbPad;
+	const bbH = (mxY - mnY) + 2 * bbPad;
+
+	viewOX = (mnX + mxX) / 2;
+	viewOY = (mnY + mxY) / 2;
+	const margin = 20;
+	viewScale = Math.min((canvas.width - margin * 2) / bbW, (canvas.height - margin * 2) / bbH);
+
+	ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+	// Draw paper outline for reference (always landscape)
+	{
+		const aspect = parseFloat(paperFmt.value);
+		const netW = mxX - mnX, netH = mxY - mnY;
+		const s = Math.min(aspect / netW, 1 / netH);
+		const pW = aspect / s, pH = 1 / s;
+		const [ax0, ay0] = toScreen(viewOX - pW / 2, viewOY + pH / 2);
+		const [ax1, ay1] = toScreen(viewOX + pW / 2, viewOY - pH / 2);
+		ctx.save();
+		ctx.strokeStyle = 'rgba(100, 200, 100, 0.3)';
+		ctx.lineWidth = 2;
+		ctx.setLineDash([8, 6]);
+		ctx.strokeRect(ax0, ay0, ax1 - ax0, ay1 - ay0);
+		ctx.setLineDash([]);
+		ctx.restore();
+	}
+
+	const edgeNeighbor = classifyEdges(currentLayout);
+
+	// ── Build boundary edge list with flap trapezoids + ghost data ──
+	boundaryEdges = [];
+	const tabH = ap5 * 0.3;
+	const tabInset = 0.15;
+	for (let i = 0; i < 32; i++) {
+		if (!placed[i]) continue;
+		const n = nSides(i), cr = circumR(i);
+		const fx = res[i].x, fy = res[i].y, rot = res[i].r;
+		for (let k = 0; k < n; k++) {
+			const info = edgeNeighbor[i][k];
+			if (info && info.isInternal) continue;
+			// Find the 3D neighbor for this drawing edge
+			let targetFace = -1;
+			if (info) {
+				targetFace = info.j;
+			} else {
+				for (const j of adj[i]) {
+					const eidx = edgeIdx(i, j);
+					const slot = mirrored ? (n - eidx - 1 + n) % n : (eidx - 1 + n) % n;
+					if (slot === k) { targetFace = j; break; }
+				}
+			}
+			if (targetFace < 0) continue;
+			// Flap trapezoid
+			const a1 = rot + (2 * k + 1) * Math.PI / n;
+			const a2 = rot + (2 * (k + 1) + 1) * Math.PI / n;
+			const v1x = fx + cr * Math.cos(a1), v1y = fy + cr * Math.sin(a1);
+			const v2x = fx + cr * Math.cos(a2), v2y = fy + cr * Math.sin(a2);
+			const emx = (v1x + v2x) / 2 - fx, emy = (v1y + v2y) / 2 - fy;
+			const eml = Math.sqrt(emx * emx + emy * emy);
+			const nx = emx / eml, ny = emy / eml;
+			const dx = v2x - v1x, dy = v2y - v1y;
+			const o1x = v1x + nx * tabH + dx * tabInset, o1y = v1y + ny * tabH + dy * tabInset;
+			const o2x = v2x + nx * tabH - dx * tabInset, o2y = v2y + ny * tabH - dy * tabInset;
+			const flapVerts = [
+				{ x: v1x, y: v1y }, { x: o1x, y: o1y },
+				{ x: o2x, y: o2y }, { x: v2x, y: v2y }
+			];
+			// Ghost polygon data (for hover preview)
+			const ghostPos = ghostPlace(i, targetFace, res, mirrored);
+			const nj = nSides(targetFace), crj = circumR(targetFace);
+			const ghostVerts = polyVerts(ghostPos.x, ghostPos.y, ghostPos.r, nj, crj);
+			boundaryEdges.push({ face: i, edge: k, targetFace, flapVerts, ghostPos, ghostVerts });
+		}
+	}
+
+	// ── Draw flap trapezoids on all boundary edges ──
+	// Clip to exclude polygon interiors
+	ctx.save();
+	ctx.beginPath();
+	ctx.rect(0, 0, canvas.width, canvas.height);
+	for (let i = 0; i < 32; i++) {
+		if (!placed[i]) continue;
+		const n = nSides(i), cr = circumR(i);
+		const fx = res[i].x, fy = res[i].y, rot = res[i].r;
+		for (let k = 0; k < n; k++) {
+			const a = rot + (2 * k + 1) * Math.PI / n;
+			const [sx, sy] = toScreen(fx + cr * Math.cos(a), fy + cr * Math.sin(a));
+			if (k === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+		}
+		ctx.closePath();
+	}
+	ctx.clip('evenodd');
+
+	for (const edge of boundaryEdges) {
+		const isHovered = hoveredEdge && hoveredEdge.face === edge.face && hoveredEdge.edge === edge.edge;
+		const fv = edge.flapVerts;
+
+		ctx.beginPath();
+		let [sx, sy] = toScreen(fv[0].x, fv[0].y);
+		ctx.moveTo(sx, sy);
+		for (let p = 1; p < 4; p++) {
+			[sx, sy] = toScreen(fv[p].x, fv[p].y);
+			ctx.lineTo(sx, sy);
+		}
+		ctx.closePath();
+
+		const matchesFace = hoveredFace >= 0 && edge.targetFace === hoveredFace;
+		if (isHovered) {
+			ctx.fillStyle = 'rgba(100, 220, 255, 0.7)';
+			ctx.strokeStyle = 'rgba(50, 150, 255, 0.9)';
+			ctx.lineWidth = 2;
+		} else if (matchesFace) {
+			ctx.fillStyle = 'rgba(100, 220, 255, 0.5)';
+			ctx.strokeStyle = 'rgba(50, 150, 255, 0.7)';
+			ctx.lineWidth = 1.5;
+		} else {
+			ctx.fillStyle = 'rgba(255, 180, 200, 0.6)';
+			ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+			ctx.lineWidth = 1;
+		}
+		ctx.setLineDash([6, 4]);
+		ctx.fill();
+		ctx.stroke();
+		ctx.setLineDash([]);
+
+		// Face number on flap
+		const fcx = (fv[0].x + fv[1].x + fv[2].x + fv[3].x) / 4;
+		const fcy = (fv[0].y + fv[1].y + fv[2].y + fv[3].y) / 4;
+		const [lcx, lcy] = toScreen(fcx, fcy);
+		ctx.fillStyle = (isHovered || matchesFace) ? 'rgba(50, 150, 255, 1)' : 'rgba(0, 0, 0, 0.5)';
+		ctx.font = `${Math.max(7, viewScale * 0.12)}px system-ui`;
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.fillText(edge.targetFace, lcx, lcy);
+	}
+	ctx.restore();
+
+	// ── Draw ghost polygon preview on hover (whole subtree) ──
+	if (hoveredEdge) {
+		const { ghostVerts, targetFace, ghostPos } = hoveredEdge;
+		// Collect ghost faces: targetFace + descendants (if already placed = reparenting)
+		const ghostFaces = [{ id: targetFace, verts: ghostVerts, pos: ghostPos }];
+		if (placed[targetFace]) {
+			const dx = ghostPos.x - res[targetFace].x;
+			const dy = ghostPos.y - res[targetFace].y;
+			const dr = ghostPos.r - res[targetFace].r;
+			const cs = Math.cos(dr), sn = Math.sin(dr);
+			const ox = res[targetFace].x, oy = res[targetFace].y;
+			const descs = getDescendants(targetFace, parent, placed);
+			for (const d of descs) {
+				const rx = res[d].x - ox, ry = res[d].y - oy;
+				const gx = ghostPos.x + rx * cs - ry * sn;
+				const gy = ghostPos.y + rx * sn + ry * cs;
+				const gr = res[d].r + dr;
+				const nd = nSides(d), crd = circumR(d);
+				ghostFaces.push({ id: d, verts: polyVerts(gx, gy, gr, nd, crd), pos: { x: gx, y: gy } });
+			}
+		}
+		// Draw all ghost faces
+		for (const gf of ghostFaces) {
+			const nj = nSides(gf.id);
+			ctx.beginPath();
+			for (let k = 0; k < gf.verts.length; k++) {
+				const [sx, sy] = toScreen(gf.verts[k].x, gf.verts[k].y);
+				if (k === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+			}
+			ctx.closePath();
+			ctx.fillStyle = nj === 5 ? 'rgba(120, 80, 200, 0.25)' : 'rgba(60, 140, 220, 0.25)';
+			ctx.fill();
+			ctx.strokeStyle = 'rgba(100, 200, 255, 0.7)';
+			ctx.lineWidth = 2;
+			ctx.setLineDash([6, 4]);
+			ctx.stroke();
+			ctx.setLineDash([]);
+			const [gcx, gcy] = toScreen(gf.pos.x, gf.pos.y);
+			ctx.fillStyle = 'rgba(100, 200, 255, 0.7)';
+			ctx.font = `${Math.max(10, viewScale * 0.22)}px system-ui`;
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.fillText(gf.id, gcx, gcy);
+		}
+		// Draw ghost tree lines
+		if (ghostFaces.length > 1) {
+			ctx.lineWidth = 1.5;
+			ctx.strokeStyle = 'rgba(100, 200, 255, 0.5)';
+			ctx.setLineDash([4, 3]);
+			for (let gi = 1; gi < ghostFaces.length; gi++) {
+				const gf = ghostFaces[gi];
+				const gp = ghostFaces.find(g => g.id === parent[gf.id]);
+				if (!gp) continue;
+				const [sx1, sy1] = toScreen(gf.pos.x, gf.pos.y);
+				const [sx2, sy2] = toScreen(gp.pos.x, gp.pos.y);
+				ctx.beginPath();
+				ctx.moveTo(sx1, sy1);
+				ctx.lineTo(sx2, sy2);
+				ctx.stroke();
+			}
+			// Line from ghost root to its new parent
+			const [sx1, sy1] = toScreen(ghostPos.x, ghostPos.y);
+			const [sx2, sy2] = toScreen(res[hoveredEdge.face].x, res[hoveredEdge.face].y);
+			ctx.beginPath();
+			ctx.moveTo(sx1, sy1);
+			ctx.lineTo(sx2, sy2);
+			ctx.stroke();
+			ctx.setLineDash([]);
+		}
+	}
+
+	// ── Draw parent tree lines ──
+	ctx.lineWidth = 1.5;
+	ctx.strokeStyle = 'rgba(255, 180, 60, 0.45)';
+	ctx.setLineDash([]);
+	for (let i = 0; i < 32; i++) {
+		if (!placed[i] || parent[i] < 0) continue;
+		const p = parent[i];
+		if (!placed[p]) continue;
+		const [sx1, sy1] = toScreen(res[i].x, res[i].y);
+		const [sx2, sy2] = toScreen(res[p].x, res[p].y);
+		ctx.beginPath();
+		ctx.moveTo(sx1, sy1);
+		ctx.lineTo(sx2, sy2);
+		ctx.stroke();
+	}
+	// Root highlight
+	if (placed[seed]) {
+		const [rx, ry] = toScreen(res[seed].x, res[seed].y);
+		const rr = Math.max(6, viewScale * 0.18);
+		ctx.beginPath();
+		ctx.arc(rx, ry, rr, 0, 2 * Math.PI);
+		ctx.fillStyle = 'rgba(255, 180, 60, 0.7)';
+		ctx.fill();
+		ctx.lineWidth = 2;
+		ctx.strokeStyle = 'rgba(255, 220, 120, 0.9)';
+		ctx.stroke();
+	}
+
+	// ── Draw polygon faces ──
+	for (let i = 0; i < 32; i++) {
+		if (!placed[i]) continue;
+		const n = nSides(i), cr = circumR(i);
+		const fx = res[i].x, fy = res[i].y, rot = res[i].r;
+
+		// Highlight the target face that would be moved, or the hovered face
+		const isTarget = hoveredEdge && hoveredEdge.targetFace === i;
+		const isSelf = hoveredFace === i;
+
+		// Fill
+		ctx.beginPath();
+		for (let k = 0; k <= n; k++) {
+			const a = rot + (2 * k + 1) * Math.PI / n;
+			const [sx, sy] = toScreen(fx + cr * Math.cos(a), fy + cr * Math.sin(a));
+			if (k === 0) ctx.moveTo(sx, sy);
+			else ctx.lineTo(sx, sy);
+		}
+		ctx.closePath();
+		if (isSelf) {
+			ctx.fillStyle = n === 5 ? 'rgba(100, 80, 180, 0.9)' : 'rgba(60, 100, 160, 0.9)';
+		} else if (isTarget) {
+			ctx.fillStyle = n === 5 ? 'rgba(120, 80, 200, 0.45)' : 'rgba(60, 140, 220, 0.45)';
+		} else {
+			ctx.fillStyle = n === 5 ? 'rgba(60, 50, 80, 0.85)' : 'rgba(40, 55, 75, 0.85)';
+		}
+		ctx.fill();
+
+		// Edge lines
+		for (let k = 0; k < n; k++) {
+			const info = edgeNeighbor[i][k];
+			const a1 = rot + (2 * k + 1) * Math.PI / n;
+			const a2 = rot + (2 * (k + 1) + 1) * Math.PI / n;
+			const [sx1, sy1] = toScreen(fx + cr * Math.cos(a1), fy + cr * Math.sin(a1));
+			const [sx2, sy2] = toScreen(fx + cr * Math.cos(a2), fy + cr * Math.sin(a2));
+
+			// Highlight the specific boundary edge being hovered
+			const isHoveredEdge = hoveredEdge && hoveredEdge.face === i && hoveredEdge.edge === k;
+
+			ctx.beginPath();
+			ctx.moveTo(sx1, sy1);
+			ctx.lineTo(sx2, sy2);
+
+			if (isHoveredEdge) {
+				ctx.strokeStyle = 'rgba(100, 220, 255, 1.0)';
+				ctx.lineWidth = 3;
+				ctx.setLineDash([]);
+			} else if (info && info.isInternal) {
+				ctx.strokeStyle = 'rgba(200, 200, 200, 0.25)';
+				ctx.lineWidth = 1;
+				ctx.setLineDash([4, 4]);
+			} else {
+				ctx.strokeStyle = 'rgba(200, 200, 200, 0.7)';
+				ctx.lineWidth = 1.5;
+				ctx.setLineDash([]);
+			}
+			ctx.stroke();
+			ctx.setLineDash([]);
+		}
+
+		// Face label
+		const [cx, cy] = toScreen(fx, fy);
+		ctx.fillStyle = (isSelf || isTarget) ? 'rgba(100, 200, 255, 0.9)' : '#ddd';
+		ctx.font = `${Math.max(10, viewScale * 0.22)}px system-ui`;
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.fillText(i, cx, cy);
+	}
+
+	// ── Score info ──
+	const nArea = netArea(placed);
+	const pArea = paperScore(res, placed, 0);
+	const fill = (nArea / pArea * 100).toFixed(1);
+	scoreDiv.textContent = `Page fill: ${fill}%`;
+}
+
+// ── Mouse interaction: hit test flap trapezoids + polygon faces ──
+function hitTestEdge(mx, my) {
+	const [wx, wy] = toWorld(mx, my);
+	for (const edge of boundaryEdges) {
+		if (pointInPoly(wx, wy, edge.flapVerts)) return edge;
+	}
+	return null;
+}
+
+function hitTestFace(mx, my) {
+	if (!currentLayout) return -1;
+	const [wx, wy] = toWorld(mx, my);
+	const { res, placed } = currentLayout;
+	for (let i = 0; i < 32; i++) {
+		if (!placed[i]) continue;
+		const verts = polyVerts(res[i].x, res[i].y, res[i].r, nSides(i), circumR(i));
+		if (pointInPoly(wx, wy, verts)) return i;
+	}
+	return -1;
+}
+
+canvas.addEventListener('mousemove', e => {
+	const hit = hitTestEdge(e.clientX, e.clientY);
+	const face = hit ? -1 : hitTestFace(e.clientX, e.clientY);
+	if (hit !== hoveredEdge || face !== hoveredFace) {
+		hoveredEdge = hit;
+		hoveredFace = face;
+		if (hit && currentLayout) {
+			const preview = cloneLayout(currentLayout);
+			reparent(preview, hit.face, hit.targetFace);
+			optimizeAndApplyRotation(preview);
+			hit.previewFill = (netArea(preview.placed) / paperScore(preview.res, preview.placed, 0) * 100).toFixed(1);
+		}
+		draw();
+	}
+	if (hit) {
+		const tf = hit.targetFace;
+		const label = `Face ${tf} (${nSides(tf) === 5 ? 'pentagon' : 'hexagon'}) → ${hit.previewFill}% fill`;
+		tooltip.style.display = 'block';
+		tooltip.style.left = (e.clientX + 14) + 'px';
+		tooltip.style.top = (e.clientY + 14) + 'px';
+		tooltip.textContent = label;
+		canvas.style.cursor = 'pointer';
+	} else {
+		tooltip.style.display = 'none';
+		canvas.style.cursor = 'default';
+	}
+});
+
+canvas.addEventListener('mouseleave', () => {
+	hoveredEdge = null;
+	hoveredFace = -1;
+	tooltip.style.display = 'none';
+	canvas.style.cursor = 'default';
+	draw();
+});
+
+canvas.addEventListener('click', e => {
+	if (!hoveredEdge || !currentLayout) return;
+	undoStack.push(cloneLayout(currentLayout));
+	redoStack.length = 0;
+	historyIndex++;
+	history.pushState({ idx: historyIndex }, '');
+	const { face, targetFace } = hoveredEdge;
+	reparent(currentLayout, face, targetFace);
+	optimizeAndApplyRotation(currentLayout);
+	hoveredEdge = null;
+	tooltip.style.display = 'none';
+	draw();
+});
+
+function performUndo() {
+	if (undoStack.length === 0) return;
+	redoStack.push(cloneLayout(currentLayout));
+	currentLayout = undoStack.pop();
+	hoveredEdge = null;
+	hoveredFace = -1;
+	tooltip.style.display = 'none';
+	draw();
+}
+
+function performRedo() {
+	if (redoStack.length === 0) return;
+	undoStack.push(cloneLayout(currentLayout));
+	currentLayout = redoStack.pop();
+	hoveredEdge = null;
+	hoveredFace = -1;
+	tooltip.style.display = 'none';
+	draw();
+}
+
+window.addEventListener('popstate', e => {
+	const newIdx = (e.state && e.state.idx) || 0;
+	if (newIdx < historyIndex) { performUndo(); }
+	else if (newIdx > historyIndex) { performRedo(); }
+	historyIndex = newIdx;
+});
+
+window.addEventListener('keydown', e => {
+	if (e.ctrlKey && e.key === 'z') { e.preventDefault(); history.back(); }
+	if (e.ctrlKey && e.key === 'y') { e.preventDefault(); history.forward(); }
+});
+
+// ── Controls ──
+paperFmt.addEventListener('change', computeLayout);
+
+// ── Mirror / Flip ──
+function flipLayout(axis) {
+	if (!currentLayout) return;
+	const { res, placed } = currentLayout;
+	for (let i = 0; i < 32; i++) {
+		if (!placed[i]) continue;
+		if (axis === 'h') {
+			res[i].x = -res[i].x;
+			res[i].r = Math.PI - res[i].r;
+		} else {
+			res[i].y = -res[i].y;
+			res[i].r = -res[i].r;
+		}
+	}
+	currentLayout.mirrored = !currentLayout.mirrored;
+	draw();
+}
+document.getElementById('btn-flip-h').addEventListener('click', () => flipLayout('h'));
+document.getElementById('btn-flip-v').addEventListener('click', () => flipLayout('v'));
+
+document.getElementById('btn-export-clip').addEventListener('click', () => {
+	if (!currentLayout) return;
+	const text = JSON.stringify(currentLayout.parent);
+	navigator.clipboard.writeText(text).then(() => {
+		const btn = document.getElementById('btn-export-clip');
+		btn.textContent = '✅ Copied!';
+		setTimeout(() => btn.textContent = '📋 Copy', 1500);
+	});
+});
+
+document.getElementById('btn-import-clip').addEventListener('click', async () => {
+	const btn = document.getElementById('btn-import-clip');
+	try {
+		const text = await navigator.clipboard.readText();
+		const data = JSON.parse(text);
+		let pp;
+		if (Array.isArray(data) && data.length === 32) {
+			pp = data;
+		} else if (data.faces && Array.isArray(data.faces)) {
+			pp = new Array(32).fill(-1);
+			for (const f of data.faces) pp[f.id] = f.parent;
+		} else throw new Error('Invalid format');
+		const seed = pp.indexOf(-1);
+		const layout = guidedUnfold(seed, pp);
+		layout.seed = seed;
+		undoStack.push(cloneLayout(currentLayout));
+		redoStack.length = 0;
+		historyIndex++;
+		history.pushState({ idx: historyIndex }, '');
+		currentLayout = layout;
+		optimizeAndApplyRotation(currentLayout);
+		hoveredEdge = null;
+		hoveredFace = -1;
+		draw();
+		btn.textContent = '✅ Loaded!';
+		setTimeout(() => btn.textContent = '📥 Paste', 1500);
+	} catch (e) {
+		btn.textContent = '❌ Failed';
+		setTimeout(() => btn.textContent = '📥 Paste', 1500);
+		console.error('Import failed:', e);
+	}
+});
+
+window.addEventListener('resize', () => { if (currentLayout) draw(); });
+
+// ── Init ──
+computeLayout();
+</script>
+</body>
+</html>
