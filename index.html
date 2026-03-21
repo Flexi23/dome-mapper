@@ -614,6 +614,14 @@
 						<button id="bucky-paste-layout" title="Paste layout from layouter (JSON)">📋 Paste Layout</button>
 					</span>
 				</span>
+				<span id="rhombic-layout-row" class="span hide-in-level-off" style="display:none">
+					<span>Layout</span>
+					<select id="rhombic-layout-select" style="grid-column:2/-1"></select>
+					<span style="grid-column:2/-1;display:flex;gap:4px">
+						<button id="rhombic-open-layouter" title="Open the rhombic net layout editor">🌐 Open Editor</button>
+						<button id="rhombic-paste-layout" title="Paste layout from layouter (JSON)">📋 Paste Layout</button>
+					</span>
+				</span>
 				<span id="net-row" class="span hide-in-level-off" style="display:none">
 					<span>Net</span> <input type="range" id="net-alpha-slider" min="0" max="100" value="33" step="1"> <span class="val" id="net-alpha-val">33%</span>
 				</span>
@@ -761,12 +769,8 @@ const float RFACE_RHOMBIC = 0.8506508084;
 // Pre-rotation for buckyball texture (dynamic, set from JS)
 uniform mat3 buckyPreRot;
 
-// Pre-rotation for rhombic-30 texture: Ry(-144°) · Rx(-57°)
-const mat3 rhombicPreRot = mat3(
-	-0.80901699,  0.00000000,  0.58778525,  // column 0
-	 0.49295819,  0.54463904,  0.67849874,  // column 1
-	-0.32013079,  0.83867057, -0.44062224   // column 2
-);
+// Pre-rotation for rhombic-30 texture (dynamic, set from JS)
+uniform mat3 rhombicPreRot;
 
 const vec3 buckyFaces[32] = vec3[32](
 	// 12 pentagon centers (indices 0–11)
@@ -1515,6 +1519,27 @@ void main() {
 		float oa = overlay.a * alphaScale;
 		col = col * (1.0 - oa) + overlay.rgb * alphaScale;
 
+		// ── Paper format outline (dashed green rectangle) ──
+		if (buckyPaperRect.z > buckyPaperRect.x) {
+			float pw = 0.004 * fitScale;
+			float dL = abs(uv.x - buckyPaperRect.x);
+			float dR = abs(uv.x - buckyPaperRect.z);
+			float dB = abs(uv.y - buckyPaperRect.y);
+			float dT = abs(uv.y - buckyPaperRect.w);
+			bool nearV = uv.y > buckyPaperRect.y - pw && uv.y < buckyPaperRect.w + pw;
+			bool nearH = uv.x > buckyPaperRect.x - pw && uv.x < buckyPaperRect.z + pw;
+			float onEdge = 0.0;
+			float peri = 0.0;
+			if (dL < pw && nearV) { onEdge = 1.0; peri = uv.y; }
+			else if (dR < pw && nearV) { onEdge = 1.0; peri = uv.y; }
+			else if (dB < pw && nearH) { onEdge = 1.0; peri = uv.x; }
+			else if (dT < pw && nearH) { onEdge = 1.0; peri = uv.x; }
+			if (onEdge > 0.5) {
+				float dash = step(0.5, fract(peri / fitScale * 30.0));
+				col = mix(col, vec3(0.4, 0.8, 0.4), 0.5 * dash);
+			}
+		}
+
 		fragColor = vec4(col, 1.0);
 		return;
 	} else if (projection > 5.5) {
@@ -2127,6 +2152,7 @@ void main() {
 		const uShowGrid = gl.getUniformLocation(program, 'showGrid');
 		const uBuckyNet = gl.getUniformLocation(program, 'buckyNet');
 		const uBuckyPreRot = gl.getUniformLocation(program, 'buckyPreRot');
+		const uRhombicPreRot = gl.getUniformLocation(program, 'rhombicPreRot');
 		const uBuckyScale = gl.getUniformLocation(program, 'buckyScale');
 		const uBuckyOverlay = gl.getUniformLocation(program, 'buckyOverlay');
 		const uBuckyBBox = gl.getUniformLocation(program, 'buckyBBox');
@@ -2341,27 +2367,9 @@ void main() {
 				faceOffsets.push(off);
 			}
 
-			// ═══════════════════════════════════════════════════════════
-			// Buckyball Pre-Rotation Matrix
-			// ═══════════════════════════════════════════════════════════
-			//
-			// This matrix orients the truncated icosahedron in 3D so that
-			// the root face of the 2D net maps to the center of the
-			// equirectangular projection, with the net's "up" direction
-			// aligned to the leveled horizon.
-			//
-			// Algorithm:
-			//  1. From the root face's 2D rotation angle (rootRot) and its
-			//     tangent-frame offset (faceOffsets), compute which 3D
-			//     tangent directions correspond to "up" and "right" in
-			//     the flat net.
-			//  2. Build a target frame from the current levelMatrix:
-			//     tFwd = Ry(90°) · levelMatrix^T · x̂  (maps to equirect center)
-			//     tUp  = Ry(90°) · levelMatrix^T · ŷ  (maps to equirect up)
-			//     tR   = tUp × tFwd                    (completes the basis)
-			//  3. The pre-rotation R maps the source frame {h3d, v3d, N}
-			//     onto the target frame {tR, tUp, tFwd}, stored column-major
-			//     as a mat3 for the GLSL uniform.
+			// ── Compute buckyball pre-rotation matrix ──
+			// Orients the truncated icosahedron so that the leveled horizon
+			// appears as a horizontal line in the root face of the 2D net.
 			function computeBuckyPreRot(seedFace, rootRot) {
 				const N = c3[seedFace];
 				const [T1, T2] = frames[seedFace];
@@ -2373,10 +2381,7 @@ void main() {
 				const h3d = [ca*T1[0]-sa*T2[0], ca*T1[1]-sa*T2[1], ca*T1[2]-sa*T2[2]];
 				// Target frame = Ry(90°) · levelMatrix^T · {x̂, ŷ}
 				// Maps N → equirect center, v3d → equirect up (horizon-corrected)
-				// At init time levelQuat is not yet initialized (let TDZ),
-				// so fall back to the identity matrix (no leveling applied).
-				let lm;
-				try { lm = levelMatrix(); } catch (_) { lm = new Float32Array([1,0,0, 0,1,0, 0,0,1]); }
+				const lm = levelMatrix();
 				const tFwd = [lm[6], lm[3], -lm[0]];
 				const tUp  = [lm[7], lm[4], -lm[1]];
 				const tR   = [tUp[1]*tFwd[2]-tUp[2]*tFwd[1], tUp[2]*tFwd[0]-tUp[0]*tFwd[2], tUp[0]*tFwd[1]-tUp[1]*tFwd[0]];
@@ -2388,23 +2393,15 @@ void main() {
 				return m;
 			}
 
-			// ═══════════════════════════════════════════════════════════
-			// Layout Computation (unfold → rotate → pack → overlay)
-			// ═══════════════════════════════════════════════════════════
-			//
-			// Given a parent tree, this function:
-			//  1. BFS-unfolds all 32 faces into 2D positions
-			//  2. Optimizes or applies rotation angle for paper fit
-			//  3. Enforces landscape orientation (when angle not imported)
-			//  4. Centers and scales to normalized coordinates
-			//  5. Packs face data into a Float32Array uniform (vec4 per face:
-			//     x, y, rotation, tangent-frame offset)
-			//  6. Renders an overlay texture (polygon edges + glue tabs +
-			//     paper outline) onto a 2D canvas, then uploads as GL texture
-			//
-			// Returns { seed, rootRot } used by computeBuckyPreRot.
+			// Default pre-rotation: Ry(180°)·Rx(45°)·Rz(−90°)
+			const defaultBuckyPreRot = new Float32Array([
+				0, -0.70710678, 0.70710678,
+				-1, 0, 0,
+				0, -0.70710678, -0.70710678
+			]);
+
+			// ── Layout computation: unfold, optimize, pack, render overlay ──
 			function computeBucky32Layout(parentTree, importAngle, tabsMap, paperAspect) {
-				// ── Step 1: BFS unfold ──
 				const layoutSeed = parentTree.indexOf(-1);
 				const lPlaced = new Array(32).fill(false);
 				const lParent = parentTree.slice();
@@ -2423,7 +2420,7 @@ void main() {
 					}
 				}
 
-				// ── Step 2: Rotation (imported or brute-force optimized) ──
+				// Rotation optimization or use imported angle
 				let angle;
 				if (importAngle != null) {
 					angle = importAngle;
@@ -2447,7 +2444,7 @@ void main() {
 					}
 				}
 
-				// ── Step 3: Apply rotation to all face positions ──
+				// Apply rotation
 				const rcs = Math.cos(angle), rsn = Math.sin(angle);
 				for (let i = 0; i < 32; i++) {
 					if (!lPlaced[i]) continue;
@@ -2457,10 +2454,7 @@ void main() {
 					lRes[i].r += angle;
 				}
 
-				// ── Step 4: Landscape orientation ──
-				// If the net is taller than wide, rotate 90° to landscape.
-				// Skipped when the rotation angle was imported from the layouter
-				// (which already accounts for orientation).
+				// Landscape orientation (skip when angle was imported from layouter)
 				let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
 				for (let i = 0; i < 32; i++) {
 					if (!lPlaced[i]) continue;
@@ -2479,13 +2473,11 @@ void main() {
 					mnX = -mxY; mxX = -mnY; mnY = tmpMnX; mxY = tmpMxX;
 				}
 
-				// ── Step 5: Center + normalize to unit height ──
+				// Center + normalize
 				const cx = (mnX + mxX) / 2, cy = (mnY + mxY) / 2;
-				const scale = (mxY - mnY) / 2 / 0.95; // 5% padding
+				const scale = (mxY - mnY) / 2 / 0.95;
 
-				// ── Step 6: Pack uniform data (vec4 per face) ──
-				// xy = normalized position, z = rotation, w = tangent-frame offset
-				// Unplaced faces get (9, 9, 0, 0) to push them off-screen in the shader.
+				// Pack uniform data
 				const data = new Float32Array(32 * 4);
 				for (let i = 0; i < 32; i++) {
 					if (!lPlaced[i]) { data[i*4] = 9; data[i*4+1] = 9; data[i*4+2] = 0; data[i*4+3] = 0; continue; }
@@ -2497,7 +2489,7 @@ void main() {
 				gl.uniform4fv(uBuckyNet, data);
 				gl.uniform1f(uBuckyScale, scale);
 
-				// ── Step 7: Compute overlay bounding box (with padding for tabs) ──
+				// Bounding box
 				let bbX0 = Infinity, bbX1 = -Infinity, bbY0 = Infinity, bbY1 = -Infinity;
 				for (let i = 0; i < 32; i++) {
 					if (!lPlaced[i]) continue;
@@ -2509,10 +2501,7 @@ void main() {
 				bbX0 -= bbPad; bbX1 += bbPad; bbY0 -= bbPad; bbY1 += bbPad;
 				const bbW = bbX1 - bbX0, bbH = bbY1 - bbY0;
 
-				// ── Step 8: Render overlay texture ──
-				// A 2D canvas texture showing polygon edges, glue tabs, and
-				// paper format outline.  Uploaded to GL as a texture that the
-				// fragment shader composites over the equirectangular projection.
+				// Overlay canvas
 				const OVH = 2048, OVW = Math.round(OVH * bbW / bbH);
 				const oCanvas = document.createElement('canvas');
 				oCanvas.width = OVW; oCanvas.height = OVH;
@@ -2522,7 +2511,7 @@ void main() {
 				function ovY(y) { return OVH - (y - bbY0) * ovSY; }
 				ctx.clearRect(0, 0, OVW, OVH);
 
-				// Classify edges: internal (fold line) vs. boundary (cut line)
+				// Edge classification
 				const edgeNeighbor = [];
 				for (let i = 0; i < 32; i++) {
 					const n = nSides(i);
@@ -2535,9 +2524,7 @@ void main() {
 					}
 				}
 
-				// Draw glue-tab trapezoids (clipped outside polygon interiors)
-				// Tab ownership comes from tabsMap if provided; otherwise the
-				// lower-indexed face gets the tab by default.
+				// Glue tabs
 				const tabH = ap5 / scale * 0.3;
 				const tabInset = 0.15;
 				ctx.save();
@@ -2595,7 +2582,7 @@ void main() {
 				ctx.setLineDash([]);
 				ctx.restore();
 
-				// Draw polygon edge outlines
+				// Polygon edges
 				ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
 				ctx.lineWidth = 1.5;
 				ctx.lineJoin = 'round';
@@ -2615,7 +2602,6 @@ void main() {
 				}
 
 				// Compute tight vertex + glue-tab-corner bounding box
-				// (more accurate than the circumR-based overlay bbox above)
 				let netX0 = Infinity, netX1 = -Infinity, netY0 = Infinity, netY1 = -Infinity;
 				for (let i = 0; i < 32; i++) {
 					if (!lPlaced[i]) continue;
@@ -2628,7 +2614,6 @@ void main() {
 						const v2x = fx + cr*Math.cos(a2), v2y = fy + cr*Math.sin(a2);
 						netX0 = Math.min(netX0, v1x); netX1 = Math.max(netX1, v1x);
 						netY0 = Math.min(netY0, v1y); netY1 = Math.max(netY1, v1y);
-						// Include tab outer corners for boundary edges
 						const info = edgeNeighbor[i][k];
 						if (info && info.isInternal) continue;
 						let hasTab = true;
@@ -2663,7 +2648,7 @@ void main() {
 				}
 				gl.uniform4f(uBuckyPaperRect, paperX0, paperY0, paperX1, paperY1);
 
-				// ── Step 9: Upload overlay texture to WebGL ──
+				// Upload overlay texture
 				const overlayTex = gl.createTexture();
 				gl.activeTexture(gl.TEXTURE1);
 				gl.bindTexture(gl.TEXTURE_2D, overlayTex);
@@ -2688,10 +2673,7 @@ void main() {
 				return { seed: layoutSeed, rootRot: lRes[layoutSeed].r };
 			}
 
-			// ── Predefined net layouts ──
-			// Each preset contains label, aspect ratio, parent tree, tab
-			// ownership map, mirrored flag, and optimal rotation angle.
-			// Generated by buckyball-net-layouter.html.
+			// Predefined layouts (from buckyball-net-layouter)
 			const bucky32Presets = [
 				{"label":"DIN A (1:√2)","parents":[12,13,14,15,13,15,21,23,28,-1,30,19,4,9,5,9,20,1,2,3,4,13,5,15,12,9,0,25,9,9,6,19],"tabs":{"18-31":31,"10-31":31,"30-31":31,"18-26":26,"2-26":26,"10-26":26,"22-23":23,"5-23":23,"19-23":23,"3-23":23,"5-29":29,"14-29":29,"8-29":29,"28-29":29,"15-29":29,"2-22":22,"18-22":22,"2-24":24,"0-24":24,"4-28":28,"12-28":12,"13-28":28,"3-25":25,"1-25":25,"13-25":25,"15-25":25,"17-21":21,"20-21":21,"4-21":21,"0-20":20,"12-20":20,"14-22":22,"1-21":21,"14-24":24,"17-30":17,"17-27":27,"1-27":1,"11-31":31,"6-17":17,"6-20":20,"7-19":19,"7-22":22,"7-18":18,"8-12":8,"10-18":18,"19-27":27,"11-17":17},"mirrored":false,"angle":0.715584993317675,"aspect":1.41421},
 				{label:'US Letter (8.5×11 in)',aspect:1.29412,parents:[20,13,24,25,-1,29,20,31,24,28,16,17,0,4,29,5,20,6,26,3,4,4,18,15,0,13,0,1,4,28,6,30],tabs:{"7-22":7,"22-23":23,"11-30":30,"11-31":11,"11-19":19,"6-21":21,"17-21":21,"20-21":21,"1-21":21,"13-21":21,"9-13":13,"9-25":25,"9-15":9,"9-29":29,"14-22":22,"8-12":12,"4-12":12,"6-16":16,"0-16":16,"17-30":30,"17-27":17,"1-25":25,"19-27":27,"5-23":23,"2-26":26,"2-18":18,"2-22":22,"8-14":8,"8-29":8,"8-28":28,"5-14":14,"1-17":17,"7-23":23,"15-25":25,"7-18":18,"15-29":29},mirrored:false,angle:1.0995574287564276},
@@ -2700,8 +2682,6 @@ void main() {
 				{label:'B5 JIS (182×257 mm)',aspect:1.2987,parents:[24,21,24,27,12,29,21,18,12,29,30,17,-1,9,24,9,20,21,2,27,4,4,14,15,12,1,16,1,29,8,6,30],tabs:{"13-28":28,"12-28":28,"4-28":28,"8-28":28,"4-13":13,"13-21":21,"5-15":15,"5-23":5,"5-14":14,"6-20":20,"11-27":27,"19-31":31,"10-31":10,"10-26":10,"24-26":26,"7-22":7,"22-23":23,"3-25":25,"3-19":19,"19-23":19,"9-28":28,"1-13":13,"18-22":22,"18-31":31,"18-26":26,"10-18":18},mirrored:false,angle:1.4660765716752369}
 			];
 
-			// Populate the layout <select> dropdown from the presets array.
-			// Called on init and after pasting a new layout.
 			function populateBuckySelect() {
 				const sel = document.getElementById('bucky-layout-select');
 				sel.innerHTML = '';
@@ -2714,32 +2694,29 @@ void main() {
 			}
 			populateBuckySelect();
 
-			// ── Initial layout: load the first preset (DIN A) ──
+			// Initial layout (DIN A)
 			const defaultPreset = bucky32Presets[0];
 			const { seed: initSeed, rootRot: initRootRot } = computeBucky32Layout(defaultPreset.parents, defaultPreset.angle, defaultPreset.tabs, defaultPreset.aspect);
 			gl.uniformMatrix3fv(uBuckyPreRot, false, computeBuckyPreRot(initSeed, initRootRot));
 
-			// ── Public API for layout import (called by the layouter or paste handler) ──
-			// Recomputes the full layout, updates the pre-rotation matrix,
-			// resets the foldable animation quaternion, and triggers a redraw.
-			window.importBucky32Layout = function(parentTree, importAngle, tabsMap, paperAspect) {
+			// Expose for layout import
+			window.importBucky32Layout = function(parentTree, importAngle, alignHorizon, tabsMap, paperAspect) {
 				const { seed, rootRot } = computeBucky32Layout(parentTree, importAngle, tabsMap, paperAspect || 0);
-				gl.uniformMatrix3fv(uBuckyPreRot, false, computeBuckyPreRot(seed, rootRot));
-				foldable32facesQuat = [0, 0, 0, 1];
+				if (alignHorizon) {
+					gl.uniformMatrix3fv(uBuckyPreRot, false, computeBuckyPreRot(seed, rootRot));
+					foldable32facesQuat = [0, 0, 0, 1]; // reset faces rotation
+				} else {
+					gl.uniformMatrix3fv(uBuckyPreRot, false, defaultBuckyPreRot);
+				}
 				needsRedraw = true;
 			};
 
-			// Expose presets array and select populator for the paste handler
 			window.bucky32Presets = bucky32Presets;
 			window.populateBuckySelect = populateBuckySelect;
 		})();
 
 		// ── Compute rhombic triacontahedron flat net layout (30 golden rhombi) ──
-		// Classic zone unfolding: 6 zigzag strips of 5 rhombi each.
-		// Each strip corresponds to one of the 6 zones (equatorial bands) of
-		// the zonohedron.  No BFS needed — the layout is fully deterministic.
-		// Reference: paulbourke.net/geometry/Rhombic_triacontahedron/
-		(function uploadRhombicNet() {
+		(function() {
 			const PHI = (1 + Math.sqrt(5)) / 2;
 			const iA = 1 / Math.sqrt(1 + PHI * PHI);  // short half-diagonal ≈ 0.5257
 			const iB = PHI * iA;                        // long half-diagonal  ≈ 0.8507
@@ -2826,12 +2803,6 @@ void main() {
 			}
 
 			// ── Edge index: which of the 4 edges of face i faces toward face j ──
-			// The 4 rhombus edges have outward normals at angles π/2±PSI and
-			// 3π/2±PSI relative to the long diagonal.  These fall neatly into
-			// floor-based quadrants [0,π/2), [π/2,π), [π,3π/2), [3π/2,2π),
-			// so Math.floor(rel/(π/2)) gives the correct edge index.
-			// (Math.round would be wrong here: unlike the regular-polygon
-			// faces in buckyball-32, the rhombus edges are NOT evenly spaced.)
 			const PSI = Math.atan2(1, PHI);
 			const rhombVtx = [[iB, 0], [0, iA], [-iB, 0], [0, -iA]];
 			const edgeDirAngles = [Math.PI - PSI, Math.PI + PSI, -PSI, PSI];
@@ -2847,249 +2818,358 @@ void main() {
 				return Math.floor(rel / (Math.PI / 2)) % 4;
 			}
 
-			// ══════════════════════════════════════════════════════════
-			// Half-flower chain: 10 groups of 3 faces (icosahedron
-			// vertices), alternating top/bottom, chained left→right
-			// ══════════════════════════════════════════════════════════
+			// ── Compute rhombic pre-rotation matrix ──
+			function computeRhombicPreRot(seedFace, rootRot) {
+				const N = c3[seedFace];
+				const [T1, T2] = frames[seedFace];
+				const alpha = rootRot - faceOffsets[seedFace];
+				const sa = Math.sin(alpha), ca = Math.cos(alpha);
+				const v3d = [sa*T1[0]+ca*T2[0], sa*T1[1]+ca*T2[1], sa*T1[2]+ca*T2[2]];
+				const h3d = [ca*T1[0]-sa*T2[0], ca*T1[1]-sa*T2[1], ca*T1[2]-sa*T2[2]];
+				const lm = levelMatrix();
+				const tFwd = [lm[6], lm[3], -lm[0]];
+				const tUp  = [lm[7], lm[4], -lm[1]];
+				const tR   = [tUp[1]*tFwd[2]-tUp[2]*tFwd[1], tUp[2]*tFwd[0]-tUp[0]*tFwd[2], tUp[0]*tFwd[1]-tUp[1]*tFwd[0]];
+				const m = new Float32Array(9);
+				for (let j = 0; j < 3; j++)
+					for (let i = 0; i < 3; i++)
+						m[j*3+i] = tR[i]*h3d[j] + tUp[i]*v3d[j] + tFwd[i]*N[j];
+				return m;
+			}
 
-			const placement = [
-				[0,-1],[7,0],[6,7],           // v1 (TOP)
-				[12,6],[15,12],[14,15],       // v3 (BOT)
-				[25,12],[21,25],[4,21],       // v7 (TOP)
-				[23,25],[29,23],[28,29],      // v11 (BOT)
-				[22,23],[20,22],[2,20],       // v5 (TOP)
-				[24,22],[19,24],[27,19],      // v10 (BOT)
-				[16,24],[10,16],[3,10],       // v6 (TOP)
-				[9,16],[17,9],[18,17],        // v4 (BOT)
-				[11,9],[5,11],[1,5],          // v2 (TOP)
-				[8,11],[13,8],[26,13]         // v8 (BOT)
+			// Default pre-rotation: Ry(-144°)·Rx(-57°) (matches old hardcoded const)
+			const defaultRhombicPreRot = new Float32Array([
+				-0.80902, 0.00000, -0.58779,
+				-0.49270, -0.54464, 0.67861,
+				-0.32017, 0.83867, 0.44042
+			]);
+
+			// ── Layout computation: unfold, optimize, pack, render overlay ──
+			function computeRhombic30Layout(parentTree, importAngle, tabsMap, paperAspect) {
+				const layoutSeed = parentTree.indexOf(-1);
+				const lPlaced = new Array(30).fill(false);
+				const lParent = parentTree.slice();
+				const lRes = new Array(30);
+				lRes[layoutSeed] = { x: 0, y: 0, r: Math.PI / 2 };
+				lPlaced[layoutSeed] = true;
+				const q = [layoutSeed];
+				let qi = 0;
+				while (qi < q.length) {
+					const p = q[qi++];
+					for (let j = 0; j < 30; j++) {
+						if (lPlaced[j] || lParent[j] !== p) continue;
+						const ki = edgeIdx(p, j);
+						const kj = edgeIdx(j, p);
+						const r2 = lRes[p].r + edgeDirAngles[ki] - edgeDirAngles[kj] + Math.PI;
+						const qv = (ki + 1) % 4;
+						const cr1 = Math.cos(lRes[p].r), sr1 = Math.sin(lRes[p].r);
+						const Qx = lRes[p].x + rhombVtx[qv][0] * cr1 - rhombVtx[qv][1] * sr1;
+						const Qy = lRes[p].y + rhombVtx[qv][0] * sr1 + rhombVtx[qv][1] * cr1;
+						const cr2 = Math.cos(r2), sr2 = Math.sin(r2);
+						lRes[j] = {
+							x: Qx - (rhombVtx[kj][0] * cr2 - rhombVtx[kj][1] * sr2),
+							y: Qy - (rhombVtx[kj][0] * sr2 + rhombVtx[kj][1] * cr2),
+							r: r2
+						};
+						lPlaced[j] = true;
+						q.push(j);
+					}
+				}
+
+				// Apply rotation
+				const angle = importAngle != null ? importAngle : 0;
+				const rcs = Math.cos(angle), rsn = Math.sin(angle);
+				for (let i = 0; i < 30; i++) {
+					if (!lPlaced[i]) continue;
+					const x = lRes[i].x, y = lRes[i].y;
+					lRes[i].x = x * rcs - y * rsn;
+					lRes[i].y = x * rsn + y * rcs;
+					lRes[i].r += angle;
+				}
+
+				// Landscape orientation (skip when angle was imported from layouter)
+				let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
+				for (let i = 0; i < 30; i++) {
+					if (!lPlaced[i]) continue;
+					for (const [lx, ly] of rhombVtx) {
+						const cr = Math.cos(lRes[i].r), sr = Math.sin(lRes[i].r);
+						const gx = lRes[i].x + lx * cr - ly * sr;
+						const gy = lRes[i].y + lx * sr + ly * cr;
+						mnX = Math.min(mnX, gx); mxX = Math.max(mxX, gx);
+						mnY = Math.min(mnY, gy); mxY = Math.max(mxY, gy);
+					}
+				}
+				if (importAngle == null && (mxY - mnY) > (mxX - mnX)) {
+					for (let i = 0; i < 30; i++) {
+						if (!lPlaced[i]) continue;
+						const x = lRes[i].x, y = lRes[i].y;
+						lRes[i].x = -y; lRes[i].y = x; lRes[i].r += Math.PI / 2;
+					}
+					const tmpMnX = mnX, tmpMxX = mxX;
+					mnX = -mxY; mxX = -mnY; mnY = tmpMnX; mxY = tmpMxX;
+				}
+
+				const cx = (mnX + mxX) / 2, cy = (mnY + mxY) / 2;
+				const scale = (mxY - mnY) / 2 / 0.95;
+
+				// ── Pack uniform data (reuse buckyNet[32], elements 0–29) ──
+				const data = new Float32Array(32 * 4);
+				for (let i = 0; i < 30; i++) {
+					if (!lPlaced[i]) { data[i * 4] = 9.0; data[i * 4 + 1] = 9.0; continue; }
+					data[i * 4] = (lRes[i].x - cx) / scale;
+					data[i * 4 + 1] = (lRes[i].y - cy) / scale;
+					data[i * 4 + 2] = lRes[i].r;
+					data[i * 4 + 3] = faceOffsets[i];
+				}
+				data[30 * 4] = 9.0; data[30 * 4 + 1] = 9.0;
+				data[31 * 4] = 9.0; data[31 * 4 + 1] = 9.0;
+
+				// ── Classify edges for overlay ──
+				const edgeNeighbor = [];
+				for (let i = 0; i < 30; i++) {
+					edgeNeighbor.push(new Array(4).fill(null));
+					if (!lPlaced[i]) continue;
+					for (const j of adj[i]) {
+						const k = edgeIdx(i, j);
+						const isInternal = lPlaced[j] && (lParent[j] === i || lParent[i] === j);
+						edgeNeighbor[i][k] = { j, isInternal };
+					}
+				}
+
+				// Compute rhombus vertices for drawing (4 vertices per face)
+				function rhombVerts(fx, fy, rot) {
+					const haS = iB / scale, hbS = iA / scale;
+					const localVerts = [[haS, 0], [0, hbS], [-haS, 0], [0, -hbS]];
+					const cr = Math.cos(rot), sr = Math.sin(rot);
+					return localVerts.map(([lx, ly]) => [fx + lx * cr - ly * sr, fy + lx * sr + ly * cr]);
+				}
+
+				// Bounding box for overlay (exact rotated vertices)
+				let bbX0 = Infinity, bbX1 = -Infinity, bbY0 = Infinity, bbY1 = -Infinity;
+				for (let i = 0; i < 30; i++) {
+					if (!lPlaced[i]) continue;
+					const fx = data[i * 4], fy = data[i * 4 + 1], fr = data[i * 4 + 2];
+					const cosR = Math.cos(fr), sinR = Math.sin(fr);
+					for (const [lx, ly] of rhombVtx) {
+						const vx = fx + (lx * cosR - ly * sinR) / scale;
+						const vy = fy + (lx * sinR + ly * cosR) / scale;
+						bbX0 = Math.min(bbX0, vx); bbX1 = Math.max(bbX1, vx);
+						bbY0 = Math.min(bbY0, vy); bbY1 = Math.max(bbY1, vy);
+					}
+				}
+				const bbPad = 0.02 + INRADIUS / scale * 0.35;
+				bbX0 -= bbPad; bbX1 += bbPad; bbY0 -= bbPad; bbY1 += bbPad;
+				const bbW = bbX1 - bbX0, bbH = bbY1 - bbY0;
+
+				// ── Render overlay canvas ──
+				const OVH = 2048, OVW = Math.round(OVH * bbW / bbH);
+				const oCanvas = document.createElement('canvas');
+				oCanvas.width = OVW; oCanvas.height = OVH;
+				const ctx = oCanvas.getContext('2d');
+				const ovSX = OVW / bbW, ovSY = OVH / bbH;
+				function ovX(x) { return (x - bbX0) * ovSX; }
+				function ovY(y) { return OVH - (y - bbY0) * ovSY; }
+				ctx.clearRect(0, 0, OVW, OVH);
+
+				// ── Draw glue tabs on boundary edges ──
+				const tabH = INRADIUS / scale * 0.3;
+				const tabInsetAcute = INRADIUS * 0.3 * PHI;
+				const tabInsetObtuse = INRADIUS * 0.3 / PHI;
+
+				const haS = iB / scale, hbS = iA / scale;
+				function flapHitsAnyFace(px, py, excludeIdx) {
+					for (let f = 0; f < 30; f++) {
+						if (f === excludeIdx) continue;
+						const cr = Math.cos(-data[f * 4 + 2]), sr = Math.sin(-data[f * 4 + 2]);
+						const dx = px - data[f * 4], dy = py - data[f * 4 + 1];
+						if (Math.abs(dx * cr - dy * sr) / haS + Math.abs(dx * sr + dy * cr) / hbS < 1.0) return true;
+					}
+					return false;
+				}
+
+				ctx.save();
+				ctx.beginPath();
+				ctx.rect(0, 0, OVW, OVH);
+				for (let i = 0; i < 30; i++) {
+					if (!lPlaced[i]) continue;
+					const verts = rhombVerts(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
+					ctx.moveTo(ovX(verts[0][0]), ovY(verts[0][1]));
+					for (let k = 1; k < 4; k++) ctx.lineTo(ovX(verts[k][0]), ovY(verts[k][1]));
+					ctx.closePath();
+				}
+				ctx.clip('evenodd');
+				ctx.fillStyle = 'rgba(255, 180, 200, 1.0)';
+				ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+				ctx.lineWidth = 1;
+				ctx.setLineDash([6, 4]);
+				for (let i = 0; i < 30; i++) {
+					if (!lPlaced[i]) continue;
+					const fx = data[i * 4], fy = data[i * 4 + 1];
+					const verts = rhombVerts(fx, fy, data[i * 4 + 2]);
+					for (let k = 0; k < 4; k++) {
+						const info = edgeNeighbor[i][k];
+						if (info && info.isInternal) continue;
+						if (info) {
+							const ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							if (tabsMap && ek in tabsMap) { if (tabsMap[ek] !== i) continue; }
+							else { if (info.j < i) continue; }
+						}
+						const v1 = verts[k], v2 = verts[(k + 1) % 4];
+						const emx = (v1[0] + v2[0]) / 2 - fx, emy = (v1[1] + v2[1]) / 2 - fy;
+						const eml = Math.sqrt(emx * emx + emy * emy);
+						let nx = emx / eml, ny = emy / eml;
+						const probeCX = (v1[0] + v2[0]) / 2 + nx * tabH * 0.5;
+						const probeCY = (v1[1] + v2[1]) / 2 + ny * tabH * 0.5;
+						if (flapHitsAnyFace(probeCX, probeCY, i)) { nx = -nx; ny = -ny; }
+						const dx = v2[0] - v1[0], dy = v2[1] - v1[1];
+						const ins1 = (k % 2 === 0) ? tabInsetAcute : tabInsetObtuse;
+						const ins2 = (k % 2 === 0) ? tabInsetObtuse : tabInsetAcute;
+						const o1x = v1[0] + nx * tabH + dx * ins1, o1y = v1[1] + ny * tabH + dy * ins1;
+						const o2x = v2[0] + nx * tabH - dx * ins2, o2y = v2[1] + ny * tabH - dy * ins2;
+						ctx.beginPath();
+						ctx.moveTo(ovX(v1[0]), ovY(v1[1]));
+						ctx.lineTo(ovX(o1x), ovY(o1y));
+						ctx.lineTo(ovX(o2x), ovY(o2y));
+						ctx.lineTo(ovX(v2[0]), ovY(v2[1]));
+						ctx.closePath();
+						ctx.fill(); ctx.stroke();
+					}
+				}
+				ctx.setLineDash([]);
+				ctx.restore();
+
+				// ── Draw rhombus edges ──
+				ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+				ctx.lineWidth = 1.5;
+				ctx.lineJoin = 'round';
+				for (let i = 0; i < 30; i++) {
+					if (!lPlaced[i]) continue;
+					const verts = rhombVerts(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
+					ctx.beginPath();
+					ctx.moveTo(ovX(verts[0][0]), ovY(verts[0][1]));
+					for (let k = 1; k < 4; k++) ctx.lineTo(ovX(verts[k][0]), ovY(verts[k][1]));
+					ctx.closePath();
+					ctx.stroke();
+				}
+
+				// Compute tight vertex + glue-tab-corner bounding box
+				let netX0 = Infinity, netX1 = -Infinity, netY0 = Infinity, netY1 = -Infinity;
+				for (let i = 0; i < 30; i++) {
+					if (!lPlaced[i]) continue;
+					const fx = data[i * 4], fy = data[i * 4 + 1];
+					const verts = rhombVerts(fx, fy, data[i * 4 + 2]);
+					for (let k = 0; k < 4; k++) {
+						netX0 = Math.min(netX0, verts[k][0]); netX1 = Math.max(netX1, verts[k][0]);
+						netY0 = Math.min(netY0, verts[k][1]); netY1 = Math.max(netY1, verts[k][1]);
+						const info = edgeNeighbor[i][k];
+						if (info && info.isInternal) continue;
+						let hasTab = true;
+						if (info) {
+							const ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							if (tabsMap && ek in tabsMap) hasTab = (tabsMap[ek] === i);
+							else hasTab = (i < info.j);
+						}
+						if (hasTab) {
+							const v1 = verts[k], v2 = verts[(k + 1) % 4];
+							const emx = (v1[0] + v2[0]) / 2 - fx, emy = (v1[1] + v2[1]) / 2 - fy;
+							const eml = Math.sqrt(emx * emx + emy * emy);
+							let nx = emx / eml, ny = emy / eml;
+							const probeCX = (v1[0] + v2[0]) / 2 + nx * tabH * 0.5;
+							const probeCY = (v1[1] + v2[1]) / 2 + ny * tabH * 0.5;
+							if (flapHitsAnyFace(probeCX, probeCY, i)) { nx = -nx; ny = -ny; }
+							const dx = v2[0] - v1[0], dy = v2[1] - v1[1];
+							const ins1 = (k % 2 === 0) ? tabInsetAcute : tabInsetObtuse;
+							const ins2 = (k % 2 === 0) ? tabInsetObtuse : tabInsetAcute;
+							const o1x = v1[0] + nx * tabH + dx * ins1, o1y = v1[1] + ny * tabH + dy * ins1;
+							const o2x = v2[0] + nx * tabH - dx * ins2, o2y = v2[1] + ny * tabH - dy * ins2;
+							netX0 = Math.min(netX0, o1x, o2x); netX1 = Math.max(netX1, o1x, o2x);
+							netY0 = Math.min(netY0, o1y, o2y); netY1 = Math.max(netY1, o1y, o2y);
+						}
+					}
+				}
+				window.buckyTightBBox = { x0: netX0, y0: netY0, x1: netX1, y1: netY1 };
+
+				// Compute paper format rectangle (for shader outline)
+				let paperX0 = 0, paperY0 = 0, paperX1 = 0, paperY1 = 0;
+				if (paperAspect > 0) {
+					const netW = netX1 - netX0, netH = netY1 - netY0;
+					const ps = Math.min(paperAspect / netW, 1 / netH);
+					const pW2 = paperAspect / ps / 2, pH2 = 1 / ps / 2;
+					const pcx = (netX0 + netX1) / 2, pcy = (netY0 + netY1) / 2;
+					paperX0 = pcx - pW2; paperY0 = pcy - pH2;
+					paperX1 = pcx + pW2; paperY1 = pcy + pH2;
+				}
+				gl.uniform4f(uBuckyPaperRect, paperX0, paperY0, paperX1, paperY1);
+
+				// ── Upload overlay texture ──
+				const overlayTex = gl.createTexture();
+				gl.activeTexture(gl.TEXTURE1);
+				gl.bindTexture(gl.TEXTURE_2D, overlayTex);
+				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, oCanvas);
+				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+				gl.generateMipmap(gl.TEXTURE_2D);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+				gl.uniform1i(uBuckyOverlay, 1);
+				gl.uniform4fv(uBuckyNet, data);
+				gl.uniform1f(uBuckyScale, scale);
+				gl.uniform4f(uBuckyBBox, bbX0, bbY0, bbX1, bbY1);
+
+				window.buckyBBox = { x0: bbX0, y0: bbY0, x1: bbX1, y1: bbY1 };
+
+				// Store data for mode-switching re-upload
+				window._rhombic30PaperRect = { x0: paperX0, y0: paperY0, x1: paperX1, y1: paperY1 };
+				window._rhombic30Data = data;
+				window._rhombic30Scale = scale;
+				window._rhombic30BBox = [bbX0, bbY0, bbX1, bbY1];
+				window._rhombic30OverlayTex = overlayTex;
+
+				return { seed: layoutSeed, rootRot: lRes[layoutSeed].r };
+			}
+
+			// Predefined layouts (from rhombic-30-net-layouter)
+			const rhombic30Presets = [
+				{label:'DIN A (1:√2)',aspect:1.41421,parents:[-1,0,4,1,0,0,7,0,5,10,1,5,7,6,15,12,10,11,17,16,3,4,23,21,16,12,17,29,15,23],tabs:{"22-24":24,"3-10":10,"6-12":12,"8-11":8,"15-25":25,"22-29":22,"27-28":28,"2-3":3,"9-16":16},mirrored:false,angle:0.017453292519943295},
+				{label:'US Letter (8.5×11 in)',aspect:1.29412,parents:[-1,0,4,1,0,0,7,0,5,10,1,5,7,6,15,12,10,11,17,16,3,4,23,21,16,12,17,29,15,23],tabs:{"22-24":24,"3-10":10,"6-12":12,"8-11":8,"15-25":25,"22-29":22,"27-28":28,"2-3":3,"9-16":16},mirrored:false,angle:0.08726646259971647},
+				{label:'US Legal (8.5×14 in)',aspect:1.64706,parents:[4,0,4,1,-1,0,7,0,5,10,1,5,7,8,28,12,10,11,17,16,3,4,23,21,16,12,17,29,29,23],tabs:{"13-14":14,"9-16":16,"3-10":10,"4-7":7,"15-25":25,"14-15":15,"19-27":27},mirrored:false,angle:1.064650843716541},
+				{label:'US Tabloid (11×17 in)',aspect:1.54545,parents:[4,0,4,1,-1,0,7,0,5,10,1,5,7,8,28,12,10,11,17,16,3,4,23,21,16,12,17,29,29,23],tabs:{"13-14":14,"9-16":16,"3-10":10,"4-7":7,"15-25":15,"14-15":14,"19-27":27,"18-27":27,"18-19":19,"18-26":18,"8-11":11,"2-3":3,"19-24":24,"23-25":25},mirrored:false,angle:1.0821041362364843},
+				{label:'B5 JIS (182×257 mm)',aspect:1.41209,parents:[-1,0,4,1,0,0,7,0,5,10,1,5,7,6,15,12,10,11,17,16,3,4,23,21,16,12,17,29,15,23],tabs:{},mirrored:false,angle:0}
 			];
 
-			const placed = new Array(30).fill(false);
-			const parent = new Array(30).fill(-1);
-			const res = new Array(30);
-
-			// Place root face
-			res[placement[0][0]] = { x: 0, y: 0, r: Math.PI / 2 };
-			placed[placement[0][0]] = true;
-
-			// Unfold spanning tree
-			for (let s = 1; s < placement.length; s++) {
-				const [fi, par] = placement[s];
-				const ki = edgeIdx(par, fi);
-				const kj = edgeIdx(fi, par);
-				const r2 = res[par].r + edgeDirAngles[ki] - edgeDirAngles[kj] + Math.PI;
-				const qi = (ki + 1) % 4;
-				const cr1 = Math.cos(res[par].r), sr1 = Math.sin(res[par].r);
-				const Qx = res[par].x + rhombVtx[qi][0] * cr1 - rhombVtx[qi][1] * sr1;
-				const Qy = res[par].y + rhombVtx[qi][0] * sr1 + rhombVtx[qi][1] * cr1;
-				const cr2 = Math.cos(r2), sr2 = Math.sin(r2);
-				res[fi] = {
-					x: Qx - (rhombVtx[kj][0] * cr2 - rhombVtx[kj][1] * sr2),
-					y: Qy - (rhombVtx[kj][0] * sr2 + rhombVtx[kj][1] * cr2),
-					r: r2
-				};
-				placed[fi] = true;
-				parent[fi] = par;
-			}
-
-			// Rotate net so flower centers align horizontally
-			const netAngle = -0.373726;
-			const cNA = Math.cos(netAngle), sNA = Math.sin(netAngle);
-			for (let i = 0; i < 30; i++) {
-				if (!placed[i]) continue;
-				const x = res[i].x, y = res[i].y;
-				res[i].x = x * cNA - y * sNA;
-				res[i].y = x * sNA + y * cNA;
-				res[i].r += netAngle;
-			}
-
-			// ── Fit bounding box (exact vertex extents) ──
-			let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
-			for (let i = 0; i < 30; i++) {
-				if (!placed[i]) continue;
-				for (const [lx, ly] of rhombVtx) {
-					const cr = Math.cos(res[i].r), sr = Math.sin(res[i].r);
-					const gx = res[i].x + lx * cr - ly * sr;
-					const gy = res[i].y + lx * sr + ly * cr;
-					mnX = Math.min(mnX, gx); mxX = Math.max(mxX, gx);
-					mnY = Math.min(mnY, gy); mxY = Math.max(mxY, gy);
+			function populateRhombicSelect() {
+				const sel = document.getElementById('rhombic-layout-select');
+				sel.innerHTML = '';
+				for (let i = 0; i < rhombic30Presets.length; i++) {
+					const opt = document.createElement('option');
+					opt.value = i;
+					opt.textContent = rhombic30Presets[i].label;
+					sel.appendChild(opt);
 				}
 			}
-			if ((mxY - mnY) > (mxX - mnX)) {
-				for (let i = 0; i < 30; i++) {
-					if (!placed[i]) continue;
-					const x = res[i].x, y = res[i].y;
-					res[i].x = -y; res[i].y = x; res[i].r += Math.PI / 2;
+			populateRhombicSelect();
+
+			// Initial layout (DIN A)
+			const defaultPreset = rhombic30Presets[0];
+			const { seed: initSeed, rootRot: initRootRot } = computeRhombic30Layout(defaultPreset.parents, defaultPreset.angle, defaultPreset.tabs, defaultPreset.aspect);
+			gl.uniformMatrix3fv(uRhombicPreRot, false, computeRhombicPreRot(initSeed, initRootRot));
+
+			// Expose for layout import
+			window.importRhombic30Layout = function(parentTree, importAngle, alignHorizon, tabsMap, paperAspect) {
+				const { seed, rootRot } = computeRhombic30Layout(parentTree, importAngle, tabsMap, paperAspect || 0);
+				if (alignHorizon) {
+					gl.uniformMatrix3fv(uRhombicPreRot, false, computeRhombicPreRot(seed, rootRot));
+					foldable30facesQuat = [0, 0, 0, 1];
+				} else {
+					gl.uniformMatrix3fv(uRhombicPreRot, false, defaultRhombicPreRot);
 				}
-				const tmpMnX = mnX, tmpMxX = mxX;
-				mnX = -mxY; mxX = -mnY; mnY = tmpMnX; mxY = tmpMxX;
-			}
+				needsRedraw = true;
+			};
 
-			const cx = (mnX + mxX) / 2, cy = (mnY + mxY) / 2;
-			const scale = (mxY - mnY) / 2 / 0.95;
-
-			// ── Pack uniform data (reuse buckyNet[32], elements 0–29) ──
-			const data = new Float32Array(32 * 4);
-			for (let i = 0; i < 30; i++) {
-				if (!placed[i]) { data[i * 4] = 9.0; data[i * 4 + 1] = 9.0; continue; }
-				data[i * 4] = (res[i].x - cx) / scale;
-				data[i * 4 + 1] = (res[i].y - cy) / scale;
-				data[i * 4 + 2] = res[i].r;
-				data[i * 4 + 3] = faceOffsets[i];
-			}
-			data[30 * 4] = 9.0; data[30 * 4 + 1] = 9.0;
-			data[31 * 4] = 9.0; data[31 * 4 + 1] = 9.0;
-
-			// ── Classify edges for overlay ──
-			const edgeNeighbor = [];
-			for (let i = 0; i < 30; i++) {
-				edgeNeighbor.push(new Array(4).fill(null));
-				if (!placed[i]) continue;
-				for (const j of adj[i]) {
-					const k = edgeIdx(i, j);
-					const isInternal = placed[j] && (parent[j] === i || parent[i] === j);
-					edgeNeighbor[i][k] = { j, isInternal };
-				}
-			}
-
-			// Compute rhombus vertices for drawing (4 vertices per face)
-			function rhombVerts(fx, fy, rot) {
-				const haS = iB / scale, hbS = iA / scale;
-				const localVerts = [[haS, 0], [0, hbS], [-haS, 0], [0, -hbS]];
-				const cr = Math.cos(rot), sr = Math.sin(rot);
-				return localVerts.map(([lx, ly]) => [fx + lx * cr - ly * sr, fy + lx * sr + ly * cr]);
-			}
-
-			// Bounding box for overlay (exact rotated vertices)
-			let bbX0 = Infinity, bbX1 = -Infinity, bbY0 = Infinity, bbY1 = -Infinity;
-			for (let i = 0; i < 30; i++) {
-				if (!placed[i]) continue;
-				const fx = data[i * 4], fy = data[i * 4 + 1], fr = data[i * 4 + 2];
-				const cosR = Math.cos(fr), sinR = Math.sin(fr);
-				for (const [lx, ly] of rhombVtx) {
-					const vx = fx + (lx * cosR - ly * sinR) / scale;
-					const vy = fy + (lx * sinR + ly * cosR) / scale;
-					bbX0 = Math.min(bbX0, vx); bbX1 = Math.max(bbX1, vx);
-					bbY0 = Math.min(bbY0, vy); bbY1 = Math.max(bbY1, vy);
-				}
-			}
-			const bbPad = 0.02 + INRADIUS / scale * 0.35;
-			bbX0 -= bbPad; bbX1 += bbPad; bbY0 -= bbPad; bbY1 += bbPad;
-			const bbW = bbX1 - bbX0, bbH = bbY1 - bbY0;
-
-			// ── Render overlay canvas ──
-			const OVH = 2048, OVW = Math.round(OVH * bbW / bbH);
-			const oCanvas = document.createElement('canvas');
-			oCanvas.width = OVW; oCanvas.height = OVH;
-			const ctx = oCanvas.getContext('2d');
-			const ovSX = OVW / bbW, ovSY = OVH / bbH;
-			function ovX(x) { return (x - bbX0) * ovSX; }
-			function ovY(y) { return OVH - (y - bbY0) * ovSY; }
-			ctx.clearRect(0, 0, OVW, OVH);
-
-			// ── Draw glue tabs on boundary edges ──
-			const tabH = INRADIUS / scale * 0.3;
-			// Per-vertex insets: acute corners need more, obtuse corners less
-			const tabInsetAcute = INRADIUS * 0.3 * PHI;   // ~0.217
-			const tabInsetObtuse = INRADIUS * 0.3 / PHI;  // ~0.083
-
-			// Test if point (px,py) falls inside any placed rhombus except face idx
-			const haS = iB / scale, hbS = iA / scale;
-			function flapHitsAnyFace(px, py, excludeIdx) {
-				for (let f = 0; f < 30; f++) {
-					if (f === excludeIdx) continue;
-					const cr = Math.cos(-data[f * 4 + 2]), sr = Math.sin(-data[f * 4 + 2]);
-					const dx = px - data[f * 4], dy = py - data[f * 4 + 1];
-					if (Math.abs(dx * cr - dy * sr) / haS + Math.abs(dx * sr + dy * cr) / hbS < 1.0) return true;
-				}
-				return false;
-			}
-
-			ctx.save();
-			ctx.beginPath();
-			ctx.rect(0, 0, OVW, OVH);
-			for (let i = 0; i < 30; i++) {
-				if (!placed[i]) continue;
-				const verts = rhombVerts(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
-				ctx.moveTo(ovX(verts[0][0]), ovY(verts[0][1]));
-				for (let k = 1; k < 4; k++) ctx.lineTo(ovX(verts[k][0]), ovY(verts[k][1]));
-				ctx.closePath();
-			}
-			ctx.clip('evenodd');
-			ctx.fillStyle = 'rgba(255, 180, 200, 1.0)';
-			ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
-			ctx.lineWidth = 1;
-			ctx.setLineDash([6, 4]);
-			const flipSet = new Set(['4-7','7-4','2-21','21-2','3-20','20-3','1-10','10-1','9-10','10-9','27-29','29-27','18-19','19-18','22-29','29-22','16-19','19-16','11-17','17-11']);
-			for (let i = 0; i < 30; i++) {
-				if (!placed[i]) continue;
-				const fx = data[i * 4], fy = data[i * 4 + 1];
-				const verts = rhombVerts(fx, fy, data[i * 4 + 2]);
-				for (let k = 0; k < 4; k++) {
-					const info = edgeNeighbor[i][k];
-					if (info && info.isInternal) continue;
-					// Dedup: normally smaller index draws; flipSet edges: larger index draws
-					const isFlipEdge = info && flipSet.has(i + '-' + info.j);
-					if (info && (isFlipEdge ? (info.j > i) : (info.j < i))) continue;
-					const v1 = verts[k], v2 = verts[(k + 1) % 4];
-					const emx = (v1[0] + v2[0]) / 2 - fx, emy = (v1[1] + v2[1]) / 2 - fy;
-					const eml = Math.sqrt(emx * emx + emy * emy);
-					let nx = emx / eml, ny = emy / eml;
-					// Flip flap direction if outward side overlaps another face
-					const probeCX = (v1[0] + v2[0]) / 2 + nx * tabH * 0.5;
-					const probeCY = (v1[1] + v2[1]) / 2 + ny * tabH * 0.5;
-					if (flapHitsAnyFace(probeCX, probeCY, i)) { nx = -nx; ny = -ny; }
-					const dx = v2[0] - v1[0], dy = v2[1] - v1[1];
-					// Angle-based insets: vertex k and (k+1)%4 alternate acute/obtuse
-					const ins1 = (k % 2 === 0) ? tabInsetAcute : tabInsetObtuse;
-					const ins2 = (k % 2 === 0) ? tabInsetObtuse : tabInsetAcute;
-					const o1x = v1[0] + nx * tabH + dx * ins1, o1y = v1[1] + ny * tabH + dy * ins1;
-					const o2x = v2[0] + nx * tabH - dx * ins2, o2y = v2[1] + ny * tabH - dy * ins2;
-					ctx.beginPath();
-					ctx.moveTo(ovX(v1[0]), ovY(v1[1]));
-					ctx.lineTo(ovX(o1x), ovY(o1y));
-					ctx.lineTo(ovX(o2x), ovY(o2y));
-					ctx.lineTo(ovX(v2[0]), ovY(v2[1]));
-					ctx.closePath();
-					ctx.fill(); ctx.stroke();
-				}
-			}
-			ctx.setLineDash([]);
-			ctx.restore();
-
-			// ── Draw rhombus edges ──
-			ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-			ctx.lineWidth = 1.5;
-			ctx.lineJoin = 'round';
-			for (let i = 0; i < 30; i++) {
-				if (!placed[i]) continue;
-				const verts = rhombVerts(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
-				ctx.beginPath();
-				ctx.moveTo(ovX(verts[0][0]), ovY(verts[0][1]));
-				for (let k = 1; k < 4; k++) ctx.lineTo(ovX(verts[k][0]), ovY(verts[k][1]));
-				ctx.closePath();
-				ctx.stroke();
-			}
-
-			// ── Upload overlay texture ──
-			const overlayTex = gl.createTexture();
-			gl.activeTexture(gl.TEXTURE1);
-			gl.bindTexture(gl.TEXTURE_2D, overlayTex);
-			gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
-			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, oCanvas);
-			gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-			gl.generateMipmap(gl.TEXTURE_2D);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
-			// Store data for mode-switching re-upload
-			window._rhombic30Data = data;
-			window._rhombic30Scale = scale;
-			window._rhombic30BBox = [bbX0, bbY0, bbX1, bbY1];
-			window._rhombic30OverlayTex = overlayTex;
+			window.rhombic30Presets = rhombic30Presets;
+			window.populateRhombicSelect = populateRhombicSelect;
 		})();
 
 		// ── Compute truncated octahedron flat net layout (14 faces: 8 hex + 6 sq) ──
@@ -3476,6 +3556,9 @@ void main() {
 			gl.activeTexture(gl.TEXTURE1);
 			gl.bindTexture(gl.TEXTURE_2D, tex);
 			window.buckyBBox = { x0: bb[0], y0: bb[1], x1: bb[2], y1: bb[3] };
+			const pr = isRhombic ? window._rhombic30PaperRect : window._bucky32PaperRect;
+			if (pr) gl.uniform4f(uBuckyPaperRect, pr.x0, pr.y0, pr.x1, pr.y1);
+			else gl.uniform4f(uBuckyPaperRect, 0, 0, 0, 0);
 		}
 		// Initialize with buckyball-32 data (default mode is not foldable anyway).
 		// Can't call uploadActiveNetData() here because projectionModeIndex
@@ -3997,6 +4080,7 @@ void main() {
 		const screenshotRow = document.getElementById('screenshot-row');
 		const magnifierGroup = document.getElementById('magnifier-group');
 		const buckyLayoutRow = document.getElementById('bucky-layout-row');
+		const rhombicLayoutRow = document.getElementById('rhombic-layout-row');
 		function updateProjectionUI() {
 			const isPerspective = projectionModeIndex === M_PERSP;
 			const isAzimuthal = projectionModeIndex === M_AZIMUTHAL;
@@ -4019,6 +4103,7 @@ void main() {
 			stereographicRow.style.display = isStereo ? 'contents' : 'none';
 			netRow.style.display = (isFoldable || isAnyPreview) ? 'contents' : 'none';
 			buckyLayoutRow.style.display = isBucky ? 'contents' : 'none';
+			rhombicLayoutRow.style.display = isRhombic ? 'contents' : 'none';
 			facesRow.style.display = isAnyPreview ? 'contents' : 'none';
 			globeRow.style.display = (isFoldable || isAnyPreview || isAzimuthal || isCollage || isStereo) ? 'none' : '';
 			magnifierGroup.style.display = (isFoldable || isAnyPreview) ? 'none' : '';
@@ -4031,21 +4116,15 @@ void main() {
 		updateLevelBtnState();
 
 		const buckyLayoutSelect = document.getElementById('bucky-layout-select');
-
-		// ── Preset select change: apply the chosen layout ──
 		buckyLayoutSelect.addEventListener('change', () => {
 			const preset = window.bucky32Presets[buckyLayoutSelect.value];
-			if (preset) window.importBucky32Layout(preset.parents, preset.angle != null ? preset.angle : null, preset.tabs, preset.aspect);
+			if (preset) window.importBucky32Layout(preset.parents, preset.angle != null ? preset.angle : null, true, preset.tabs, preset.aspect);
 		});
 
-		// ── Open layouter in a popup window ──
 		document.getElementById('bucky-open-layouter').addEventListener('click', () => {
 			window.open('buckyball-net-layouter.html', 'layouter');
 		});
 
-		// ── Paste layout from clipboard ──
-		// Validates the JSON, adds or overwrites a preset entry (matching
-		// by label), repopulates the select, and imports the layout.
 		document.getElementById('bucky-paste-layout').addEventListener('click', async () => {
 			try {
 				const text = await navigator.clipboard.readText();
@@ -4062,8 +4141,41 @@ void main() {
 				}
 				const idx = existingIdx >= 0 ? existingIdx : window.bucky32Presets.length - 1;
 				window.populateBuckySelect();
-				window.importBucky32Layout(obj.parents, obj.angle != null ? obj.angle : null, obj.tabs || null, obj.aspect || 0);
+				window.importBucky32Layout(obj.parents, obj.angle != null ? obj.angle : null, true, obj.tabs || null, obj.aspect || 0);
 				buckyLayoutSelect.value = idx;
+			} catch (e) {
+				alert('Paste failed: ' + e.message);
+			}
+		});
+
+		const rhombicLayoutSelect = document.getElementById('rhombic-layout-select');
+		rhombicLayoutSelect.addEventListener('change', () => {
+			const preset = window.rhombic30Presets[rhombicLayoutSelect.value];
+			if (preset) window.importRhombic30Layout(preset.parents, preset.angle != null ? preset.angle : null, true, preset.tabs, preset.aspect);
+		});
+
+		document.getElementById('rhombic-open-layouter').addEventListener('click', () => {
+			window.open('rhombic-30-net-layouter.html', 'rhombic-layouter');
+		});
+
+		document.getElementById('rhombic-paste-layout').addEventListener('click', async () => {
+			try {
+				const text = await navigator.clipboard.readText();
+				const obj = JSON.parse(text);
+				if (!obj.parents || obj.parents.length !== 30 || obj.parents.filter(p => p === -1).length !== 1)
+					return alert('Invalid layout: expected { parents: [30 ints with one -1] }');
+				const label = obj.label || obj.name || 'Custom';
+				const entry = { label, aspect: obj.aspect || 0, parents: obj.parents, tabs: obj.tabs || null, angle: obj.angle != null ? obj.angle : null };
+				const existingIdx = window.rhombic30Presets.findIndex(p => p.label === label);
+				if (existingIdx >= 0) {
+					window.rhombic30Presets[existingIdx] = entry;
+				} else {
+					window.rhombic30Presets.push(entry);
+				}
+				const idx = existingIdx >= 0 ? existingIdx : window.rhombic30Presets.length - 1;
+				window.populateRhombicSelect();
+				window.importRhombic30Layout(obj.parents, obj.angle != null ? obj.angle : null, true, obj.tabs || null, obj.aspect || 0);
+				rhombicLayoutSelect.value = idx;
 			} catch (e) {
 				alert('Paste failed: ' + e.message);
 			}
@@ -4092,7 +4204,8 @@ void main() {
 			return quatToMat3(quatNormalize(q));
 		}
 		function levelMatrix() {
-			return quatToMat3(quatNormalize(levelQuat));
+			try { return quatToMat3(quatNormalize(levelQuat)); }
+			catch { return new Float32Array([1,0,0, 0,1,0, 0,0,1]); }
 		}
 
 		// ══════════════════════════════════════════════════════════
@@ -5257,10 +5370,10 @@ void main() {
 				// Hide paper outline during export
 				gl.uniform4f(uBuckyPaperRect, 0, 0, 0, 0);
 
-				// The shader maps screenUV → uv via: uv = screenUV * aspect * fitScale
-				// where fitScale = max(bbHalfW / aspect, bbHalfH) is computed
-				// from the GLSL buckyBBox uniform (= window.buckyBBox, the overlay bbox).
-				// We must use the same values here so the coordinate mapping matches.
+				// exportClip is in screenUV space (before uv.x *= aspect in the shader).
+				// bbox values are in uv space (after aspect scaling), so divide x by
+				// the export canvas aspect to compensate.
+				// Use the overlay bbox for coordinate mapping (matches the shader's fitScale).
 				const exportAspect = w / h;
 				const ovBB = window.buckyBBox;
 				const bbHalfW = Math.max(Math.abs(ovBB.x0), Math.abs(ovBB.x1));
@@ -5309,9 +5422,10 @@ void main() {
 
 			// Restore exportClip, paper rect, and canvas size
 			gl.uniform4f(uExportClip, -1, -1, 1, 1);
-			if (window._bucky32PaperRect) {
-				const pr = window._bucky32PaperRect;
-				gl.uniform4f(uBuckyPaperRect, pr.x0, pr.y0, pr.x1, pr.y1);
+			if (window._bucky32PaperRect || window._rhombic30PaperRect) {
+				const isRhombic = projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_RHOMBIC_PREVIEW;
+				const pr = isRhombic ? window._rhombic30PaperRect : window._bucky32PaperRect;
+				if (pr) gl.uniform4f(uBuckyPaperRect, pr.x0, pr.y0, pr.x1, pr.y1);
 			}
 			resize();
 

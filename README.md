@@ -20,7 +20,7 @@ A single-file browser app that loads equirectangular images and videos and rende
 
 For each screen pixel the fragment shader:
 
-1. Computes a **ray direction** based on the active projection mode — one of eleven: equirectangular, perspective, buckyball-32 preview, azimuthal equidistant, azimuthal collage, stereographic, buckyball-32 foldable, rhombic-30 foldable, rhombic-30 preview, truncoct-14 foldable, or truncoct-14 preview
+1. Computes a **ray direction** based on the active projection mode — one of eleven: equirectangular, perspective, buckyball-32 preview, azimuthal equidistant, azimuthal collage, stereographic, buckyball-32 foldable, rhombic-30 foldable, rhombic-30 preview, truncoct-14 preview, or truncoct-14 foldable
 2. Applies a **quaternion-derived rotation matrix** (controlled by mouse or keyboard) to orient the ray
 3. Optionally applies **horizon leveling** via a second quaternion
 4. Converts the ray direction to **spherical coordinates** (θ, φ)
@@ -88,25 +88,27 @@ Held keys debounce briefly, then accelerate exponentially.
 | 3 | **Azimuthal Equidistant** | Full sphere mapped into a disc (forward pole → center, backward pole → edge); optional circular mask |
 | 4 | **Azimuthal Collage** | Two overlapping azimuthal equidistant discs side-by-side (front/back hemispheres) with rotation, flip, and zoom |
 | 5 | **Stereographic** | Generalised stereographic with Scaramuzza polynomial lens distortion; D parameter (D=2 conformal, D=1 gnomonic) and a¹–a⁴ coefficients |
-| 6 | **Buckyball-32 Foldable** | Flat 2D net of a truncated icosahedron unfolded onto the screen; gnomonic back-projection with 2D canvas overlay (edges, glue tabs); layout selectable from presets or imported from the Net Layouter |
-| 7 | **Rhombic-30 Foldable** | Flat 2D net of a rhombic triacontahedron (30 golden rhombi); half-flower chain layout with L1 norm point-in-rhombus test and gnomonic back-projection |
+| 6 | **Buckyball-32 Foldable** | Flat 2D net of a truncated icosahedron unfolded onto the screen; gnomonic back-projection with 2D canvas overlay (edges, glue tabs); paper format presets with in-shader paper outline |
+| 7 | **Rhombic-30 Foldable** | Flat 2D net of a rhombic triacontahedron (30 golden rhombi); configurable layout with paper format presets, in-shader paper outline, and L1 norm point-in-rhombus test |
 | 8 | **Rhombic-30 Preview** | SDF-raymarched rhombic triacontahedron (30 equidistant faces) floating over the panorama; same lighting and interaction model as buckyball-32 preview |
-| 9 | **Truncoct-14 Foldable** | Flat 2D net of a truncated octahedron (8 hexagons + 6 squares); BFS unfolding with overlap detection across all 14 seed faces; gnomonic back-projection |
-| 10 | **Truncoct-14 Preview** | SDF-raymarched truncated octahedron (14 half-spaces) floating over the panorama; same shading pipeline as the other preview modes |
+| 9 | **Truncoct-14 Preview** | SDF-raymarched truncated octahedron (8 hexagons + 6 squares) floating over the panorama; same shading pipeline as above |
+| 10 | **Truncoct-14 Foldable** | Flat 2D net of a truncated octahedron; BFS unfolding with overlap detection; gnomonic back-projection for hexagonal and square faces |
 
 ---
 
 ### Polyhedron Preview Modes — Technical Deep Dive
 
-Both preview modes render a **3D polyhedron** floating in front of the panorama background via SDF sphere-tracing. They serve as tangible previews of the face partitioning used by the corresponding foldable modes — you can rotate the ball to inspect how the panorama maps onto each face before printing.
+All three preview modes render a **3D polyhedron** floating in front of the panorama background via SDF sphere-tracing. They serve as tangible previews of the face partitioning used by the corresponding foldable modes — you can rotate the ball to inspect how the panorama maps onto each face before printing.
 
-| Property | Buckyball-32 | Rhombic-30 |
+| Property | Buckyball-32 | Rhombic-30 | Truncoct-14 |
 |---|---|---|
-| Polyhedron | Truncated icosahedron | Rhombic triacontahedron |
-| Faces | 32 (12 pentagons + 20 hexagons) | 30 (identical golden rhombi) |
-| Face distances | 0.9393 (pent), 0.9149 (hex) | 0.8507 (all equal) |
-| Pre-rotation | Ry(180°)·Rx(45°)·Rz(−90°) | Ry(−144°)·Rx(−57°) |
-| Quaternion | `foldable32facesQuat` | `foldable30facesQuat` |
+| Polyhedron | Buckyball-32 | Rhombic-30 | Truncoct-14 |
+|---|---|---|---|
+| Polyhedron | Truncated icosahedron | Rhombic triacontahedron | Truncated octahedron |
+| Faces | 32 (12 pentagons + 20 hexagons) | 30 (identical golden rhombi) | 14 (8 hexagons + 6 squares) |
+| Face distances | 0.9393 (pent), 0.9149 (hex) | 0.8507 (all equal) | √3/√5 (hex), 2/√5 (sq) |
+| Pre-rotation | Ry(180°)·Rx(45°)·Rz(−90°) | Ry(−144°)·Rx(−57°) | Rx(45°)·Rz(−110°) |
+| Quaternion | `foldable32facesQuat` | `foldable30facesQuat` | `foldable14facesQuat` |
 
 #### Rendering Technique
 
@@ -283,7 +285,7 @@ vec4 buckyVoronoi(vec3 dir) {
 }
 ```
 
-#### Flat Net Layout (JavaScript, runs on layout change)
+#### Flat Net Layout (JavaScript, runs once at init)
 
 The 32 polygons must be arranged on a 2D plane such that adjacent faces on the sphere share edges in the net — a classic **graph unfolding** problem. The algorithm:
 
@@ -293,14 +295,14 @@ The 32 polygons must be arranged on a 2D plane such that adjacent faces on the s
 
 3. **Edge indexing** (`edgeIdx(i, j)`): Determines which edge of face `i` faces toward neighbor `j`. The center of face `j` is projected onto face `i`'s tangent plane, its polar angle is measured relative to {T₁, T₂}, and quantized into one of `n` sectors (5 or 6). A small epsilon (1e-10) resolves IEEE 754 half-integer rounding ambiguity.
 
-4. **BFS unfolding** (`place` + `guidedUnfold`): Starting from a seed face at the origin, faces are placed one by one via BFS following the parent tree. For each candidate face `j` adjacent to an already-placed face `i`:
+4. **BFS unfolding** (`tryPlace` + `unfold`): Starting from a seed face at the origin, faces are placed one by one via BFS. For each candidate face `j` adjacent to an already-placed face `i`:
    - The shared edge direction determines the placement angle: `φ = rotation_i + 2π · edge_k / n_i`
    - The offset distance is `apothem_i + apothem_j` (edge-to-center distance for both polygons)
    - An overlap check against all previously placed faces rejects placements where centers are closer than `0.85 × (apothem_j + apothem_k)`.
 
-5. **Parent tree + import angle**: The layout is driven by a parent tree (32-element array mapping each face to its parent in the BFS tree) and an import angle. These can come from a predefined preset, a custom layout, or a JSON paste from the Net Layouter. The `computeBucky32Layout()` function unfolds the tree and applies the supplied rotation angle.
+5. **Optimization**: All 32 possible seed faces are tried. For each complete layout (all 32 faces placed), the bounding box area is minimized over rotation angles (2° steps, 0°–180°). The most compact layout wins.
 
-6. **Pre-rotation**: `buckyPreRot` (now a `uniform mat3` rather than a constant) is computed from the layout's seed face and root rotation via `computeBuckyPreRot()`. This aligns the 3D texture mapping with the 2D net.
+6. **Orientation**: The final layout is rotated to landscape orientation (width > height) if needed.
 
 #### Tangent Frame Alignment (Face Offsets)
 
@@ -318,7 +320,7 @@ For each pixel inside a polygon in the 2D net, the shader reconstructs the corre
 2. **Face offset rotation**: `bestRP` is further rotated by the precomputed `faceOffset` to align with the 3D tangent frame.
 3. **Gnomonic mapping**: The 2D position is scaled from flat-polygon space to gnomonic (tangent-plane) space using the ratio `gnoCircumR / flatCircumR`, where `gnoCircumR = √(1 − rFace²)` is the gnomonic circumradius and `flatCircumR = 1/(2·sin(π/n))` is the flat polygon's circumradius.
 4. **Direction reconstruction**: `dir = normalize(rFace · N + gno.x · T₁ + gno.y · T₂)` — the face normal scaled by its distance plus the tangent-plane offset.
-5. **Camera rotation**: The direction is transformed by `viewMatrix · buckyPreRot` (a `uniform mat3` computed from the layout's seed face and root rotation angle via `computeBuckyPreRot()`).
+5. **Camera rotation**: The direction is transformed by `viewMatrix · buckyPreRot` (a fixed Ry(180°)·Rx(45°)·Rz(−90°) pre-rotation for aesthetic default orientation).
 6. **Texture lookup**: The rotated direction is converted to equirectangular UV via `dirToEquirect()` and the panorama is sampled.
 
 #### 2D Canvas Overlay
@@ -335,15 +337,14 @@ The overlay is rendered to an offscreen 2048px-tall canvas, uploaded as a WebGL 
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  JavaScript (runs on layout change or init)                 │
+│  JavaScript (runs once at init)                             │
 │                                                             │
-│  1. Receive parent tree + angle (preset, paste, or import)  │
-│  2. BFS unfolding from parent tree → flat net positions     │
-│  3. Apply import rotation angle                             │
+│  1. Build adjacency graph (32 faces, angular threshold)     │
+│  2. BFS unfolding → flat net positions + rotations          │
+│  3. Optimize layout rotation for minimal bounding box       │
 │  4. Compute tangent frame offsets from true TI vertices      │
-│  5. Compute buckyPreRot from seed face + root rotation      │
-│  6. Upload uniform vec4 buckyNet[32] + mat3 buckyPreRot     │
-│  7. Render 2D overlay (edges, tabs, labels) → texture       │
+│  5. Upload uniform vec4 buckyNet[32] to GPU                 │
+│  6. Render 2D overlay (edges, tabs, labels) → texture       │
 └─────────────────────────────────────────────────────────────┘
                          ↓
 ┌─────────────────────────────────────────────────────────────┐
@@ -414,6 +415,12 @@ The 2D canvas overlay generates trapezoidal glue tabs on boundary edges with:
 - **Auto-flip**: `flapHitsAnyFace()` uses L1 norm probing to detect overlaps, automatically negating the flap normal.
 - **Manual ownership**: A `flipSet` of 10 edges swaps which face draws the flap for optimal layout.
 
+#### Paper Format Outline
+
+Both foldable modes (buckyball-32 and rhombic-30) render a **dashed green paper format rectangle** in the fragment shader. This outline shows the paper boundary at the selected aspect ratio, fitted tightly around the net's actual vertex + tab bounding box. Because it is drawn in the shader (not the canvas overlay), it is automatically excluded from PNG exports.
+
+The paper rect is computed from the **tight bounding box** (`buckyTightBBox`) — iterating all polygon vertices and glue tab outer corners for exact bounds, rather than the approximate circumscribed-radius overlay bbox.
+
 ---
 
 ## PNG Export
@@ -428,8 +435,10 @@ The export button renders the current view at high resolution and downloads the 
 | **Azimuthal** | `texWidth × texWidth` (square) | Full viewport |
 | **Azimuthal Collage** | `texWidth × (texWidth · ⅔)` (3:2) | Full viewport |
 | **Stereographic** | `texWidth × texHeight` (original) | Full viewport |
-| **Foldable Buckyball-32** | Longer bbox side → `max(texW, texH)` px | Tight net bounding box (paper outline hidden) |
-| **Foldable Rhombic-30** | Longer bbox side → `max(texW, texH)` px | Tight net bounding box |
+| **Foldable Buckyball-32** | Longer bbox side → `max(texW, texH)` px | Tight vertex+tab bounding box; paper outline hidden |
+| **Foldable Rhombic-30** | Longer bbox side → `max(texW, texH)` px | Tight vertex+tab bounding box; paper outline hidden |
+| **Truncoct-14 Preview** | `texHeight × texHeight` (square) | Full viewport |
+| **Truncoct-14 Foldable** | Longer bbox side → `max(texW, texH)` px | Tight net bounding box |
 
 The implementation resizes the WebGL canvas to export resolution, sets the `exportClip` uniform to remap `screenUV` from the default `(−1,−1)→(1,1)` range to the net's bounding box coordinates (with aspect-ratio compensation), renders a single frame, and reads pixels via `gl.readPixels()` within the same JS task. After export, the canvas and uniform are restored to viewport defaults.
 
@@ -461,10 +470,11 @@ Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png`.
 
 ```
 dome-mapper/
-├── index.html                    # Self-contained viewer (HTML + GLSL + JS)
-├── buckyball-net-layouter.html   # Interactive net layout editor for the truncated icosahedron
-├── CHANGELOG.md                  # Version history
-└── README.md                     # This file
+├── index.html                       # Self-contained viewer (HTML + GLSL + JS)
+├── buckyball-net-layouter.html      # Interactive net layout editor for the truncated icosahedron
+├── rhombic-30-net-layouter.html     # Interactive net layout editor for the rhombic triacontahedron
+├── CHANGELOG.md                     # Version history
+└── README.md                        # This file
 ```
 
 ### Buckyball Net Layouter
@@ -473,21 +483,35 @@ A standalone single-file HTML tool (`buckyball-net-layouter.html`) for interacti
 
 **Features:**
 - **Interactive reparenting** — click any face to reassign its parent in the unfolding tree; the net recomputes instantly
-- **Interactive re-rooting** — click a face label to set it as the new tree root; auto re-root picks the most central face after each reparent
 - **Glue tab placement mode** — toggle mode where clicking a cut-edge flap swaps tab ownership between adjacent faces; owned tabs appear as solid pink, non-owned as faint ghosts
 - **Tab-aware rotation optimization** — auto-rotation accounts for actual tab geometry (owned flap trapezoids) when computing the bounding box and page fill score
 - **Paper format presets** — predefined optimized layouts (including tab assignments) for DIN A, Letter, Legal, Tabloid, and B5 JIS paper aspect ratios
-- **Custom layouts** — create, save, and delete custom paper formats; persisted in `localStorage`
-- **Paper outline** — dashed green rectangle showing the paper boundary on the canvas
 - **Flip H / V** — mirror the net layout horizontally or vertically
 - **Tree visualization** — displays the parent tree as a miniature graph; hover to preview subtree reparenting
 - **Ghost polygon preview** — shows where a face would land before committing a reparent
 - **Tooltip fill preview** — hovering a face or flap shows projected page fill with a colored +/− delta
 - **Undo / Redo** — browser history-based undo/redo for all layout and tab ownership changes
-- **Copy / Paste** — exports `{ label, parents, tabs, mirrored, angle, aspect }` JSON to clipboard; paste accepts the new format, plain arrays, and legacy formats
-- **Layout exchange with dome-mapper** — exports include rotation angle and paper aspect ratio; the dome-mapper can paste or select layouts directly from its UI
+- **Copy / Paste** — exports `{ parents, tabs }` JSON to clipboard; paste accepts the new format, plain arrays, and legacy formats
 
-The tool uses Canvas 2D rendering (no WebGL) and operates entirely on the 2D net geometry — no panorama texture is involved. Optimized layouts from this tool can be transferred to the main viewer's foldable mode via clipboard paste, the "Open Editor" button, or the predefined layout dropdown.
+The tool uses Canvas 2D rendering (no WebGL) and operates entirely on the 2D net geometry — no panorama texture is involved. Optimized parent trees from this tool can be pasted into the main viewer's foldable mode.
+
+### Rhombic-30 Net Layouter
+
+A standalone single-file HTML tool (`rhombic-30-net-layouter.html`) for interactively optimizing the flat net layout of the rhombic triacontahedron used by the Rhombic-30 Foldable projection mode.
+
+**Features:**
+- **Interactive reparenting** — click any face to reassign its parent in the unfolding tree; the net recomputes instantly
+- **Glue tab placement mode** — toggle mode where clicking a cut-edge flap swaps tab ownership; asymmetric acute/obtuse insets match the golden rhombus geometry
+- **Tab-aware rotation optimization** — auto-rotation uses actual tab geometry with L1 norm overlap probing for flap direction
+- **Paper format presets** — predefined optimized layouts for DIN A, US Letter, US Legal, US Tabloid, and B5 JIS paper aspect ratios
+- **Flip H / V** — mirror the net layout horizontally or vertically
+- **Tree visualization** — displays the parent tree as a miniature graph; hover to preview subtree reparenting
+- **Ghost polygon preview** — shows where a face would land before committing a reparent
+- **Tooltip fill preview** — hovering a face or flap shows projected page fill with a colored +/− delta
+- **Undo / Redo** — browser history-based undo/redo for all layout and tab ownership changes
+- **Copy / Paste** — exports `{ parents, tabs, mirrored, angle, aspect }` JSON to clipboard; paste into the main viewer's rhombic layout selector
+
+The tool uses Canvas 2D rendering and the same adjacency/geometry as the main viewer's rhombic-30 foldable mode. Optimized layouts are transferred via clipboard paste or the layout select dropdown in the viewer.
 
 ---
 

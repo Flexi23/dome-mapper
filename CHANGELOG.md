@@ -5,50 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.13.0] - 2026-03-21
-
-### Added
-
-#### Viewer (`index.html`)
-- **Layout exchange with Net Layouter** — Layout dropdown to select predefined layouts, "🎉 Open Editor" button to launch the layouter, and "📋 Paste Layout" button to import JSON layouts from the clipboard
-- **`computeBucky32Layout(parentTree, importAngle, tabsMap, paperAspect)`** — new function that unfolds a buckyball net from a parent tree, applies the supplied rotation angle, and uploads face positions/rotations to the GPU; replaces the old seed-search loop
-- **`computeBuckyPreRot(seed, rootRot)`** — new function computing the `buckyPreRot` matrix from seed face and root rotation angle, with try/catch guard for `levelQuat` temporal dead zone at init time
-- **`window.importBucky32Layout()`** — global API enabling cross-window layout import from the layouter via `window.opener`
-- **Predefined layout presets** — `bucky32Presets` array with optimized layouts (parent trees, tab ownership, rotation angles, aspect ratios) for DIN A, US Letter, Legal, Tabloid, and B5 JIS paper formats
-- **Paper-format-aware bounding box** — tight vertex + glue-tab-corner bounding box for accurate paper outline fitting, replacing the approximate circumradius-circle approach
-- **Shader-drawn paper outline** — the dashed green paper rectangle in foldable mode is now rendered in the fragment shader via a `buckyPaperRect` uniform instead of baked into the overlay texture; automatically hidden during PNG export
-
-#### Net Layouter (`buckyball-net-layouter.html`)
-- **Custom layout management** — "＋ New" button to create custom paper formats, "🗑" icon button to delete them; custom layouts persist in `localStorage`
-- **Paper format outline** — dashed green rectangle showing the paper boundary overlaid on the canvas, sized to the selected aspect ratio
-- **Rotation angle + aspect ratio in export** — clipboard JSON now includes `angle` and `aspect` fields: `{ label, parents, tabs, mirrored, angle, aspect }`
-- **Layout labels** — layout name is tracked in layout state and included in export JSON
-
-### Changed
-
-#### Viewer (`index.html`)
-- **`buckyPreRot` is now a uniform** — changed from `const mat3` to `uniform mat3`, dynamically computed from the imported layout's seed face and root rotation
-- **Thorough code commenting** — comprehensive inline documentation added to all functions, shader blocks, and data flow
-
-#### Net Layouter (`buckyball-net-layouter.html`)
-- **Presets as array** — predefined layouts changed from object to indexed array format
-- **Delete button compacted** — moved from a full-width button to a small "🗑" icon in the label row next to "＋ New", with a tooltip for clarity
-- **Thorough code commenting** — comprehensive inline documentation added to all functions, geometry constants, and event handlers
-
-### Fixed
-
-#### Viewer (`index.html`)
-- **`levelQuat` temporal dead zone** — `computeBuckyPreRot` is called at init before `levelQuat` is declared; fixed with a try/catch that falls back to identity matrix
-- **Paper outline precision** — bounding box computation for paper fitting now uses exact vertex + glue-tab-corner positions instead of crude circumradius circles
-
-#### Net Layouter (`buckyball-net-layouter.html`)
-- **Rotation angle transfer to dome-mapper** — `optimizeAndApplyRotation()` now un-rotates positions to the BFS base state before re-optimizing, ensuring `layout.angle` always stores the absolute total rotation (not an incremental delta); fixes wrong rotation when transferring layouts after reparent, tab toggle, or custom save operations
-- **180° flip angle tracking** — re-root click handler and `autoReroot()` now update `layout.angle` when resolving 180° ambiguity (adding π to positions)
-- **Flip angle reset** — `flipLayout()` now resets `layout.angle` to 0 before re-optimization, since mirroring invalidates the previous rotation
+## [Unreleased]
 
 ### Removed
 - **Gamepad / joystick navigation** — removed the entire Three.js-based 3D joystick overlay, gamepad polling, button HUD, hat-switch projection cycling, rocker-to-globe-size mapping, and throttle-to-playback-speed control; keyboard and mouse navigation are unaffected
 - **Three.js dependency** — the ES module importmap and joystick overlay script (~540 lines) have been removed; the viewer is now fully dependency-free
+
+## [0.14.0] - 2026-03-21
+
+### Added
+- **Rhombic-30 Net Layouter** (`rhombic-30-net-layouter.html`) — standalone Canvas 2D tool for interactively optimizing the rhombic triacontahedron flat net layout; same feature set as the buckyball net layouter (reparenting, tab placement, rotation optimization, paper presets, undo/redo, copy/paste)
+- **Rhombic layout integration** — layout select dropdown, "Open Layouter" button, and clipboard paste for the rhombic-30 foldable mode; predefined presets for DIN A, US Letter, US Legal, US Tabloid, and B5 JIS paper formats
+- **Rhombic pre-rotation as uniform** — `rhombicPreRot` changed from `const mat3` to `uniform mat3`, enabling dynamic pre-rotation from imported layouts via `computeRhombicPreRot()`
+- **In-shader paper format outline (rhombic)** — dashed green rectangle drawn in the fragment shader for rhombic-30 foldable mode, matching the buckyball's existing paper outline; automatically excluded from PNG exports
+- **Tight bounding box for rhombic** — `window.buckyTightBBox` computed from actual rhombus vertices plus glue tab outer corners (with asymmetric acute/obtuse insets and auto-flip probe); used for precise paper rect fitting and export clipping
+
+### Changed
+- **Export clipping uses tight bbox** — foldable PNG export now clips to `buckyTightBBox` (actual vertex + tab bounds) instead of the overlay bbox, with proper `fitScale` coordinate mapping via the overlay bbox
+- **`uploadActiveNetData()` handles paper rect** — switching between bucky/rhombic/truncoct modes now uploads the correct `buckyPaperRect` uniform from the active mode's stored paper rect
+- **Paper rect export handling** — paper outline hidden (`uniform4f(0,0,0,0)`) before export render and restored from the active mode's stored rect after export
+
+### Fixed
+- **Rhombic root rotation mismatch** — root face initial rotation changed from `r: 0` to `r: Math.PI / 2` to match the layouter's coordinate system; presets were optimized with π/2 and appeared 90° off
+- **Rhombic preset switching didn't update shader** — `computeRhombic30Layout` now uploads `buckyNet`, `buckyScale`, `buckyBBox`, and `buckyOverlay` uniforms directly, matching the pattern used by `computeBucky32Layout`
+
+## [0.13.0] - 2026-03-21
+
+### Added
+- **Layout exchange** — bidirectional layout transfer between dome-mapper and buckyball-net-layouter via select dropdown, "Open Layouter" button, and clipboard paste
+- **Predefined layout presets** — optimized net layouts for DIN A (1:√2), US Letter, US Legal, US Tabloid, and B5 JIS paper formats, each with parent tree, tab ownership, and rotation angle
+- **`computeBucky32Layout()` / `computeBuckyPreRot()` / `importBucky32Layout()`** — parameterized layout computation replacing the old hardcoded IIFE; supports arbitrary parent trees, tab maps, and paper aspect ratios
+- **In-shader paper format outline** — `buckyPaperRect` uniform draws a dashed green rectangle in the fragment shader (hidden during PNG export) for precise paper format visualization
+- **Custom layout management (net layouter)** — create/delete named custom layouts persisted in localStorage
+- **Export JSON includes rotation angle and aspect ratio** — layout exchange format extended with `angle` and `aspect` fields
+
+### Changed
+- **`buckyPreRot`** — changed from `const mat3` to `uniform mat3` for dynamic pre-rotation from imported layouts
+- **Code commenting** — thorough documentation pass on both index.html and buckyball-net-layouter.html
+- **Net layouter presets** — stored as array with compacted delete button UI
+
+### Fixed
+- **`levelQuat` temporal dead zone** — `computeBuckyPreRot` calls `levelMatrix()` during IIFE init before `let levelQuat` declaration; wrapped in try/catch with identity matrix fallback
+- **Paper outline precision** — tight bounding box computed from actual polygon vertices + glue tab outer corners instead of approximate circumscribed-radius circles
+- **Rotation angle transfer** — uses absolute total angle (not incremental delta) for correct layout exchange
+- **180° flip angle tracking** — flip angle properly reset when switching layouts
+- **PNG export white border** — fixed `fitScale` mismatch between shader and JS coordinate mapping
 
 ## [0.12.0] - 2026-03-21
 

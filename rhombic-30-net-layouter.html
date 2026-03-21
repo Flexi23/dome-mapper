@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Buckyball Net Layouter</title>
+<title>Rhombic 30 Net Layouter</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { background: #1a1a2e; color: #ccc; font-family: system-ui, sans-serif; overflow: hidden; }
@@ -22,6 +22,7 @@ canvas { display: block; }
 #ui .btn-row button { flex: 1; }
 #ui .label-row { display: flex; justify-content: space-between; align-items: center; margin: 4px 0 2px; }
 #ui .label-row button { width: auto; margin: 0; padding: 1px 6px; font-size: 11px; line-height: 1.4; }
+#ui .label-row span { display: flex; gap: 4px; align-items: center; }
 #score { color: #8f8; margin-top: 6px; }
 #tooltip {
 	position: fixed; pointer-events: none; z-index: 20;
@@ -34,10 +35,12 @@ canvas { display: block; }
 <div id="ui">
 	<div class="label-row">
 		<span>Paper format:</span>
-		<button id="btn-save-custom" title="Create new custom format">＋ New</button>
+		<span>
+			<button id="btn-delete-custom" style="display:none" title="Delete custom format">🗑</button>
+			<button id="btn-save-custom" title="Create new custom format">＋ New</button>
+		</span>
 	</div>
 	<select id="paper-fmt"></select>
-	<button id="btn-delete-custom" style="display:none">🗑 Delete custom format</button>
 
 	<div class="btn-row">
 		<button id="btn-flip-h">↔ Flip H</button>
@@ -55,46 +58,82 @@ canvas { display: block; }
 
 <script>
 'use strict';
+// ═══════════════════════════════════════════════════════════════════════
+// Rhombic 30 Net Layouter
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Interactive editor for 2D net layouts of a rhombic triacontahedron
+// (30 golden rhombi).
+//
+// A rhombic triacontahedron is the dual of the icosidodecahedron.
+// Its 30 faces are congruent golden rhombi (diagonal ratio φ:1).
+// Each face corresponds to one edge of the icosahedron; face normals
+// are the normalized midpoints of icosahedron edges.
+//
+// The tool mirrors the architecture of the buckyball-net-layouter:
+//   - reparent faces (drag boundary edge flaps)
+//   - re-root the spanning tree (click a face)
+//   - flip / mirror the layout
+//   - toggle glue-tab ownership on cut edges
+//   - predefined + custom paper format layouts
+//   - copy / paste layouts to/from the dome-mapper viewer
 
-// ── Vector helpers ──
+// ── 3D vector helpers ──
 function dot3(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 function cross3(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
 function norm3(v) { const l = Math.sqrt(dot3(v, v)); return [v[0] / l, v[1] / l, v[2] / l]; }
 function scale3(v, s) { return [v[0] * s, v[1] * s, v[2] * s]; }
 function sub3(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
 
-// ── Truncated icosahedron geometry ──
+// ═══════════════════════════════════════════════════════════════════════
+// Rhombic Triacontahedron Geometry
+// ═══════════════════════════════════════════════════════════════════════
+
+const N_FACES = 30;
 const PHI = (1 + Math.sqrt(5)) / 2;
-const iA = 1 / Math.sqrt(1 + PHI * PHI);
-const iB = PHI * iA;
-const dC = 1 / Math.sqrt(3);
-const dD = PHI * dC;
-const dE = dC / PHI;
+const iA = 1 / Math.sqrt(1 + PHI * PHI);  // short half-diagonal ≈ 0.5257
+const iB = PHI * iA;                        // long half-diagonal  ≈ 0.8507
+const INRADIUS = iA * iB;                   // 1/√5 ≈ 0.4472
+const PSI = Math.atan2(1, PHI);             // half-angle of acute vertex ≈ 0.5536 rad
 
-const c3 = [
-	[0, iA, iB], [0, iA, -iB], [0, -iA, iB], [0, -iA, -iB],
-	[iA, iB, 0], [iA, -iB, 0], [-iA, iB, 0], [-iA, -iB, 0],
-	[iB, 0, iA], [iB, 0, -iA], [-iB, 0, iA], [-iB, 0, -iA],
-	[dC, dC, dC], [dC, dC, -dC], [dC, -dC, dC], [dC, -dC, -dC],
-	[-dC, dC, dC], [-dC, dC, -dC], [-dC, -dC, dC], [-dC, -dC, -dC],
-	[0, dD, dE], [0, dD, -dE], [0, -dD, dE], [0, -dD, -dE],
-	[dE, 0, dD], [dE, 0, -dD], [-dE, 0, dD], [-dE, 0, -dD],
-	[dD, dE, 0], [dD, -dE, 0], [-dD, dE, 0], [-dD, -dE, 0]
-];
+// Rhombus vertices in local coords (long diagonal along x, short along y)
+const rhombVtx = [[iB, 0], [0, iA], [-iB, 0], [0, -iA]];
 
-const nSides = i => i < 12 ? 5 : 6;
+// Edge direction angles (outward normal direction of each edge in local frame)
+const edgeDirAngles = [Math.PI - PSI, Math.PI + PSI, -PSI, PSI];
 
-// Adjacency (< 0.8 rad)
-const adj = Array.from({ length: 32 }, () => []);
-for (let i = 0; i < 32; i++)
-	for (let j = i + 1; j < 32; j++) {
-		const d = Math.acos(Math.min(1, Math.max(-1, dot3(c3[i], c3[j]))));
-		if (d < 0.8) { adj[i].push(j); adj[j].push(i); }
+// Glue tab geometry
+const tabH = INRADIUS * 0.3;
+const tabInsetAcute = INRADIUS * 0.3 * PHI;
+const tabInsetObtuse = INRADIUS * 0.3 / PHI;
+const singleTabArea = (iA + iB) / 2 * tabH * 0.7; // approximate trapezoidal tab area
+
+// ── Icosahedron vertices (normalized) ──
+const icoVerts = [];
+for (const s1 of [1, -1])
+	for (const s2 of [1, -1]) {
+		icoVerts.push(norm3([0, s1, s2 * PHI]));
+		icoVerts.push(norm3([s1, s2 * PHI, 0]));
+		icoVerts.push(norm3([s2 * PHI, 0, s1]));
 	}
 
-// Tangent frames
+// ── 30 icosahedron edges = 30 face normals ──
+const threshold = 1 / Math.sqrt(5);
+const edges = [];
+for (let i = 0; i < 12; i++)
+	for (let j = i + 1; j < 12; j++)
+		if (Math.abs(dot3(icoVerts[i], icoVerts[j]) - threshold) < 0.01)
+			edges.push([i, j]);
+
+// Face normals = edge midpoints, normalized
+const c3 = edges.map(([i, j]) => {
+	const m = [icoVerts[i][0] + icoVerts[j][0], icoVerts[i][1] + icoVerts[j][1], icoVerts[i][2] + icoVerts[j][2]];
+	return norm3(m);
+});
+
+// ── Tangent frames per face ──
 const frames = [];
-for (let i = 0; i < 32; i++) {
+for (let i = 0; i < N_FACES; i++) {
 	const N = c3[i];
 	let up = [0, 1, 0];
 	if (Math.abs(dot3(N, up)) > 0.9) up = [1, 0, 0];
@@ -103,55 +142,125 @@ for (let i = 0; i < 32; i++) {
 	frames.push([T1, T2]);
 }
 
+// ── Face offsets: angle from T1 to the long diagonal (icos vertex direction) ──
+const faceOffsets = [];
+for (let fi = 0; fi < N_FACES; fi++) {
+	const N = c3[fi], [T1, T2] = frames[fi];
+	const va = icoVerts[edges[fi][0]];
+	const proj = sub3(va, scale3(N, dot3(va, N)));
+	faceOffsets.push(Math.atan2(dot3(proj, T2), dot3(proj, T1)));
+}
+
+// ── Adjacency graph (4 neighbors per face) ──
+// Two rhombic faces share an edge when they share an icosahedron vertex
+// and are consecutive in the cyclic order around that vertex.
+const vertexEdges = Array.from({ length: 12 }, () => []);
+edges.forEach(([a, b], ei) => { vertexEdges[a].push(ei); vertexEdges[b].push(ei); });
+
+function cyclicOrderEdges(vIdx, edgeList) {
+	const N = icoVerts[vIdx];
+	let up = [0, 1, 0];
+	if (Math.abs(dot3(N, up)) > 0.9) up = [1, 0, 0];
+	const T1 = norm3(cross3(N, up));
+	const T2 = cross3(N, T1);
+	const withAngle = edgeList.map(ei => {
+		const [a, b] = edges[ei];
+		const other = a === vIdx ? b : a;
+		const d = sub3(icoVerts[other], scale3(N, dot3(icoVerts[other], N)));
+		return { ei, angle: Math.atan2(dot3(d, T2), dot3(d, T1)) };
+	});
+	withAngle.sort((a, b) => a.angle - b.angle);
+	return withAngle.map(x => x.ei);
+}
+
+const adj = Array.from({ length: N_FACES }, () => []);
+for (let v = 0; v < 12; v++) {
+	const ring = cyclicOrderEdges(v, vertexEdges[v]);
+	for (let k = 0; k < ring.length; k++) {
+		const ei = ring[k], ej = ring[(k + 1) % ring.length];
+		if (!adj[ei].includes(ej)) adj[ei].push(ej);
+		if (!adj[ej].includes(ei)) adj[ej].push(ei);
+	}
+}
+
+// ── Edge indexing ──
+// Which of the 4 edges of face i faces toward face j.
+// Uses floor-based quadrants (not round) because rhombus edges are unevenly spaced.
 function edgeIdx(i, j) {
-	const N = c3[i], [T1, T2] = frames[i], M = c3[j];
-	const proj = sub3(M, scale3(N, dot3(M, N)));
+	const N = c3[i], [T1, T2] = frames[i];
+	const proj = sub3(c3[j], scale3(N, dot3(c3[j], N)));
 	const pn = norm3(proj);
 	let a = Math.atan2(dot3(pn, T2), dot3(pn, T1));
 	if (a < 0) a += 2 * Math.PI;
-	const n = nSides(i);
-	return Math.round(a * n / (2 * Math.PI) + 1e-10) % n;
+	let rel = a - faceOffsets[i];
+	if (rel < 0) rel += 2 * Math.PI;
+	if (rel >= 2 * Math.PI) rel -= 2 * Math.PI;
+	return Math.floor(rel / (Math.PI / 2)) % 4;
 }
 
-const ap5 = 1 / (2 * Math.tan(Math.PI / 5));
-const ap6 = Math.sqrt(3) / 2;
-const tabH = ap5 * 0.3;
-const tabInset = 0.15;
-const singleTabArea = (1 - tabInset) * tabH;
-function ap(i) { return nSides(i) === 5 ? ap5 : ap6; }
-function circumR(i) { return nSides(i) === 5 ? 1 / (2 * Math.sin(Math.PI / 5)) : 1.0; }
+// ── Rhombus area (single face) ──
+const rhombusArea = 2 * iA * iB; // area = d1 * d2 / 2, but half-diags so 2 * iA * iB
 
-// ── Net unfolding ──
-function tryPlace(i, j, res, placed, mirrored) {
-	const pi = res[i], ni = nSides(i);
-	const ki = edgeIdx(i, j), kj = edgeIdx(j, i), nj = nSides(j);
+// ═══════════════════════════════════════════════════════════════════════
+// Net Unfolding (BFS tree → 2D positions)
+// ═══════════════════════════════════════════════════════════════════════
+
+// Place face j adjacent to face i along their shared edge.
+// Uses shared-vertex alignment: the vertex at the end of edge ki on face i
+// must coincide with the vertex at the start of edge kj on face j.
+function ghostPlace(i, j, res, mirrored) {
+	const ki = edgeIdx(i, j), kj = edgeIdx(j, i);
 	const s = mirrored ? -1 : 1;
-	const phi = pi.r + s * 2 * Math.PI * ki / ni;
-	const dist = ap(i) + ap(j);
-	const px = pi.x + dist * Math.cos(phi);
-	const py = pi.y + dist * Math.sin(phi);
-	const theta = phi + Math.PI - s * 2 * Math.PI * kj / nj;
-	for (let k = 0; k < 32; k++) {
-		if (!placed[k] || k === i) continue;
+	// Compute rotation: edge direction angles give the outward normal of each edge.
+	// The child must be rotated so its kj-th edge faces back toward the parent.
+	const r2 = res[i].r + s * edgeDirAngles[ki] - s * edgeDirAngles[kj] + Math.PI;
+	// Shared vertex: vertex (ki+1)%4 of parent = vertex kj of child
+	const qi = mirrored ? ki : (ki + 1) % 4;
+	const cr1 = Math.cos(res[i].r * s), sr1 = Math.sin(res[i].r * s);
+	const Qx = res[i].x + (rhombVtx[qi][0] * cr1 - rhombVtx[qi][1] * sr1) * s;
+	const Qy = res[i].y + rhombVtx[qi][0] * sr1 + rhombVtx[qi][1] * cr1;
+	const cr2 = Math.cos(r2 * s), sr2 = Math.sin(r2 * s);
+	const vjx = mirrored ? (rhombVtx[(kj + 1) % 4][0] * cr2 - rhombVtx[(kj + 1) % 4][1] * sr2) * s : rhombVtx[kj][0] * cr2 - rhombVtx[kj][1] * sr2;
+	const vjy = mirrored ? rhombVtx[(kj + 1) % 4][0] * sr2 + rhombVtx[(kj + 1) % 4][1] * cr2 : rhombVtx[kj][0] * sr2 + rhombVtx[kj][1] * cr2;
+	return { x: Qx - vjx, y: Qy - vjy, r: r2 };
+}
+
+// Collision check: is candidate position for face j too close to any placed face?
+function collisionCheck(j, px, py, pr, placed, res) {
+	const cr2 = Math.cos(-pr), sr2 = Math.sin(-pr);
+	for (let k = 0; k < N_FACES; k++) {
+		if (!placed[k]) continue;
 		const dx = px - res[k].x, dy = py - res[k].y;
 		const d = Math.sqrt(dx * dx + dy * dy);
-		if (d < (ap(j) + ap(k)) * 0.85) return null;
+		if (d < INRADIUS * 1.7) {
+			// L1 overlap test in both local frames
+			const crk = Math.cos(-res[k].r), srk = Math.sin(-res[k].r);
+			const lx = dx * crk - dy * srk, ly = dx * srk + dy * crk;
+			if (Math.abs(lx) / iB + Math.abs(ly) / iA < 1.7) return true;
+		}
 	}
-	return { x: px, y: py, r: theta };
+	return false;
 }
 
+function tryPlace(i, j, res, placed, mirrored) {
+	const pos = ghostPlace(i, j, res, mirrored);
+	if (collisionCheck(j, pos.x, pos.y, pos.r, placed, res)) return null;
+	return pos;
+}
+
+// Unfold a complete net from a parent tree via BFS.
 function guidedUnfold(startFace, predefinedParents) {
-	const placed = new Array(32).fill(false);
+	const placed = new Array(N_FACES).fill(false);
 	const parent = predefinedParents.slice();
-	const res = new Array(32);
-	res[startFace] = { x: 0, y: 0, r: 0 };
+	const res = new Array(N_FACES);
+	res[startFace] = { x: 0, y: 0, r: Math.PI / 2 };
 	placed[startFace] = true;
 	let count = 1;
 	const queue = [startFace];
 	let qi = 0;
 	while (qi < queue.length) {
 		const p = queue[qi++];
-		for (let j = 0; j < 32; j++) {
+		for (let j = 0; j < N_FACES; j++) {
 			if (placed[j] || parent[j] !== p) continue;
 			res[j] = ghostPlace(p, j, res, false);
 			placed[j] = true;
@@ -162,25 +271,32 @@ function guidedUnfold(startFace, predefinedParents) {
 	return { res, placed, parent, count, mirrored: false };
 }
 
-// Predefined optimized parent trees per paper format (keyed by aspect ratio string)
+// ═══════════════════════════════════════════════════════════════════════
+// Predefined Layouts
+// ═══════════════════════════════════════════════════════════════════════
+
 const presets = [
-	{label:'DIN A (1:√2)',aspect:1.41421,parents:[12,13,14,15,13,15,21,23,28,-1,30,19,4,9,5,9,20,1,2,3,4,13,5,15,12,9,0,25,9,9,6,19],tabs:{"18-31":31,"10-31":31,"30-31":31,"18-26":26,"2-26":26,"10-26":26,"22-23":23,"5-23":23,"19-23":23,"3-23":23,"5-29":29,"14-29":29,"8-29":29,"28-29":29,"15-29":29,"2-22":22,"18-22":22,"2-24":24,"0-24":24,"4-28":28,"12-28":12,"13-28":28,"3-25":25,"1-25":25,"13-25":25,"15-25":25,"17-21":21,"20-21":21,"4-21":21,"0-20":20,"12-20":20,"14-22":22,"1-21":21,"14-24":24,"17-30":17,"17-27":27,"1-27":1,"11-31":31,"6-17":17,"6-20":20,"7-19":19,"7-22":22,"7-18":18,"8-12":8,"10-18":18,"19-27":27,"11-17":17},mirrored:false,angle:0.715584993317675},
-	{label:'US Letter (8.5×11 in)',aspect:1.29412,parents:[20,13,24,25,-1,29,20,31,24,28,16,17,0,4,29,5,20,6,26,3,4,4,18,15,0,13,0,1,4,28,6,30],tabs:{"7-22":7,"22-23":23,"11-30":30,"11-31":11,"11-19":19,"6-21":21,"17-21":21,"20-21":21,"1-21":21,"13-21":21,"9-13":13,"9-25":25,"9-15":9,"9-29":29,"14-22":22,"8-12":12,"4-12":12,"6-16":16,"0-16":16,"17-30":30,"17-27":17,"1-25":25,"19-27":27,"5-23":23,"2-26":26,"2-18":18,"2-22":22,"8-14":8,"8-29":8,"8-28":28,"5-14":14,"1-17":17,"7-23":23,"15-25":25,"7-18":18,"15-29":29},mirrored:false,angle:1.0995574287564276},
-	{label:'US Legal (8.5×14 in)',aspect:1.64706,parents:[12,21,14,27,12,14,20,22,12,28,18,30,-1,1,8,5,0,1,2,11,12,20,14,22,8,1,24,1,8,8,6,18],tabs:{"19-23":23,"10-30":30,"10-16":16,"9-25":25,"15-25":25,"3-23":23,"17-21":17,"13-25":25,"3-25":25,"4-28":28,"12-28":28,"13-21":13,"9-29":29,"5-29":29,"16-20":20,"0-20":20,"0-24":24,"2-24":24,"18-22":22,"7-23":23,"15-29":29,"9-15":15,"6-17":17,"11-17":17,"6-21":21,"28-29":29,"14-29":29,"10-31":31},mirrored:false,angle:1.4835298641951802},
-	{label:'US Tabloid (11×17 in)',aspect:1.54362,parents:[24,25,14,15,12,-1,16,22,14,15,26,19,0,21,5,5,0,1,2,3,0,4,5,5,14,15,24,25,8,5,16,19],tabs:{"11-30":30,"17-30":30,"10-31":31,"10-30":10,"3-23":23,"19-23":23,"7-23":23,"22-23":23,"15-23":23,"2-22":22,"18-22":22,"14-22":22,"2-26":2,"16-26":26,"10-16":16,"11-17":17,"9-29":29,"8-29":29,"28-29":29,"4-20":20,"6-20":20,"0-26":26,"17-27":27,"1-27":27},mirrored:false,angle:0.17453292519943295},
-	{label:'B5 JIS (182×257 mm)',aspect:1.2987,parents:[24,21,24,27,12,29,21,18,12,29,30,17,-1,9,24,9,20,21,2,27,4,4,14,15,12,1,16,1,29,8,6,30],tabs:{"13-28":28,"12-28":28,"4-28":28,"8-28":28,"4-13":13,"13-21":21,"5-15":15,"5-23":5,"5-14":14,"6-20":20,"11-27":27,"19-31":31,"10-31":10,"10-26":10,"24-26":26,"7-22":7,"22-23":23,"3-25":25,"3-19":19,"19-23":19,"9-28":28,"1-13":13,"18-22":22,"18-31":31,"18-26":26,"10-18":18},mirrored:false,angle:1.4660765716752369}
+	{label:'DIN A (1:√2)',aspect:1.41421,parents:[-1,0,4,1,0,0,7,0,5,10,1,5,7,6,15,12,10,11,17,16,3,4,23,21,16,12,17,29,15,23],tabs:{"22-24":24,"3-10":10,"6-12":12,"8-11":8,"15-25":25,"22-29":22,"27-28":28,"2-3":3,"9-16":16},mirrored:false,angle:0.017453292519943295},
+	{label:'US Letter (8.5×11 in)',aspect:11/8.5,parents:[-1,0,4,1,0,0,7,0,5,10,1,5,7,6,15,12,10,11,17,16,3,4,23,21,16,12,17,29,15,23],tabs:{"22-24":24,"3-10":10,"6-12":12,"8-11":8,"15-25":25,"22-29":22,"27-28":28,"2-3":3,"9-16":16},mirrored:false,angle:0.08726646259971647},
+	{label:'US Legal (8.5×14 in)',aspect:14/8.5,parents:[4,0,4,1,-1,0,7,0,5,10,1,5,7,8,28,12,10,11,17,16,3,4,23,21,16,12,17,29,29,23],tabs:{"13-14":14,"9-16":16,"3-10":10,"4-7":7,"15-25":25,"14-15":15,"19-27":27},mirrored:false,angle:1.064650843716541},
+	{label:'US Tabloid (11×17 in)',aspect:17/11,parents:[4,0,4,1,-1,0,7,0,5,10,1,5,7,8,28,12,10,11,17,16,3,4,23,21,16,12,17,29,29,23],tabs:{"13-14":14,"9-16":16,"3-10":10,"4-7":7,"15-25":15,"14-15":14,"19-27":27,"18-27":27,"18-19":19,"18-26":18,"8-11":11,"2-3":3,"19-24":24,"23-25":25},mirrored:false,angle:1.0821041362364843},
+	{label:'B5 JIS (182×257 mm)',aspect:257/182,parents:[-1,0,4,1,0,0,7,0,5,10,1,5,7,6,15,12,10,11,17,16,3,4,23,21,16,12,17,29,15,23],tabs:{},mirrored:false,angle:0},
 ];
 
-// ── Custom layouts (persisted in localStorage) ──
-const CUSTOM_STORAGE_KEY = 'bucky-custom-layouts';
+// ═══════════════════════════════════════════════════════════════════════
+// Custom Layouts (persisted in localStorage)
+// ═══════════════════════════════════════════════════════════════════════
+
+const CUSTOM_STORAGE_KEY = 'rhombic30-custom-layouts';
+
 function loadCustomLayouts() {
 	try { return JSON.parse(localStorage.getItem(CUSTOM_STORAGE_KEY)) || {}; } catch { return {}; }
 }
+
 function saveCustomLayouts(obj) {
 	localStorage.setItem(CUSTOM_STORAGE_KEY, JSON.stringify(obj));
 }
 
-// Return current paper aspect ratio (width/height, ≥ 1 = landscape)
 function getAspect() {
 	const key = paperFmt.value;
 	const idx = parseInt(key);
@@ -190,26 +306,33 @@ function getAspect() {
 	return 1.41421;
 }
 
-// ── Scoring ──
-// Compute bounding-box critical points: polygon vertices + owned tab outer vertices
+// ═══════════════════════════════════════════════════════════════════════
+// Scoring: Paper Utilization Metrics
+// ═══════════════════════════════════════════════════════════════════════
+
+// Compute 4 vertices of a rhombus at position (fx,fy) with rotation rot
+function polyVerts(fx, fy, rot) {
+	const cr = Math.cos(rot), sr = Math.sin(rot);
+	return rhombVtx.map(([lx, ly]) => ({
+		x: fx + lx * cr - ly * sr,
+		y: fy + lx * sr + ly * cr
+	}));
+}
+
+// Collect bounding box critical points (vertices + tab corners)
 function bboxCriticalPoints(res, placed, parent, mirrored) {
 	const pts = [];
-	for (let i = 0; i < 32; i++) {
+	for (let i = 0; i < N_FACES; i++) {
 		if (!placed[i]) continue;
-		const n = nSides(i), cr = circumR(i);
-		const fx = res[i].x, fy = res[i].y, rot = res[i].r;
-		for (let k = 0; k < n; k++) {
-			const a1 = rot + (2 * k + 1) * Math.PI / n;
-			const a2 = rot + (2 * (k + 1) + 1) * Math.PI / n;
-			const v1x = fx + cr * Math.cos(a1), v1y = fy + cr * Math.sin(a1);
-			const v2x = fx + cr * Math.cos(a2), v2y = fy + cr * Math.sin(a2);
-			pts.push(v1x, v1y);
-			// Find neighbor for this edge slot
+		const verts = polyVerts(res[i].x, res[i].y, res[i].r);
+		const fx = res[i].x, fy = res[i].y;
+		for (let k = 0; k < 4; k++) {
+			const v1 = verts[k], v2 = verts[(k + 1) % 4];
+			pts.push(v1.x, v1.y);
+			// Find neighbor for this edge
 			let targetFace = -1;
 			for (const j of adj[i]) {
-				const eidx = edgeIdx(i, j);
-				const slot = mirrored ? (n - eidx - 1 + n) % n : (eidx - 1 + n) % n;
-				if (slot === k) { targetFace = j; break; }
+				if (edgeIdx(i, j) === k) { targetFace = j; break; }
 			}
 			if (targetFace < 0) continue;
 			const isInternal = placed[targetFace] && (parent[targetFace] === i || parent[i] === targetFace);
@@ -222,16 +345,18 @@ function bboxCriticalPoints(res, placed, parent, mirrored) {
 				hasTab = (owner === i);
 			}
 			if (hasTab) {
-				const emx = (v1x + v2x) / 2 - fx, emy = (v1y + v2y) / 2 - fy;
+				const emx = (v1.x + v2.x) / 2 - fx, emy = (v1.y + v2.y) / 2 - fy;
 				const eml = Math.sqrt(emx * emx + emy * emy);
 				const nx = emx / eml, ny = emy / eml;
-				const dx = v2x - v1x, dy = v2y - v1y;
-				pts.push(v1x + nx * tabH + dx * tabInset, v1y + ny * tabH + dy * tabInset);
-				pts.push(v2x + nx * tabH - dx * tabInset, v2y + ny * tabH - dy * tabInset);
+				const dx = v2.x - v1.x, dy = v2.y - v1.y;
+				const ins1 = (k % 2 === 0) ? tabInsetAcute : tabInsetObtuse;
+				const ins2 = (k % 2 === 0) ? tabInsetObtuse : tabInsetAcute;
+				pts.push(v1.x + nx * tabH + dx * ins1, v1.y + ny * tabH + dy * ins1);
+				pts.push(v2.x + nx * tabH - dx * ins2, v2.y + ny * tabH - dy * ins2);
 			}
 		}
 	}
-	return pts; // flat array [x0, y0, x1, y1, ...]
+	return pts;
 }
 
 function bboxDims(pts, angle) {
@@ -246,7 +371,6 @@ function bboxDims(pts, angle) {
 	return { w: mxX - mnX, h: mxY - mnY, mnX, mxX, mnY, mxY };
 }
 
-// Paper area for a given rotation angle (lower = better fill)
 function paperScore(pts, angle) {
 	const d = bboxDims(pts, angle);
 	const aspect = getAspect();
@@ -254,16 +378,13 @@ function paperScore(pts, angle) {
 	return aspect / (s * s);
 }
 
-// Sum of placed polygon face areas + glue tab areas
 function netArea(placed, parent) {
 	let area = 0;
-	for (let i = 0; i < 32; i++) {
+	for (let i = 0; i < N_FACES; i++) {
 		if (!placed[i]) continue;
-		const n = nSides(i), R = circumR(i);
-		area += (n / 2) * R * R * Math.sin(2 * Math.PI / n);
+		area += rhombusArea;
 	}
-	// Count cut edges (adjacent placed pairs, not parent-child) → one glue tab each
-	for (let i = 0; i < 32; i++) {
+	for (let i = 0; i < N_FACES; i++) {
 		if (!placed[i]) continue;
 		for (const j of adj[i]) {
 			if (j <= i || !placed[j]) continue;
@@ -274,30 +395,32 @@ function netArea(placed, parent) {
 	return area;
 }
 
-// ── State ──
+// ═══════════════════════════════════════════════════════════════════════
+// Application State
+// ═══════════════════════════════════════════════════════════════════════
+
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 const paperFmt = document.getElementById('paper-fmt');
-
 const scoreDiv = document.getElementById('score');
 const tooltip = document.getElementById('tooltip');
 
 function seedFromParents(pp) { return pp.indexOf(-1); }
 
 let currentLayout = null;
-let hoveredEdge = null;    // { face, edge, targetFace, ghostPos } of hovered boundary edge
-let hoveredFace = -1;      // index of hovered polygon face (-1 = none)
-let hoveredFacePreviewFill = undefined; // fill preview for re-root on face hover
-let boundaryEdges = [];    // all open boundary edges with ghost polygon data
-let glueTabMode = false;   // when true, clicking flaps toggles tab ownership instead of reparenting
-let tabOwnership = {};     // edge key "min-max" → owner face index
-const undoStack = [];      // snapshots of layout state for undo
-const redoStack = [];      // snapshots of layout state for redo
+let hoveredEdge = null;
+let hoveredFace = -1;
+let hoveredFacePreviewFill = undefined;
+let boundaryEdges = [];
+let glueTabMode = false;
+let tabOwnership = {};
+
+const undoStack = [];
+const redoStack = [];
 let historyIndex = 0;
 history.replaceState({ idx: 0 }, '');
 
 function edgeKey(i, j) { return Math.min(i, j) + '-' + Math.max(i, j); }
-
 function cloneTabOwnership() { return Object.assign({}, tabOwnership); }
 
 function cloneLayout(layout) {
@@ -313,24 +436,13 @@ function cloneLayout(layout) {
 	};
 }
 
-// Compute ghost position: where face j would be if unfolded from face i along their shared edge
-function ghostPlace(i, j, res, mirrored) {
-	const pi = res[i], ni = nSides(i);
-	const ki = edgeIdx(i, j), kj = edgeIdx(j, i), nj = nSides(j);
-	const s = mirrored ? -1 : 1;
-	const phi = pi.r + s * 2 * Math.PI * ki / ni;
-	const dist = ap(i) + ap(j);
-	return {
-		x: pi.x + dist * Math.cos(phi),
-		y: pi.y + dist * Math.sin(phi),
-		r: phi + Math.PI - s * 2 * Math.PI * kj / nj
-	};
-}
+// ═══════════════════════════════════════════════════════════════════════
+// Tree Operations
+// ═══════════════════════════════════════════════════════════════════════
 
-// Get all BFS descendants of face j
 function getDescendants(j, parent, placed) {
 	const descs = [];
-	for (let k = 0; k < 32; k++) {
+	for (let k = 0; k < N_FACES; k++) {
 		if (!placed[k] || k === j) continue;
 		let p = k;
 		while (p !== -1 && p !== j) p = parent[p];
@@ -339,19 +451,15 @@ function getDescendants(j, parent, placed) {
 	return descs;
 }
 
-// Reparent: move face `child` (and its subtree) so it's unfolded from `newParent`
 function reparent(layout, newParent, child) {
 	const { res, placed, parent, mirrored } = layout;
 	const descs = getDescendants(child, parent, placed);
-	// Remove child and all its descendants
 	placed[child] = false; parent[child] = -1;
 	for (const d of descs) { placed[d] = false; parent[d] = -1; }
-	// Place child at ghost position
 	const pos = ghostPlace(newParent, child, res, mirrored);
 	res[child] = pos;
 	placed[child] = true;
 	parent[child] = newParent;
-	// Re-place removed descendants via BFS
 	let changed = true;
 	while (changed) {
 		changed = false;
@@ -370,25 +478,33 @@ function reparent(layout, newParent, child) {
 	layout.count = placed.filter(Boolean).length;
 }
 
-// Re-root: reverse the path from newRoot to the current root in the parent tree
 function rerootTree(parent, newRoot) {
 	const pp = parent.slice();
 	const path = [];
 	let cur = newRoot;
-	while (cur >= 0) {
-		path.push(cur);
-		cur = pp[cur];
-	}
-	for (let i = 0; i < path.length - 1; i++) {
-		pp[path[i + 1]] = path[i];
-	}
+	while (cur >= 0) { path.push(cur); cur = pp[cur]; }
+	for (let i = 0; i < path.length - 1; i++) pp[path[i + 1]] = path[i];
 	pp[newRoot] = -1;
 	return pp;
 }
 
-// Optimize rotation for best paper fit and apply it in-place
+// ═══════════════════════════════════════════════════════════════════════
+// Rotation Optimization
+// ═══════════════════════════════════════════════════════════════════════
+
 function optimizeAndApplyRotation(layout) {
 	const { res, placed, parent, mirrored } = layout;
+	const prevAngle = layout.angle || 0;
+	if (prevAngle !== 0) {
+		const pc = Math.cos(-prevAngle), ps = Math.sin(-prevAngle);
+		for (let i = 0; i < N_FACES; i++) {
+			if (!placed[i]) continue;
+			const x = res[i].x, y = res[i].y;
+			res[i].x = x * pc - y * ps;
+			res[i].y = x * ps + y * pc;
+			res[i].r -= prevAngle;
+		}
+	}
 	const pts = bboxCriticalPoints(res, placed, parent, mirrored || false);
 	let bestA = 0, bestAr = Infinity;
 	for (let deg = 0; deg < 180; deg += 1) {
@@ -396,11 +512,11 @@ function optimizeAndApplyRotation(layout) {
 		const ar = paperScore(pts, rad);
 		if (ar < bestAr) { bestAr = ar; bestA = rad; }
 	}
-	if (bestA > Math.PI / 2) bestA -= Math.PI; // prefer small rotation over near-flip
+	if (bestA > Math.PI / 2) bestA -= Math.PI;
 	layout.angle = bestA;
 	if (bestA !== 0) {
 		const cs = Math.cos(bestA), sn = Math.sin(bestA);
-		for (let i = 0; i < 32; i++) {
+		for (let i = 0; i < N_FACES; i++) {
 			if (!placed[i]) continue;
 			const x = res[i].x, y = res[i].y;
 			res[i].x = x * cs - y * sn;
@@ -410,15 +526,9 @@ function optimizeAndApplyRotation(layout) {
 	}
 }
 
-// Get polygon vertices in world coords
-function polyVerts(fx, fy, rot, n, cr) {
-	const verts = [];
-	for (let k = 0; k < n; k++) {
-		const a = rot + (2 * k + 1) * Math.PI / n;
-		verts.push({ x: fx + cr * Math.cos(a), y: fy + cr * Math.sin(a) });
-	}
-	return verts;
-}
+// ═══════════════════════════════════════════════════════════════════════
+// Layout Computation Entry Point
+// ═══════════════════════════════════════════════════════════════════════
 
 function computeLayout() {
 	const key = paperFmt.value;
@@ -439,7 +549,10 @@ function computeLayout() {
 	draw();
 }
 
-// ── Canvas coordinate transform ──
+// ═══════════════════════════════════════════════════════════════════════
+// Canvas Coordinate Transforms
+// ═══════════════════════════════════════════════════════════════════════
+
 let viewOX = 0, viewOY = 0, viewScale = 1;
 
 function toScreen(x, y) {
@@ -449,25 +562,23 @@ function toWorld(sx, sy) {
 	return [(sx - canvas.width / 2) / viewScale + viewOX, -(sy - canvas.height / 2) / viewScale + viewOY];
 }
 
-// ── Classify edges ──
+// Edge classification
 function classifyEdges(layout) {
 	const { res, placed, parent, mirrored } = layout;
 	const edgeNeighbor = [];
-	for (let i = 0; i < 32; i++) {
-		const n = nSides(i);
-		edgeNeighbor.push(new Array(n).fill(null));
+	for (let i = 0; i < N_FACES; i++) {
+		edgeNeighbor.push(new Array(4).fill(null));
 		if (!placed[i]) continue;
 		for (const j of adj[i]) {
 			const k = edgeIdx(i, j);
 			const isInternal = placed[j] && (parent[j] === i || parent[i] === j);
-			const slot = mirrored ? (n - k - 1 + n) % n : (k - 1 + n) % n;
-			edgeNeighbor[i][slot] = { j, isInternal };
+			edgeNeighbor[i][k] = { j, isInternal };
 		}
 	}
 	return edgeNeighbor;
 }
 
-// Point-in-polygon test (convex, either winding)
+// Point-in-convex-polygon test
 function pointInPoly(wx, wy, verts) {
 	let pos = 0, neg = 0;
 	for (let p = 0; p < verts.length; p++) {
@@ -479,7 +590,10 @@ function pointInPoly(wx, wy, verts) {
 	return true;
 }
 
-// ── Draw ──
+// ═══════════════════════════════════════════════════════════════════════
+// Canvas Rendering
+// ═══════════════════════════════════════════════════════════════════════
+
 function draw() {
 	if (!currentLayout) return;
 	const { res, placed, parent, count, seed, mirrored } = currentLayout;
@@ -487,7 +601,6 @@ function draw() {
 	canvas.width = window.innerWidth;
 	canvas.height = window.innerHeight;
 
-	// Compute bounding box from actual polygon + tab geometry
 	const _bbPts = bboxCriticalPoints(res, placed, parent, mirrored);
 	const _bb = bboxDims(_bbPts, 0);
 	const mnX = _bb.mnX, mxX = _bb.mxX, mnY = _bb.mnY, mxY = _bb.mxY;
@@ -503,7 +616,7 @@ function draw() {
 
 	ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-	// Draw paper outline for reference (always landscape)
+	// ── Paper outline ──
 	{
 		const aspect = getAspect();
 		const netW = mxX - mnX, netH = mxY - mnY;
@@ -522,64 +635,53 @@ function draw() {
 
 	const edgeNeighbor = classifyEdges(currentLayout);
 
-	// ── Build boundary edge list with flap trapezoids + ghost data ──
+	// ── Build boundary edge list ──
 	boundaryEdges = [];
-
-	for (let i = 0; i < 32; i++) {
+	for (let i = 0; i < N_FACES; i++) {
 		if (!placed[i]) continue;
-		const n = nSides(i), cr = circumR(i);
 		const fx = res[i].x, fy = res[i].y, rot = res[i].r;
-		for (let k = 0; k < n; k++) {
+		const verts = polyVerts(fx, fy, rot);
+		for (let k = 0; k < 4; k++) {
 			const info = edgeNeighbor[i][k];
 			if (info && info.isInternal) continue;
-			// Find the 3D neighbor for this drawing edge
 			let targetFace = -1;
 			if (info) {
 				targetFace = info.j;
 			} else {
 				for (const j of adj[i]) {
-					const eidx = edgeIdx(i, j);
-					const slot = mirrored ? (n - eidx - 1 + n) % n : (eidx - 1 + n) % n;
-					if (slot === k) { targetFace = j; break; }
+					if (edgeIdx(i, j) === k) { targetFace = j; break; }
 				}
 			}
 			if (targetFace < 0) continue;
-			// Flap trapezoid
-			const a1 = rot + (2 * k + 1) * Math.PI / n;
-			const a2 = rot + (2 * (k + 1) + 1) * Math.PI / n;
-			const v1x = fx + cr * Math.cos(a1), v1y = fy + cr * Math.sin(a1);
-			const v2x = fx + cr * Math.cos(a2), v2y = fy + cr * Math.sin(a2);
-			const emx = (v1x + v2x) / 2 - fx, emy = (v1y + v2y) / 2 - fy;
+			const v1 = verts[k], v2 = verts[(k + 1) % 4];
+			const emx = (v1.x + v2.x) / 2 - fx, emy = (v1.y + v2.y) / 2 - fy;
 			const eml = Math.sqrt(emx * emx + emy * emy);
 			const nx = emx / eml, ny = emy / eml;
-			const dx = v2x - v1x, dy = v2y - v1y;
-			const o1x = v1x + nx * tabH + dx * tabInset, o1y = v1y + ny * tabH + dy * tabInset;
-			const o2x = v2x + nx * tabH - dx * tabInset, o2y = v2y + ny * tabH - dy * tabInset;
+			const dx = v2.x - v1.x, dy = v2.y - v1.y;
+			const ins1 = (k % 2 === 0) ? tabInsetAcute : tabInsetObtuse;
+			const ins2 = (k % 2 === 0) ? tabInsetObtuse : tabInsetAcute;
+			const o1x = v1.x + nx * tabH + dx * ins1, o1y = v1.y + ny * tabH + dy * ins1;
+			const o2x = v2.x + nx * tabH - dx * ins2, o2y = v2.y + ny * tabH - dy * ins2;
 			const flapVerts = [
-				{ x: v1x, y: v1y }, { x: o1x, y: o1y },
-				{ x: o2x, y: o2y }, { x: v2x, y: v2y }
+				{ x: v1.x, y: v1.y }, { x: o1x, y: o1y },
+				{ x: o2x, y: o2y }, { x: v2.x, y: v2.y }
 			];
-			// Ghost polygon data (for hover preview)
 			const ghostPos = ghostPlace(i, targetFace, res, mirrored);
-			const nj = nSides(targetFace), crj = circumR(targetFace);
-			const ghostVerts = polyVerts(ghostPos.x, ghostPos.y, ghostPos.r, nj, crj);
-				const isCutEdge = placed[targetFace];
+			const ghostVerts = polyVerts(ghostPos.x, ghostPos.y, ghostPos.r);
+			const isCutEdge = placed[targetFace];
 			boundaryEdges.push({ face: i, edge: k, targetFace, flapVerts, ghostPos, ghostVerts, isCutEdge });
 		}
 	}
 
-	// ── Draw flap trapezoids on all boundary edges ──
-	// Clip to exclude polygon interiors
+	// ── Draw flap trapezoids (clipped outside polygons) ──
 	ctx.save();
 	ctx.beginPath();
 	ctx.rect(0, 0, canvas.width, canvas.height);
-	for (let i = 0; i < 32; i++) {
+	for (let i = 0; i < N_FACES; i++) {
 		if (!placed[i]) continue;
-		const n = nSides(i), cr = circumR(i);
-		const fx = res[i].x, fy = res[i].y, rot = res[i].r;
-		for (let k = 0; k < n; k++) {
-			const a = rot + (2 * k + 1) * Math.PI / n;
-			const [sx, sy] = toScreen(fx + cr * Math.cos(a), fy + cr * Math.sin(a));
+		const verts = polyVerts(res[i].x, res[i].y, res[i].r);
+		for (let k = 0; k < 4; k++) {
+			const [sx, sy] = toScreen(verts[k].x, verts[k].y);
 			if (k === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
 		}
 		ctx.closePath();
@@ -587,7 +689,6 @@ function draw() {
 	ctx.clip('evenodd');
 
 	for (const edge of boundaryEdges) {
-		// In glue tab mode, only draw the flap on the owning side of cut edges
 		if (glueTabMode && edge.isCutEdge) {
 			const key = edgeKey(edge.face, edge.targetFace);
 			const owner = tabOwnership[key] !== undefined ? tabOwnership[key] : Math.min(edge.face, edge.targetFace);
@@ -595,7 +696,6 @@ function draw() {
 		}
 		const isHovered = hoveredEdge && hoveredEdge.face === edge.face && hoveredEdge.edge === edge.edge;
 		const fv = edge.flapVerts;
-
 		ctx.beginPath();
 		let [sx, sy] = toScreen(fv[0].x, fv[0].y);
 		ctx.moveTo(sx, sy);
@@ -634,7 +734,6 @@ function draw() {
 		ctx.fill();
 		ctx.stroke();
 		ctx.setLineDash([]);
-
 	}
 
 	// ── Ghost flap on opposite side (glue tab mode hover) ──
@@ -660,13 +759,11 @@ function draw() {
 			ctx.setLineDash([]);
 		}
 	}
-
 	ctx.restore();
 
-	// ── Draw ghost polygon preview on hover (whole subtree) ──
+	// ── Ghost polygon preview on hover ──
 	if (hoveredEdge && !glueTabMode) {
 		const { ghostVerts, targetFace, ghostPos } = hoveredEdge;
-		// Collect ghost faces: targetFace + descendants (if already placed = reparenting)
 		const ghostFaces = [{ id: targetFace, verts: ghostVerts, pos: ghostPos }];
 		if (placed[targetFace]) {
 			const dx = ghostPos.x - res[targetFace].x;
@@ -680,20 +777,17 @@ function draw() {
 				const gx = ghostPos.x + rx * cs - ry * sn;
 				const gy = ghostPos.y + rx * sn + ry * cs;
 				const gr = res[d].r + dr;
-				const nd = nSides(d), crd = circumR(d);
-				ghostFaces.push({ id: d, verts: polyVerts(gx, gy, gr, nd, crd), pos: { x: gx, y: gy } });
+				ghostFaces.push({ id: d, verts: polyVerts(gx, gy, gr), pos: { x: gx, y: gy } });
 			}
 		}
-		// Draw all ghost faces
 		for (const gf of ghostFaces) {
-			const nj = nSides(gf.id);
 			ctx.beginPath();
 			for (let k = 0; k < gf.verts.length; k++) {
 				const [sx, sy] = toScreen(gf.verts[k].x, gf.verts[k].y);
 				if (k === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
 			}
 			ctx.closePath();
-			ctx.fillStyle = nj === 5 ? 'rgba(120, 80, 200, 0.25)' : 'rgba(60, 140, 220, 0.25)';
+			ctx.fillStyle = 'rgba(60, 140, 220, 0.25)';
 			ctx.fill();
 			ctx.strokeStyle = 'rgba(100, 200, 255, 0.7)';
 			ctx.lineWidth = 2;
@@ -702,12 +796,11 @@ function draw() {
 			ctx.setLineDash([]);
 			const [gcx, gcy] = toScreen(gf.pos.x, gf.pos.y);
 			ctx.fillStyle = 'rgba(100, 200, 255, 0.7)';
-			ctx.font = `${Math.max(10, viewScale * 0.22)}px system-ui`;
+			ctx.font = `${Math.max(10, viewScale * 0.15)}px system-ui`;
 			ctx.textAlign = 'center';
 			ctx.textBaseline = 'middle';
 			ctx.fillText(gf.id, gcx, gcy);
 		}
-		// Draw ghost tree lines
 		if (ghostFaces.length > 1) {
 			ctx.lineWidth = 1.5;
 			ctx.strokeStyle = 'rgba(100, 200, 255, 0.5)';
@@ -718,43 +811,30 @@ function draw() {
 				if (!gp) continue;
 				const [sx1, sy1] = toScreen(gf.pos.x, gf.pos.y);
 				const [sx2, sy2] = toScreen(gp.pos.x, gp.pos.y);
-				ctx.beginPath();
-				ctx.moveTo(sx1, sy1);
-				ctx.lineTo(sx2, sy2);
-				ctx.stroke();
+				ctx.beginPath(); ctx.moveTo(sx1, sy1); ctx.lineTo(sx2, sy2); ctx.stroke();
 			}
-			// Line from ghost root to its new parent
 			const [sx1, sy1] = toScreen(ghostPos.x, ghostPos.y);
 			const [sx2, sy2] = toScreen(res[hoveredEdge.face].x, res[hoveredEdge.face].y);
-			ctx.beginPath();
-			ctx.moveTo(sx1, sy1);
-			ctx.lineTo(sx2, sy2);
-			ctx.stroke();
+			ctx.beginPath(); ctx.moveTo(sx1, sy1); ctx.lineTo(sx2, sy2); ctx.stroke();
 			ctx.setLineDash([]);
 		}
 	}
 
-	// ── Draw parent tree lines ──
+	// ── Parent tree lines ──
 	ctx.lineWidth = 1.5;
 	ctx.strokeStyle = 'rgba(255, 180, 60, 0.45)';
-	ctx.setLineDash([]);
-	for (let i = 0; i < 32; i++) {
+	for (let i = 0; i < N_FACES; i++) {
 		if (!placed[i] || parent[i] < 0) continue;
 		const p = parent[i];
 		if (!placed[p]) continue;
 		const [sx1, sy1] = toScreen(res[i].x, res[i].y);
 		const [sx2, sy2] = toScreen(res[p].x, res[p].y);
-		ctx.beginPath();
-		ctx.moveTo(sx1, sy1);
-		ctx.lineTo(sx2, sy2);
-		ctx.stroke();
+		ctx.beginPath(); ctx.moveTo(sx1, sy1); ctx.lineTo(sx2, sy2); ctx.stroke();
 	}
-	// Root highlight
 	if (placed[seed]) {
 		const [rx, ry] = toScreen(res[seed].x, res[seed].y);
-		const rr = Math.max(6, viewScale * 0.18);
-		ctx.beginPath();
-		ctx.arc(rx, ry, rr, 0, 2 * Math.PI);
+		const rr = Math.max(6, viewScale * 0.12);
+		ctx.beginPath(); ctx.arc(rx, ry, rr, 0, 2 * Math.PI);
 		ctx.fillStyle = 'rgba(255, 180, 60, 0.7)';
 		ctx.fill();
 		ctx.lineWidth = 2;
@@ -762,49 +842,36 @@ function draw() {
 		ctx.stroke();
 	}
 
-	// ── Draw polygon faces ──
-	for (let i = 0; i < 32; i++) {
+	// ── Draw rhombus faces ──
+	for (let i = 0; i < N_FACES; i++) {
 		if (!placed[i]) continue;
-		const n = nSides(i), cr = circumR(i);
-		const fx = res[i].x, fy = res[i].y, rot = res[i].r;
-
-		// Highlight the target face that would be moved, or the hovered face
+		const verts = polyVerts(res[i].x, res[i].y, res[i].r);
 		const isTarget = hoveredEdge && hoveredEdge.targetFace === i;
 		const isSelf = hoveredFace === i;
 
-		// Fill
 		ctx.beginPath();
-		for (let k = 0; k <= n; k++) {
-			const a = rot + (2 * k + 1) * Math.PI / n;
-			const [sx, sy] = toScreen(fx + cr * Math.cos(a), fy + cr * Math.sin(a));
-			if (k === 0) ctx.moveTo(sx, sy);
-			else ctx.lineTo(sx, sy);
+		for (let k = 0; k < 4; k++) {
+			const [sx, sy] = toScreen(verts[k].x, verts[k].y);
+			if (k === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
 		}
 		ctx.closePath();
 		if (isSelf) {
-			ctx.fillStyle = n === 5 ? 'rgba(100, 80, 180, 0.9)' : 'rgba(60, 100, 160, 0.9)';
+			ctx.fillStyle = 'rgba(60, 100, 160, 0.9)';
 		} else if (isTarget) {
-			ctx.fillStyle = n === 5 ? 'rgba(120, 80, 200, 0.45)' : 'rgba(60, 140, 220, 0.45)';
+			ctx.fillStyle = 'rgba(60, 140, 220, 0.45)';
 		} else {
-			ctx.fillStyle = n === 5 ? 'rgba(60, 50, 80, 0.85)' : 'rgba(40, 55, 75, 0.85)';
+			ctx.fillStyle = 'rgba(40, 55, 75, 0.85)';
 		}
 		ctx.fill();
 
 		// Edge lines
-		for (let k = 0; k < n; k++) {
+		for (let k = 0; k < 4; k++) {
 			const info = edgeNeighbor[i][k];
-			const a1 = rot + (2 * k + 1) * Math.PI / n;
-			const a2 = rot + (2 * (k + 1) + 1) * Math.PI / n;
-			const [sx1, sy1] = toScreen(fx + cr * Math.cos(a1), fy + cr * Math.sin(a1));
-			const [sx2, sy2] = toScreen(fx + cr * Math.cos(a2), fy + cr * Math.sin(a2));
-
-			// Highlight the specific boundary edge being hovered
+			const [sx1, sy1] = toScreen(verts[k].x, verts[k].y);
+			const [sx2, sy2] = toScreen(verts[(k + 1) % 4].x, verts[(k + 1) % 4].y);
 			const isHoveredEdge = hoveredEdge && hoveredEdge.face === i && hoveredEdge.edge === k;
 
-			ctx.beginPath();
-			ctx.moveTo(sx1, sy1);
-			ctx.lineTo(sx2, sy2);
-
+			ctx.beginPath(); ctx.moveTo(sx1, sy1); ctx.lineTo(sx2, sy2);
 			if (isHoveredEdge) {
 				ctx.strokeStyle = 'rgba(100, 220, 255, 1.0)';
 				ctx.lineWidth = 3;
@@ -823,20 +890,19 @@ function draw() {
 		}
 
 		// Face label
-		const [cx, cy] = toScreen(fx, fy);
+		const [cx, cy] = toScreen(res[i].x, res[i].y);
 		ctx.fillStyle = (isSelf || isTarget) ? 'rgba(100, 200, 255, 0.9)' : '#ddd';
-		ctx.font = `${Math.max(10, viewScale * 0.22)}px system-ui`;
+		ctx.font = `${Math.max(10, viewScale * 0.15)}px system-ui`;
 		ctx.textAlign = 'center';
 		ctx.textBaseline = 'middle';
 		ctx.fillText(i, cx, cy);
 	}
 
-	// ── Ghost root marker on hovered face ──
+	// ── Ghost root marker ──
 	if (hoveredFace >= 0 && hoveredFace !== seed && !glueTabMode && placed[hoveredFace]) {
 		const [rx, ry] = toScreen(res[hoveredFace].x, res[hoveredFace].y);
-		const rr = Math.max(6, viewScale * 0.18);
-		ctx.beginPath();
-		ctx.arc(rx, ry, rr, 0, 2 * Math.PI);
+		const rr = Math.max(6, viewScale * 0.12);
+		ctx.beginPath(); ctx.arc(rx, ry, rr, 0, 2 * Math.PI);
 		ctx.fillStyle = 'rgba(255, 180, 60, 0.3)';
 		ctx.fill();
 		ctx.lineWidth = 2;
@@ -846,7 +912,7 @@ function draw() {
 		ctx.setLineDash([]);
 	}
 
-	// ── Score info ──
+	// ── Score ──
 	const nArea = netArea(placed, parent);
 	const pArea = paperScore(_bbPts, 0);
 	const fill = (nArea / pArea * 100).toFixed(1);
@@ -855,7 +921,10 @@ function draw() {
 	currentLayout._currentFill = parseFloat(fill);
 }
 
-// ── Mouse interaction: hit test flap trapezoids + polygon faces ──
+// ═══════════════════════════════════════════════════════════════════════
+// Mouse Interaction
+// ═══════════════════════════════════════════════════════════════════════
+
 function hitTestEdge(mx, my) {
 	const [wx, wy] = toWorld(mx, my);
 	for (const edge of boundaryEdges) {
@@ -873,9 +942,9 @@ function hitTestFace(mx, my) {
 	if (!currentLayout) return -1;
 	const [wx, wy] = toWorld(mx, my);
 	const { res, placed } = currentLayout;
-	for (let i = 0; i < 32; i++) {
+	for (let i = 0; i < N_FACES; i++) {
 		if (!placed[i]) continue;
-		const verts = polyVerts(res[i].x, res[i].y, res[i].r, nSides(i), circumR(i));
+		const verts = polyVerts(res[i].x, res[i].y, res[i].r);
 		if (pointInPoly(wx, wy, verts)) return i;
 	}
 	return -1;
@@ -927,7 +996,7 @@ canvas.addEventListener('mousemove', e => {
 			const owner = tabOwnership[key] !== undefined ? tabOwnership[key] : Math.min(hit.face, tf);
 			label = `Tab on face ${owner} → face ${owner === hit.face ? tf : hit.face}${fillStr}`;
 		} else {
-			label = `Face ${tf} (${nSides(tf) === 5 ? 'pent' : 'hex'})${fillStr}`;
+			label = `Face ${tf} (rhombus)${fillStr}`;
 		}
 		tooltip.style.display = 'block';
 		tooltip.style.left = (e.clientX + 14) + 'px';
@@ -961,14 +1030,14 @@ canvas.addEventListener('mouseleave', () => {
 	draw();
 });
 
-// Find the placed face closest to the bounding box center and re-root there
+// ── Auto-reroot ──
 function autoReroot(layout) {
 	const { res, placed, parent, mirrored } = layout;
 	const pts = bboxCriticalPoints(res, placed, parent, mirrored || false);
 	const bb = bboxDims(pts, 0);
 	const cx = (bb.mnX + bb.mxX) / 2, cy = (bb.mnY + bb.mxY) / 2;
 	let bestFace = -1, bestDist = Infinity;
-	for (let i = 0; i < 32; i++) {
+	for (let i = 0; i < N_FACES; i++) {
 		if (!placed[i]) continue;
 		const dx = res[i].x - cx, dy = res[i].y - cy;
 		const d = dx * dx + dy * dy;
@@ -980,26 +1049,26 @@ function autoReroot(layout) {
 	newLayout.seed = bestFace;
 	newLayout.mirrored = layout.mirrored;
 	optimizeAndApplyRotation(newLayout);
-	// Resolve 180° flip
 	let dot = 0;
-	for (let i = 0; i < 32; i++) {
+	for (let i = 0; i < N_FACES; i++) {
 		if (!placed[i] || !newLayout.placed[i]) continue;
 		dot += newLayout.res[i].x * res[i].x + newLayout.res[i].y * res[i].y;
 	}
 	if (dot < 0) {
-		for (let i = 0; i < 32; i++) {
+		for (let i = 0; i < N_FACES; i++) {
 			if (!newLayout.placed[i]) continue;
 			newLayout.res[i].x = -newLayout.res[i].x;
 			newLayout.res[i].y = -newLayout.res[i].y;
 			newLayout.res[i].r += Math.PI;
 		}
+		newLayout.angle = (newLayout.angle || 0) + Math.PI;
 	}
 	Object.assign(layout, newLayout);
 }
 
+// ── Click handler ──
 canvas.addEventListener('click', e => {
 	if (!currentLayout) return;
-	// Re-root on face click
 	if (hoveredFace >= 0 && hoveredFace !== currentLayout.seed && !hoveredEdge && !glueTabMode) {
 		const oldRes = currentLayout.res;
 		const oldPlaced = currentLayout.placed;
@@ -1013,19 +1082,19 @@ canvas.addEventListener('click', e => {
 		layout.mirrored = currentLayout.mirrored;
 		currentLayout = layout;
 		optimizeAndApplyRotation(currentLayout);
-		// Resolve 180° ambiguity: pick orientation closer to the old layout
 		let dot = 0;
-		for (let i = 0; i < 32; i++) {
+		for (let i = 0; i < N_FACES; i++) {
 			if (!oldPlaced[i] || !layout.placed[i]) continue;
 			dot += layout.res[i].x * oldRes[i].x + layout.res[i].y * oldRes[i].y;
 		}
 		if (dot < 0) {
-			for (let i = 0; i < 32; i++) {
+			for (let i = 0; i < N_FACES; i++) {
 				if (!layout.placed[i]) continue;
 				layout.res[i].x = -layout.res[i].x;
 				layout.res[i].y = -layout.res[i].y;
 				layout.res[i].r += Math.PI;
 			}
+			layout.angle = (layout.angle || 0) + Math.PI;
 		}
 		hoveredFace = -1;
 		hoveredFacePreviewFill = undefined;
@@ -1060,10 +1129,9 @@ canvas.addEventListener('click', e => {
 	draw();
 });
 
+// ── Undo / Redo ──
 function restoreFromSnapshot(snapshot) {
-	if (snapshot.tabOwnershipSnapshot) {
-		tabOwnership = snapshot.tabOwnershipSnapshot;
-	}
+	if (snapshot.tabOwnershipSnapshot) tabOwnership = snapshot.tabOwnershipSnapshot;
 }
 
 function performUndo() {
@@ -1071,9 +1139,7 @@ function performUndo() {
 	redoStack.push(cloneLayout(currentLayout));
 	currentLayout = undoStack.pop();
 	restoreFromSnapshot(currentLayout);
-	hoveredEdge = null;
-	hoveredFace = -1;
-	tooltip.style.display = 'none';
+	hoveredEdge = null; hoveredFace = -1; tooltip.style.display = 'none';
 	draw();
 }
 
@@ -1082,16 +1148,14 @@ function performRedo() {
 	undoStack.push(cloneLayout(currentLayout));
 	currentLayout = redoStack.pop();
 	restoreFromSnapshot(currentLayout);
-	hoveredEdge = null;
-	hoveredFace = -1;
-	tooltip.style.display = 'none';
+	hoveredEdge = null; hoveredFace = -1; tooltip.style.display = 'none';
 	draw();
 }
 
 window.addEventListener('popstate', e => {
 	const newIdx = (e.state && e.state.idx) || 0;
-	if (newIdx < historyIndex) { performUndo(); }
-	else if (newIdx > historyIndex) { performRedo(); }
+	if (newIdx < historyIndex) performUndo();
+	else if (newIdx > historyIndex) performRedo();
 	historyIndex = newIdx;
 });
 
@@ -1100,14 +1164,16 @@ window.addEventListener('keydown', e => {
 	if (e.ctrlKey && e.key === 'y') { e.preventDefault(); history.forward(); }
 });
 
-// ── Controls ──
+// ═══════════════════════════════════════════════════════════════════════
+// UI Controls
+// ═══════════════════════════════════════════════════════════════════════
+
 paperFmt.addEventListener('change', computeLayout);
 
-// ── Mirror / Flip ──
 function flipLayout(axis) {
 	if (!currentLayout) return;
 	const { res, placed } = currentLayout;
-	for (let i = 0; i < 32; i++) {
+	for (let i = 0; i < N_FACES; i++) {
 		if (!placed[i]) continue;
 		if (axis === 'h') {
 			res[i].x = -res[i].x;
@@ -1118,6 +1184,7 @@ function flipLayout(axis) {
 		}
 	}
 	currentLayout.mirrored = !currentLayout.mirrored;
+	currentLayout.angle = 0;
 	optimizeAndApplyRotation(currentLayout);
 	draw();
 }
@@ -1130,15 +1197,24 @@ document.getElementById('btn-glue-tab').addEventListener('click', () => {
 	btn.style.background = glueTabMode ? '#a06000' : '';
 	btn.style.color = glueTabMode ? '#fff' : '';
 	btn.style.borderColor = glueTabMode ? '#c80' : '';
-	hoveredEdge = null;
-	hoveredFace = -1;
-	tooltip.style.display = 'none';
+	hoveredEdge = null; hoveredFace = -1; tooltip.style.display = 'none';
 	draw();
 });
 
+// ═══════════════════════════════════════════════════════════════════════
+// Clipboard Export / Import
+// ═══════════════════════════════════════════════════════════════════════
+
 document.getElementById('btn-export-clip').addEventListener('click', () => {
 	if (!currentLayout) return;
-	const data = { label: paperFmt.options[paperFmt.selectedIndex].textContent, parents: currentLayout.parent, tabs: cloneTabOwnership(), mirrored: currentLayout.mirrored || false, angle: currentLayout.angle || 0, aspect: getAspect() };
+	const data = {
+		label: paperFmt.options[paperFmt.selectedIndex].textContent,
+		parents: currentLayout.parent,
+		tabs: cloneTabOwnership(),
+		mirrored: currentLayout.mirrored || false,
+		angle: currentLayout.angle || 0,
+		aspect: getAspect()
+	};
 	const text = JSON.stringify(data);
 	navigator.clipboard.writeText(text).then(() => {
 		const btn = document.getElementById('btn-export-clip');
@@ -1153,16 +1229,13 @@ document.getElementById('btn-import-clip').addEventListener('click', async () =>
 		const text = await navigator.clipboard.readText();
 		const data = JSON.parse(text);
 		let pp, tabs = {}, mirrored = false, label = '';
-		if (Array.isArray(data) && data.length === 32) {
+		if (Array.isArray(data) && data.length === N_FACES) {
 			pp = data;
 		} else if (data.parents && Array.isArray(data.parents)) {
 			pp = data.parents;
 			if (data.tabs) tabs = data.tabs;
 			if (data.mirrored) mirrored = true;
 			if (data.label || data.name) label = data.label || data.name;
-		} else if (data.faces && Array.isArray(data.faces)) {
-			pp = new Array(32).fill(-1);
-			for (const f of data.faces) pp[f.id] = f.parent;
 		} else throw new Error('Invalid format');
 		const seed = pp.indexOf(-1);
 		const layout = guidedUnfold(seed, pp);
@@ -1176,8 +1249,7 @@ document.getElementById('btn-import-clip').addEventListener('click', async () =>
 		tabOwnership = tabs;
 		currentLayout = layout;
 		optimizeAndApplyRotation(currentLayout);
-		hoveredEdge = null;
-		hoveredFace = -1;
+		hoveredEdge = null; hoveredFace = -1;
 		updateDeleteBtnVisibility();
 		draw();
 		btn.textContent = '✅ Loaded!';
@@ -1191,7 +1263,10 @@ document.getElementById('btn-import-clip').addEventListener('click', async () =>
 
 window.addEventListener('resize', () => { if (currentLayout) draw(); });
 
-// ── Custom layout management ──
+// ═══════════════════════════════════════════════════════════════════════
+// Custom Layout Management
+// ═══════════════════════════════════════════════════════════════════════
+
 function populateSelect() {
 	paperFmt.innerHTML = '';
 	presets.forEach((p, i) => {
@@ -1231,10 +1306,7 @@ document.getElementById('btn-save-custom').addEventListener('click', () => {
 	const key = 'custom_' + Date.now();
 	const customs = loadCustomLayouts();
 	customs[key] = {
-		label: name,
-		width: parts[0],
-		height: parts[1],
-		aspect,
+		label: name, width: parts[0], height: parts[1], aspect,
 		parents: currentLayout.parent.slice(),
 		tabs: cloneTabOwnership(),
 		mirrored: currentLayout.mirrored || false
@@ -1243,7 +1315,6 @@ document.getElementById('btn-save-custom').addEventListener('click', () => {
 	currentLayout.label = name;
 	populateSelect();
 	paperFmt.value = key;
-	// Re-optimize rotation for the new aspect ratio
 	optimizeAndApplyRotation(currentLayout);
 	updateDeleteBtnVisibility();
 	draw();
@@ -1254,7 +1325,7 @@ document.getElementById('btn-delete-custom').addEventListener('click', () => {
 	const customs = loadCustomLayouts();
 	if (!customs[key]) return;
 	const name = customs[key].label || key;
-	if (!confirm('Delete custom layout \"' + name + '\"?')) return;
+	if (!confirm('Delete custom layout "' + name + '"?')) return;
 	delete customs[key];
 	saveCustomLayouts(customs);
 	populateSelect();
@@ -1265,7 +1336,9 @@ document.getElementById('btn-delete-custom').addEventListener('click', () => {
 
 populateSelect();
 
-// ── Init ──
+// ═══════════════════════════════════════════════════════════════════════
+// Initialization
+// ═══════════════════════════════════════════════════════════════════════
 computeLayout();
 </script>
 </body>
