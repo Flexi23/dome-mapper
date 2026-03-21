@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-03-21
+
+### Added
+- **Glue tab placement mode** — toggle button switches to a mode where clicking a cut-edge flap swaps tab ownership between the two adjacent faces; button highlights orange when active
+- **Tab-aware bounding box** — new `bboxCriticalPoints()` function computes actual polygon vertices plus owned tab trapezoid outer vertices for accurate bounding-box and page-fill calculations
+- **Undo/redo for glue tab toggles** — tab ownership changes push to the undo stack and browser history, just like reparent operations
+- **Tooltip fill preview** — hovering a face or flap shows a tooltip with the projected page fill percentage and a colored delta (green for improvement, red for regression) relative to the current layout; works in both reparent and glue tab modes
+- **Tab ownership in export/import** — copy exports `{ parents, tabs }` JSON; paste accepts the new format, plain 32-element arrays, and the legacy `{ faces }` format (backwards compatible)
+- **Tab ownership in predefined layouts** — `predefinedParents` entries store optimized `{ parents, tabs }` objects; tab assignments are restored when selecting a paper format
+
+### Changed
+- **Rotation optimization reflects tab ownership** — `optimizeAndApplyRotation()` now uses `bboxCriticalPoints()` so tab toggles immediately affect the optimal rotation angle and page fill score
+- **Flap visuals (placement mode)** — owned tabs render with solid pink fill and black stroke (same as glue tab placement mode); non-owned tabs render as faint pink ghosts
+- **Flap labels removed** — face numbers no longer rendered inside flap trapezoids for a cleaner appearance
+
+### Fixed
+- **NaN% page fill display** — `paperScore` was called with the old `(res, placed, angle)` signature after the bbox refactor; fixed to use the new `(pts, angle)` signature
+
 ## [0.10.0] - 2026-03-20
 
 ### Added

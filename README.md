@@ -484,13 +484,15 @@ A standalone single-file HTML tool (`buckyball-net-optimizer.html`) for interact
 
 **Features:**
 - **Interactive reparenting** — click any face to reassign its parent in the unfolding tree; the net recomputes instantly
-- **Paper format presets** — predefined optimized layouts for DIN A, Letter, Legal, Tabloid, and B5 JIS paper aspect ratios
+- **Glue tab placement mode** — toggle mode where clicking a cut-edge flap swaps tab ownership between adjacent faces; owned tabs appear as solid pink, non-owned as faint ghosts
+- **Tab-aware rotation optimization** — auto-rotation accounts for actual tab geometry (owned flap trapezoids) when computing the bounding box and page fill score
+- **Paper format presets** — predefined optimized layouts (including tab assignments) for DIN A, Letter, Legal, Tabloid, and B5 JIS paper aspect ratios
 - **Flip H / V** — mirror the net layout horizontally or vertically
-- **Auto-rotation optimization** — finds the rotation angle that maximizes page fill for the selected paper format
 - **Tree visualization** — displays the parent tree as a miniature graph; hover to preview subtree reparenting
 - **Ghost polygon preview** — shows where a face would land before committing a reparent
-- **Undo / Redo** — browser history-based undo/redo for all layout changes
-- **Copy / Paste** — exports the 32-element parent tree array to clipboard; paste to import any layout
+- **Tooltip fill preview** — hovering a face or flap shows projected page fill with a colored +/− delta
+- **Undo / Redo** — browser history-based undo/redo for all layout and tab ownership changes
+- **Copy / Paste** — exports `{ parents, tabs }` JSON to clipboard; paste accepts the new format, plain arrays, and legacy formats
 
 The tool uses Canvas 2D rendering (no WebGL) and operates entirely on the 2D net geometry — no panorama texture is involved. Optimized parent trees from this tool can be pasted into the main viewer's foldable mode.
 

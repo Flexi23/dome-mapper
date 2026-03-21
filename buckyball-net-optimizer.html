@@ -45,6 +45,7 @@ canvas { display: block; }
 		<button id="btn-flip-h">↔ Flip H</button>
 		<button id="btn-flip-v">↕ Flip V</button>
 	</div>
+	<button id="btn-glue-tab">✂ Glue tab placement</button>
 	<div class="btn-row">
 		<button id="btn-export-clip">📋 Copy</button>
 		<button id="btn-import-clip">📥 Paste</button>
@@ -116,6 +117,9 @@ function edgeIdx(i, j) {
 
 const ap5 = 1 / (2 * Math.tan(Math.PI / 5));
 const ap6 = Math.sqrt(3) / 2;
+const tabH = ap5 * 0.3;
+const tabInset = 0.15;
+const singleTabArea = (1 - tabInset) * tabH;
 function ap(i) { return nSides(i) === 5 ? ap5 : ap6; }
 function circumR(i) { return nSides(i) === 5 ? 1 / (2 * Math.sin(Math.PI / 5)) : 1.0; }
 
@@ -162,43 +166,93 @@ function guidedUnfold(startFace, predefinedParents) {
 
 // Predefined optimized parent trees per paper format (keyed by aspect ratio string)
 const predefinedParents = {
-	'1.41421': [12, 13, 14, 15, 13, 15, 21, 23, 28, -1, 30, 19, 4, 9, 5, 9, 20, 1, 2, 3, 4, 13, 5, 15, 12, 9, 0, 25, 9, 9, 6, 19],
-	'1.29412': [20, 13, 24, 25, 20, 29, 20, 31, 24, 28, 16, 17, 0, 4, 29, 5, 20, 6, 26, 3, -1, 4, 18, 15, 0, 13, 0, 1, 4, 28, 6, 30],
-	'1.64706': [12, 21, 14, 27, 12, 14, 20, 22, -1, 28, 18, 30, 8, 1, 8, 5, 0, 1, 2, 11, 12, 20, 14, 22, 8, 1, 24, 1, 8, 8, 6, 18],
-	'1.54362': [24, 25, 14, 15, 12, -1, 16, 22, 14, 15, 26, 19, 0, 21, 5, 5, 0, 1, 2, 3, 0, 4, 5, 5, 14, 15, 24, 25, 8, 5, 16, 19],
-	'1.29870': [24, 21, 24, 27, 21, 29, 21, 18, 12, 29, 30, 17, 4, 9, 24, 9, 20, 21, 2, 27, 4, -1, 14, 15, 12, 1, 16, 1, 29, 8, 6, 30]
+	'1.41421': {"parents":[12,13,14,15,13,15,21,23,28,-1,30,19,4,9,5,9,20,1,2,3,4,13,5,15,12,9,0,25,9,9,6,19],"tabs":{"18-31":31,"10-31":31,"30-31":31,"18-26":26,"2-26":26,"10-26":26,"22-23":23,"5-23":23,"19-23":23,"3-23":23,"5-29":29,"14-29":29,"8-29":29,"28-29":29,"15-29":29,"2-22":22,"18-22":22,"2-24":24,"0-24":24,"4-28":28,"12-28":12,"13-28":28,"3-25":25,"1-25":25,"13-25":25,"15-25":25,"17-21":21,"20-21":21,"4-21":21,"0-20":20,"12-20":20,"14-22":22,"1-21":21,"14-24":24,"17-30":17,"17-27":27,"1-27":1,"11-31":31,"6-17":17,"6-20":20,"7-19":19,"7-22":22,"7-18":18,"8-12":8,"10-18":18,"19-27":27,"11-17":17}},
+	'1.29412': {"parents":[20,13,24,25,20,29,20,31,24,28,16,17,0,4,29,5,20,6,26,3,-1,4,18,15,0,13,0,1,4,28,6,30],"tabs":{"7-22":7,"22-23":23,"11-30":30,"11-31":11,"11-19":19,"6-21":21,"17-21":21,"20-21":21,"1-21":21,"13-21":21,"9-13":13,"9-25":25,"9-15":9,"9-29":29,"14-22":22,"8-12":12,"4-12":12,"6-16":16,"0-16":16,"17-30":30,"17-27":17,"1-25":25,"19-27":27,"5-23":23,"2-26":26,"2-18":18,"2-22":22,"8-14":8,"8-29":8,"8-28":28,"5-14":14,"1-17":17,"7-23":23,"15-25":25,"7-18":18,"15-29":29}},
+	'1.64706': {"parents":[12,21,14,27,12,14,20,22,-1,28,18,30,8,1,8,5,0,1,2,11,12,20,14,22,8,1,24,1,8,8,6,18],"tabs":{"19-23":23,"10-30":30,"10-16":16,"9-25":25,"15-25":25,"3-23":23,"17-21":17,"13-25":25,"3-25":25,"4-28":28,"12-28":28,"13-21":13,"9-29":29,"5-29":29,"16-20":20,"0-20":20,"0-24":24,"2-24":24,"18-22":22,"7-23":23,"15-29":29,"9-15":15,"6-17":17,"11-17":17,"6-21":21,"28-29":29,"14-29":29,"10-31":31}},
+	'1.54362': {"parents":[24,25,14,15,12,-1,16,22,14,15,26,19,0,21,5,5,0,1,2,3,0,4,5,5,14,15,24,25,8,5,16,19],"tabs":{"11-30":30,"17-30":30,"10-31":31,"10-30":10,"3-23":23,"19-23":23,"7-23":23,"22-23":23,"15-23":23,"2-22":22,"18-22":22,"14-22":22,"2-26":2,"16-26":26,"10-16":16,"11-17":17,"9-29":29,"8-29":29,"28-29":29,"4-20":20,"6-20":20,"0-26":26,"17-27":27,"1-27":27}},
+	'1.29870': {"parents":[24,21,24,27,21,29,21,18,12,29,30,17,4,9,24,9,20,21,2,27,4,-1,14,15,12,1,16,1,29,8,6,30],"tabs":{"13-28":28,"12-28":28,"4-28":28,"8-28":28,"4-13":13,"13-21":21,"5-15":15,"5-23":5,"5-14":14,"6-20":20,"11-27":27,"19-31":31,"10-31":10,"10-26":10,"24-26":26,"7-22":7,"22-23":23,"3-25":25,"3-19":19,"19-23":19,"9-28":28,"1-13":13,"18-22":22,"18-31":31,"18-26":26,"10-18":18}}
 };
 
 // ── Scoring ──
-function bboxDims(res, placed, angle) {
-	const cs = Math.cos(angle), sn = Math.sin(angle);
-	let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
+// Compute bounding-box critical points: polygon vertices + owned tab outer vertices
+function bboxCriticalPoints(res, placed, parent, mirrored) {
+	const pts = [];
 	for (let i = 0; i < 32; i++) {
 		if (!placed[i]) continue;
-		const cr = circumR(i);
-		const rx = res[i].x * cs - res[i].y * sn;
-		const ry = res[i].x * sn + res[i].y * cs;
-		mnX = Math.min(mnX, rx - cr); mxX = Math.max(mxX, rx + cr);
-		mnY = Math.min(mnY, ry - cr); mxY = Math.max(mxY, ry + cr);
+		const n = nSides(i), cr = circumR(i);
+		const fx = res[i].x, fy = res[i].y, rot = res[i].r;
+		for (let k = 0; k < n; k++) {
+			const a1 = rot + (2 * k + 1) * Math.PI / n;
+			const a2 = rot + (2 * (k + 1) + 1) * Math.PI / n;
+			const v1x = fx + cr * Math.cos(a1), v1y = fy + cr * Math.sin(a1);
+			const v2x = fx + cr * Math.cos(a2), v2y = fy + cr * Math.sin(a2);
+			pts.push(v1x, v1y);
+			// Find neighbor for this edge slot
+			let targetFace = -1;
+			for (const j of adj[i]) {
+				const eidx = edgeIdx(i, j);
+				const slot = mirrored ? (n - eidx - 1 + n) % n : (eidx - 1 + n) % n;
+				if (slot === k) { targetFace = j; break; }
+			}
+			if (targetFace < 0) continue;
+			const isInternal = placed[targetFace] && (parent[targetFace] === i || parent[i] === targetFace);
+			if (isInternal) continue;
+			const isCutEdge = placed[targetFace];
+			let hasTab = true;
+			if (isCutEdge) {
+				const key = edgeKey(i, targetFace);
+				const owner = tabOwnership[key] !== undefined ? tabOwnership[key] : Math.min(i, targetFace);
+				hasTab = (owner === i);
+			}
+			if (hasTab) {
+				const emx = (v1x + v2x) / 2 - fx, emy = (v1y + v2y) / 2 - fy;
+				const eml = Math.sqrt(emx * emx + emy * emy);
+				const nx = emx / eml, ny = emy / eml;
+				const dx = v2x - v1x, dy = v2y - v1y;
+				pts.push(v1x + nx * tabH + dx * tabInset, v1y + ny * tabH + dy * tabInset);
+				pts.push(v2x + nx * tabH - dx * tabInset, v2y + ny * tabH - dy * tabInset);
+			}
+		}
 	}
-	return { w: mxX - mnX, h: mxY - mnY };
+	return pts; // flat array [x0, y0, x1, y1, ...]
+}
+
+function bboxDims(pts, angle) {
+	const cs = Math.cos(angle), sn = Math.sin(angle);
+	let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
+	for (let p = 0; p < pts.length; p += 2) {
+		const rx = pts[p] * cs - pts[p + 1] * sn;
+		const ry = pts[p] * sn + pts[p + 1] * cs;
+		mnX = Math.min(mnX, rx); mxX = Math.max(mxX, rx);
+		mnY = Math.min(mnY, ry); mxY = Math.max(mxY, ry);
+	}
+	return { w: mxX - mnX, h: mxY - mnY, mnX, mxX, mnY, mxY };
 }
 
 // Paper area for a given rotation angle (lower = better fill)
-function paperScore(res, placed, angle) {
-	const d = bboxDims(res, placed, angle);
+function paperScore(pts, angle) {
+	const d = bboxDims(pts, angle);
 	const aspect = parseFloat(document.getElementById('paper-fmt').value);
 	const s = Math.min(aspect / d.w, 1 / d.h);
 	return aspect / (s * s);
 }
 
-// Sum of placed polygon face areas
-function netArea(placed) {
+// Sum of placed polygon face areas + glue tab areas
+function netArea(placed, parent) {
 	let area = 0;
 	for (let i = 0; i < 32; i++) {
 		if (!placed[i]) continue;
 		const n = nSides(i), R = circumR(i);
 		area += (n / 2) * R * R * Math.sin(2 * Math.PI / n);
+	}
+	// Count cut edges (adjacent placed pairs, not parent-child) → one glue tab each
+	for (let i = 0; i < 32; i++) {
+		if (!placed[i]) continue;
+		for (const j of adj[i]) {
+			if (j <= i || !placed[j]) continue;
+			if (parent[j] === i || parent[i] === j) continue;
+			area += singleTabArea;
+		}
 	}
 	return area;
 }
@@ -217,10 +271,16 @@ let currentLayout = null;
 let hoveredEdge = null;    // { face, edge, targetFace, ghostPos } of hovered boundary edge
 let hoveredFace = -1;      // index of hovered polygon face (-1 = none)
 let boundaryEdges = [];    // all open boundary edges with ghost polygon data
+let glueTabMode = false;   // when true, clicking flaps toggles tab ownership instead of reparenting
+let tabOwnership = {};     // edge key "min-max" → owner face index
 const undoStack = [];      // snapshots of layout state for undo
 const redoStack = [];      // snapshots of layout state for redo
 let historyIndex = 0;
 history.replaceState({ idx: 0 }, '');
+
+function edgeKey(i, j) { return Math.min(i, j) + '-' + Math.max(i, j); }
+
+function cloneTabOwnership() { return Object.assign({}, tabOwnership); }
 
 function cloneLayout(layout) {
 	return {
@@ -229,7 +289,8 @@ function cloneLayout(layout) {
 		parent: layout.parent.slice(),
 		count: layout.count,
 		seed: layout.seed,
-		mirrored: layout.mirrored || false
+		mirrored: layout.mirrored || false,
+		tabOwnershipSnapshot: cloneTabOwnership()
 	};
 }
 
@@ -292,11 +353,12 @@ function reparent(layout, newParent, child) {
 
 // Optimize rotation for best paper fit and apply it in-place
 function optimizeAndApplyRotation(layout) {
-	const { res, placed } = layout;
+	const { res, placed, parent, mirrored } = layout;
+	const pts = bboxCriticalPoints(res, placed, parent, mirrored || false);
 	let bestA = 0, bestAr = Infinity;
 	for (let deg = 0; deg < 180; deg += 1) {
 		const rad = deg * Math.PI / 180;
-		const ar = paperScore(res, placed, rad);
+		const ar = paperScore(pts, rad);
 		if (ar < bestAr) { bestAr = ar; bestA = rad; }
 	}
 	if (bestA > Math.PI / 2) bestA -= Math.PI; // prefer small rotation over near-flip
@@ -323,7 +385,9 @@ function polyVerts(fx, fy, rot, n, cr) {
 }
 
 function computeLayout() {
-	const pp = predefinedParents[paperFmt.value];
+	const preset = predefinedParents[paperFmt.value];
+	const pp = preset.parents;
+	tabOwnership = preset.tabs ? Object.assign({}, preset.tabs) : {};
 	const seed = seedFromParents(pp);
 	const layout = guidedUnfold(seed, pp);
 	layout.seed = seed;
@@ -380,14 +444,10 @@ function draw() {
 	canvas.width = window.innerWidth;
 	canvas.height = window.innerHeight;
 
-	// Compute bounding box
-	let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
-	for (let i = 0; i < 32; i++) {
-		if (!placed[i]) continue;
-		const cr = circumR(i);
-		mnX = Math.min(mnX, res[i].x - cr); mxX = Math.max(mxX, res[i].x + cr);
-		mnY = Math.min(mnY, res[i].y - cr); mxY = Math.max(mxY, res[i].y + cr);
-	}
+	// Compute bounding box from actual polygon + tab geometry
+	const _bbPts = bboxCriticalPoints(res, placed, parent, mirrored);
+	const _bb = bboxDims(_bbPts, 0);
+	const mnX = _bb.mnX, mxX = _bb.mxX, mnY = _bb.mnY, mxY = _bb.mxY;
 
 	const bbPad = 0.5;
 	const bbW = (mxX - mnX) + 2 * bbPad;
@@ -421,8 +481,7 @@ function draw() {
 
 	// ── Build boundary edge list with flap trapezoids + ghost data ──
 	boundaryEdges = [];
-	const tabH = ap5 * 0.3;
-	const tabInset = 0.15;
+
 	for (let i = 0; i < 32; i++) {
 		if (!placed[i]) continue;
 		const n = nSides(i), cr = circumR(i);
@@ -461,7 +520,8 @@ function draw() {
 			const ghostPos = ghostPlace(i, targetFace, res, mirrored);
 			const nj = nSides(targetFace), crj = circumR(targetFace);
 			const ghostVerts = polyVerts(ghostPos.x, ghostPos.y, ghostPos.r, nj, crj);
-			boundaryEdges.push({ face: i, edge: k, targetFace, flapVerts, ghostPos, ghostVerts });
+				const isCutEdge = placed[targetFace];
+			boundaryEdges.push({ face: i, edge: k, targetFace, flapVerts, ghostPos, ghostVerts, isCutEdge });
 		}
 	}
 
@@ -484,6 +544,12 @@ function draw() {
 	ctx.clip('evenodd');
 
 	for (const edge of boundaryEdges) {
+		// In glue tab mode, only draw the flap on the owning side of cut edges
+		if (glueTabMode && edge.isCutEdge) {
+			const key = edgeKey(edge.face, edge.targetFace);
+			const owner = tabOwnership[key] !== undefined ? tabOwnership[key] : Math.min(edge.face, edge.targetFace);
+			if (owner !== edge.face) continue;
+		}
 		const isHovered = hoveredEdge && hoveredEdge.face === edge.face && hoveredEdge.edge === edge.edge;
 		const fv = edge.flapVerts;
 
@@ -505,6 +571,17 @@ function draw() {
 			ctx.fillStyle = 'rgba(100, 220, 255, 0.5)';
 			ctx.strokeStyle = 'rgba(50, 150, 255, 0.7)';
 			ctx.lineWidth = 1.5;
+		} else if (!glueTabMode && edge.isCutEdge) {
+			const key = edgeKey(edge.face, edge.targetFace);
+			const owner = tabOwnership[key] !== undefined ? tabOwnership[key] : Math.min(edge.face, edge.targetFace);
+			if (owner === edge.face) {
+				ctx.fillStyle = 'rgba(255, 180, 200, 0.6)';
+				ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+			} else {
+				ctx.fillStyle = 'rgba(255, 180, 200, 0.2)';
+				ctx.strokeStyle = 'rgba(180, 100, 130, 0.3)';
+			}
+			ctx.lineWidth = 1;
 		} else {
 			ctx.fillStyle = 'rgba(255, 180, 200, 0.6)';
 			ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
@@ -515,20 +592,36 @@ function draw() {
 		ctx.stroke();
 		ctx.setLineDash([]);
 
-		// Face number on flap
-		const fcx = (fv[0].x + fv[1].x + fv[2].x + fv[3].x) / 4;
-		const fcy = (fv[0].y + fv[1].y + fv[2].y + fv[3].y) / 4;
-		const [lcx, lcy] = toScreen(fcx, fcy);
-		ctx.fillStyle = (isHovered || matchesFace) ? 'rgba(50, 150, 255, 1)' : 'rgba(0, 0, 0, 0.5)';
-		ctx.font = `${Math.max(7, viewScale * 0.12)}px system-ui`;
-		ctx.textAlign = 'center';
-		ctx.textBaseline = 'middle';
-		ctx.fillText(edge.targetFace, lcx, lcy);
 	}
+
+	// ── Ghost flap on opposite side (glue tab mode hover) ──
+	if (glueTabMode && hoveredEdge && hoveredEdge.isCutEdge) {
+		const opposite = boundaryEdges.find(e =>
+			e.face === hoveredEdge.targetFace && e.targetFace === hoveredEdge.face);
+		if (opposite) {
+			const fv = opposite.flapVerts;
+			ctx.beginPath();
+			let [sx, sy] = toScreen(fv[0].x, fv[0].y);
+			ctx.moveTo(sx, sy);
+			for (let p = 1; p < 4; p++) {
+				[sx, sy] = toScreen(fv[p].x, fv[p].y);
+				ctx.lineTo(sx, sy);
+			}
+			ctx.closePath();
+			ctx.fillStyle = 'rgba(255, 180, 60, 0.3)';
+			ctx.strokeStyle = 'rgba(255, 180, 60, 0.6)';
+			ctx.lineWidth = 1.5;
+			ctx.setLineDash([4, 3]);
+			ctx.fill();
+			ctx.stroke();
+			ctx.setLineDash([]);
+		}
+	}
+
 	ctx.restore();
 
 	// ── Draw ghost polygon preview on hover (whole subtree) ──
-	if (hoveredEdge) {
+	if (hoveredEdge && !glueTabMode) {
 		const { ghostVerts, targetFace, ghostPos } = hoveredEdge;
 		// Collect ghost faces: targetFace + descendants (if already placed = reparenting)
 		const ghostFaces = [{ id: targetFace, verts: ghostVerts, pos: ghostPos }];
@@ -696,16 +789,22 @@ function draw() {
 	}
 
 	// ── Score info ──
-	const nArea = netArea(placed);
-	const pArea = paperScore(res, placed, 0);
+	const nArea = netArea(placed, parent);
+	const pArea = paperScore(_bbPts, 0);
 	const fill = (nArea / pArea * 100).toFixed(1);
 	scoreDiv.textContent = `Page fill: ${fill}%`;
+	currentLayout._currentFill = parseFloat(fill);
 }
 
 // ── Mouse interaction: hit test flap trapezoids + polygon faces ──
 function hitTestEdge(mx, my) {
 	const [wx, wy] = toWorld(mx, my);
 	for (const edge of boundaryEdges) {
+		if (glueTabMode && edge.isCutEdge) {
+			const key = edgeKey(edge.face, edge.targetFace);
+			const owner = tabOwnership[key] !== undefined ? tabOwnership[key] : Math.min(edge.face, edge.targetFace);
+			if (owner !== edge.face) continue;
+		}
 		if (pointInPoly(wx, wy, edge.flapVerts)) return edge;
 	}
 	return null;
@@ -730,20 +829,42 @@ canvas.addEventListener('mousemove', e => {
 		hoveredEdge = hit;
 		hoveredFace = face;
 		if (hit && currentLayout) {
-			const preview = cloneLayout(currentLayout);
-			reparent(preview, hit.face, hit.targetFace);
-			optimizeAndApplyRotation(preview);
-			hit.previewFill = (netArea(preview.placed) / paperScore(preview.res, preview.placed, 0) * 100).toFixed(1);
+			if (glueTabMode && hit.isCutEdge) {
+				const key = edgeKey(hit.face, hit.targetFace);
+				const owner = tabOwnership[key] !== undefined ? tabOwnership[key] : Math.min(hit.face, hit.targetFace);
+				const savedOwner = tabOwnership[key];
+				tabOwnership[key] = owner === hit.face ? hit.targetFace : hit.face;
+				const pts = bboxCriticalPoints(currentLayout.res, currentLayout.placed, currentLayout.parent, currentLayout.mirrored);
+				hit.previewFill = parseFloat((netArea(currentLayout.placed, currentLayout.parent) / paperScore(pts, 0) * 100).toFixed(1));
+				if (savedOwner !== undefined) tabOwnership[key] = savedOwner; else delete tabOwnership[key];
+			} else if (!glueTabMode) {
+				const preview = cloneLayout(currentLayout);
+				reparent(preview, hit.face, hit.targetFace);
+				optimizeAndApplyRotation(preview);
+				const pts = bboxCriticalPoints(preview.res, preview.placed, preview.parent, preview.mirrored);
+				hit.previewFill = parseFloat((netArea(preview.placed, preview.parent) / paperScore(pts, 0) * 100).toFixed(1));
+			}
 		}
 		draw();
 	}
 	if (hit) {
 		const tf = hit.targetFace;
-		const label = `Face ${tf} (${nSides(tf) === 5 ? 'pentagon' : 'hexagon'}) → ${hit.previewFill}% fill`;
+		const curFill = currentLayout._currentFill || 0;
+		const diff = hit.previewFill !== undefined ? hit.previewFill - curFill : 0;
+		const diffStr = diff > 0 ? `<span style="color:#4f4">+${diff.toFixed(1)}%</span>` : diff < 0 ? `<span style="color:#f44">${diff.toFixed(1)}%</span>` : `<span style="color:#888">±0%</span>`;
+		const fillStr = hit.previewFill !== undefined ? ` → ${hit.previewFill.toFixed(1)}% ${diffStr}` : '';
+		let label;
+		if (glueTabMode) {
+			const key = edgeKey(hit.face, tf);
+			const owner = tabOwnership[key] !== undefined ? tabOwnership[key] : Math.min(hit.face, tf);
+			label = `Tab on face ${owner} → face ${owner === hit.face ? tf : hit.face}${fillStr}`;
+		} else {
+			label = `Face ${tf} (${nSides(tf) === 5 ? 'pent' : 'hex'})${fillStr}`;
+		}
 		tooltip.style.display = 'block';
 		tooltip.style.left = (e.clientX + 14) + 'px';
 		tooltip.style.top = (e.clientY + 14) + 'px';
-		tooltip.textContent = label;
+		tooltip.innerHTML = label;
 		canvas.style.cursor = 'pointer';
 	} else {
 		tooltip.style.display = 'none';
@@ -761,6 +882,19 @@ canvas.addEventListener('mouseleave', () => {
 
 canvas.addEventListener('click', e => {
 	if (!hoveredEdge || !currentLayout) return;
+	if (glueTabMode) {
+		if (!hoveredEdge.isCutEdge) return;
+		undoStack.push(cloneLayout(currentLayout));
+		redoStack.length = 0;
+		historyIndex++;
+		history.pushState({ idx: historyIndex }, '');
+		const key = edgeKey(hoveredEdge.face, hoveredEdge.targetFace);
+		const owner = tabOwnership[key] !== undefined ? tabOwnership[key] : Math.min(hoveredEdge.face, hoveredEdge.targetFace);
+		tabOwnership[key] = owner === hoveredEdge.face ? hoveredEdge.targetFace : hoveredEdge.face;
+		optimizeAndApplyRotation(currentLayout);
+		draw();
+		return;
+	}
 	undoStack.push(cloneLayout(currentLayout));
 	redoStack.length = 0;
 	historyIndex++;
@@ -773,10 +907,17 @@ canvas.addEventListener('click', e => {
 	draw();
 });
 
+function restoreFromSnapshot(snapshot) {
+	if (snapshot.tabOwnershipSnapshot) {
+		tabOwnership = snapshot.tabOwnershipSnapshot;
+	}
+}
+
 function performUndo() {
 	if (undoStack.length === 0) return;
 	redoStack.push(cloneLayout(currentLayout));
 	currentLayout = undoStack.pop();
+	restoreFromSnapshot(currentLayout);
 	hoveredEdge = null;
 	hoveredFace = -1;
 	tooltip.style.display = 'none';
@@ -787,6 +928,7 @@ function performRedo() {
 	if (redoStack.length === 0) return;
 	undoStack.push(cloneLayout(currentLayout));
 	currentLayout = redoStack.pop();
+	restoreFromSnapshot(currentLayout);
 	hoveredEdge = null;
 	hoveredFace = -1;
 	tooltip.style.display = 'none';
@@ -823,14 +965,28 @@ function flipLayout(axis) {
 		}
 	}
 	currentLayout.mirrored = !currentLayout.mirrored;
+	optimizeAndApplyRotation(currentLayout);
 	draw();
 }
 document.getElementById('btn-flip-h').addEventListener('click', () => flipLayout('h'));
 document.getElementById('btn-flip-v').addEventListener('click', () => flipLayout('v'));
 
+document.getElementById('btn-glue-tab').addEventListener('click', () => {
+	glueTabMode = !glueTabMode;
+	const btn = document.getElementById('btn-glue-tab');
+	btn.style.background = glueTabMode ? '#a06000' : '';
+	btn.style.color = glueTabMode ? '#fff' : '';
+	btn.style.borderColor = glueTabMode ? '#c80' : '';
+	hoveredEdge = null;
+	hoveredFace = -1;
+	tooltip.style.display = 'none';
+	draw();
+});
+
 document.getElementById('btn-export-clip').addEventListener('click', () => {
 	if (!currentLayout) return;
-	const text = JSON.stringify(currentLayout.parent);
+	const data = { parents: currentLayout.parent, tabs: cloneTabOwnership() };
+	const text = JSON.stringify(data);
 	navigator.clipboard.writeText(text).then(() => {
 		const btn = document.getElementById('btn-export-clip');
 		btn.textContent = '✅ Copied!';
@@ -843,9 +999,12 @@ document.getElementById('btn-import-clip').addEventListener('click', async () =>
 	try {
 		const text = await navigator.clipboard.readText();
 		const data = JSON.parse(text);
-		let pp;
+		let pp, tabs = {};
 		if (Array.isArray(data) && data.length === 32) {
 			pp = data;
+		} else if (data.parents && Array.isArray(data.parents)) {
+			pp = data.parents;
+			if (data.tabs) tabs = data.tabs;
 		} else if (data.faces && Array.isArray(data.faces)) {
 			pp = new Array(32).fill(-1);
 			for (const f of data.faces) pp[f.id] = f.parent;
@@ -857,6 +1016,7 @@ document.getElementById('btn-import-clip').addEventListener('click', async () =>
 		redoStack.length = 0;
 		historyIndex++;
 		history.pushState({ idx: historyIndex }, '');
+		tabOwnership = tabs;
 		currentLayout = layout;
 		optimizeAndApplyRotation(currentLayout);
 		hoveredEdge = null;
