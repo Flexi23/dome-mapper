@@ -21,7 +21,7 @@ A single-file browser app that loads equirectangular images and videos and rende
 For each screen pixel the fragment shader:
 
 1. Computes a **ray direction** based on the active projection mode — one of nine: equirectangular, perspective, buckyball-32 preview, azimuthal equidistant, azimuthal collage, stereographic, buckyball-32 foldable, rhombic-30 foldable, or rhombic-30 preview
-2. Applies a **quaternion-derived rotation matrix** (controlled by mouse, keyboard, or gamepad) to orient the ray
+2. Applies a **quaternion-derived rotation matrix** (controlled by mouse or keyboard) to orient the ray
 3. Optionally applies **horizon leveling** via a second quaternion
 4. Converts the ray direction to **spherical coordinates** (θ, φ)
 5. Maps those to **equirectangular UV** coordinates: `u = atan2(z, x) / 2π + 0.5`, `v = asin(y) / π + 0.5`
@@ -39,7 +39,7 @@ open index.html
 
 1. Open in a browser
 2. Drop an equirectangular panorama image or video (or click "browse")
-3. Look around with mouse, keyboard, or joystick
+3. Look around with mouse or keyboard
 
 When served over HTTP the viewer auto-loads a default video (or image as fallback). A checkerboard test pattern with meridian/equator highlights is shown when no media is loaded.
 
@@ -76,21 +76,9 @@ Held keys debounce briefly, then accelerate exponentially.
 | Drag slider | Set yaw, pitch, or roll directly (Euler degrees) |
 | Double-click slider | Reset that axis to 0° |
 
-### Gamepad / Joystick (T.Flight HOTAS One)
-
-| Input | Action |
-|---|---|
-| Stick pitch/roll/yaw | Look around |
-| Throttle | — |
-| Rocker | Adjust globe overlay size |
-| Hat (top) N/S | Cycle projection mode (N = previous, S = next) |
-| Buttons | Shown in HUD overlay when pressed |
-
-The 3D joystick model in the bottom-left corner animates in real-time and shows button states.
-
 ## Projection Modes
 
-> **9 projection modes** — cycle with the gamepad hat switch (N/S) or the dropdown.
+> **9 projection modes** — cycle with the dropdown.
 
 | # | Mode | Description |
 |:---:|---|---|
@@ -451,15 +439,13 @@ Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png`.
 | | |
 |---|---|
 | 🖼️ **Image & Video support** | Drop equirectangular JPEG/PNG or MP4/WebM video files |
-| 📽️ **Video playback** | Timeline with seek bar, time display; click to play/pause; gamepad throttle controls speed (0×–4×) |
+| 📽️ **Video playback** | Timeline with seek bar, time display; click to play/pause |
 | 🔎 **Magnifier** | Cursor-following lens with adjustable radius and refractivity (half-sphere refraction shader); toggle via `M` key |
 | 📐 **Pixelate** | Slider blending between linear (smooth) and nearest-neighbor (pixelated) texture filtering |
 | 🌐 **Globe overlay** | 3D sphere with lat/lon grid, equator (orange) and prime meridian (blue) rings; environment reflection from panorama; adjustable size, opacity, and reflectivity; toggle via `G` key |
 | 📏 **Grid overlay** | 32×16 grid with crosshairs for orientation (toggle via `X` key) |
 | 🎯 **Fly-to** | Double-click to smoothly animate camera toward any point; works in both camera and leveling mode |
 | ⚖️ **Horizon leveling** | Dedicated leveling mode with accept/discard; yaw/pitch/roll sliders; double-click horizon to auto-level; per-file persistence |
-| 🎮 **Gamepad integration** | Real-time 3D joystick model (Three.js) with per-button highlighting and button HUD |
-| 🕹️ **Gamepad camera** | Stick pitch/roll/yaw drive rotation; hat N/S cycles projection; rocker adjusts globe size |
 | 📸 **PNG export** | Export current view at source texture resolution; projection-specific dimensions and clipping |
 | 🔢 **Y / P / R sliders** | Live Euler-angle readout; drag to set orientation, double-click to reset; copy/paste quaternion |
 | 💾 **Multi-file cache** | Multiple panoramas cached in IndexedDB; switch between cached files via file list; last-viewed file restored on reload |
@@ -472,7 +458,7 @@ Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png`.
 
 ```
 dome-mapper/
-├── index.html                    # Self-contained viewer (HTML + GLSL + JS + Three.js joystick overlay)
+├── index.html                    # Self-contained viewer (HTML + GLSL + JS)
 ├── buckyball-net-layouter.html   # Interactive net layout editor for the truncated icosahedron
 ├── CHANGELOG.md                  # Version history
 └── README.md                     # This file
@@ -507,7 +493,6 @@ The tool uses Canvas 2D rendering (no WebGL) and operates entirely on the 2D net
 - Texture wrap: `REPEAT` on S (horizontal seamless), `CLAMP_TO_EDGE` on T (poles)
 - Mipmaps generated automatically for power-of-2 textures
 - HiDPI support (capped at 2× device pixel ratio)
-- **Three.js** (ES module import) for the 3D joystick overlay only; the main viewer remains dependency-free WebGL 2
 
 ### Texture Caching (IndexedDB)
 
@@ -599,9 +584,8 @@ WebGL Framebuffer → VideoFrame → VideoEncoder → WebM/MP4 Blob → Download
 
 ## Acknowledgements
 
-This software was built with the assistance of **Claude Opus 4.6** (Anthropic). It builds upon two other projects by the same author:
+This software was built with the assistance of **Claude Opus 4.6** (Anthropic). It builds upon another project by the same author:
 
-- **[joystick-nav](https://github.com/Flexi23/joystick-nav)** — Gamepad-driven 3D navigation and joystick overlay
 - **[spherical-reprojection](https://github.com/Flexi23/spherical-reprojection)** — GPU-based spherical image reprojection
 
 ---
