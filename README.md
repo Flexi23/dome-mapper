@@ -473,14 +473,14 @@ Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png`.
 ```
 dome-mapper/
 ├── index.html                    # Self-contained viewer (HTML + GLSL + JS + Three.js joystick overlay)
-├── buckyball-net-optimizer.html  # Interactive net layout editor for the truncated icosahedron
+├── buckyball-net-layouter.html   # Interactive net layout editor for the truncated icosahedron
 ├── CHANGELOG.md                  # Version history
 └── README.md                     # This file
 ```
 
-### Buckyball Net Optimizer
+### Buckyball Net Layouter
 
-A standalone single-file HTML tool (`buckyball-net-optimizer.html`) for interactively optimizing the flat net layout of the truncated icosahedron used by the Buckyball-32 Foldable projection mode.
+A standalone single-file HTML tool (`buckyball-net-layouter.html`) for interactively optimizing the flat net layout of the truncated icosahedron used by the Buckyball-32 Foldable projection mode.
 
 **Features:**
 - **Interactive reparenting** — click any face to reassign its parent in the unfolding tree; the net recomputes instantly

@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-03-21
+
+### Added
+- **Interactive re-rooting** — click any face label to set it as the new tree root; tooltip shows "Set as root" with fill preview and colored delta; ghost root marker (dashed orange circle) appears on hover
+- **Auto re-root after reparent** — after every reparent operation, the face closest to the bounding box center is automatically chosen as the new root for a balanced layout
+- **`rerootTree()` / `autoReroot()`** — new functions for reversing the parent path and auto-selecting the optimal root
+- **Mirrored flag in export/import** — copy now exports `{ parents, tabs, mirrored }` JSON; paste restores the mirrored state; predefined layouts can include `mirrored` flag
+
+### Changed
+- **180° flip protection** — re-rooting and auto-rerooting compare dot product of old vs. new face positions to pick the orientation closest to the previous view
+- **Renamed** `buckyball-net-optimizer.html` → `buckyball-net-layouter.html`; updated title, README, and CHANGELOG references
+
 ## [0.11.0] - 2026-03-21
 
 ### Added
@@ -30,8 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Truncoct-14 preview** — SDF-raymarched truncated octahedron floating over the panorama; 14 half-spaces with two face distances (`RFACE_TO_HEX = √3/√5`, `RFACE_TO_SQ = 2/√5`); same shading pipeline as the other preview modes (bevel, Blinn-Phong, rim light, edge wireframe); shares `foldable14facesQuat` with the foldable mode
   - **Truncoct-14 foldable** — flat 2D net of a truncated octahedron; BFS unfolding with overlap detection (tries all 14 seed faces, picks most compact layout); regular polygon point-in-polygon test for both hexagons (n=6) and squares (n=4); gnomonic back-projection via `truncOctPreRot` (Rx(45°)·Rz(−110°)); 2D canvas overlay with polygon edges and trapezoidal glue tabs
 - **Fullscreen button** — toggle button at the top of the controls panel using the Fullscreen API; label switches between "⛶ Fullscreen" and "⛶ Exit Fullscreen"
-- **Buckyball Net Optimizer** (`buckyball-net-optimizer.html`) — standalone Canvas 2D tool for interactively optimizing the buckyball-32 flat net layout; features: click-to-reparent, paper format presets (DIN A, Letter, Legal, Tabloid, B5 JIS), flip H/V, auto-rotation optimization, tree visualization with ghost subtree preview, undo/redo via browser history, copy/paste of 32-element parent tree arrays
-- **README: Buckyball Net Optimizer section** — feature list and description of the standalone tool; updated project structure listing
+- **Buckyball Net Layouter** (`buckyball-net-layouter.html`) — standalone Canvas 2D tool for interactively optimizing the buckyball-32 flat net layout; features: click-to-reparent, paper format presets (DIN A, Letter, Legal, Tabloid, B5 JIS), flip H/V, auto-rotation optimization, tree visualization with ghost subtree preview, undo/redo via browser history, copy/paste of 32-element parent tree arrays
+- **README: Buckyball Net Layouter section** — feature list and description of the standalone tool; updated project structure listing
 
 ### Changed
 - **Projection modes: 9 → 11** — added truncoct-14 preview (index 9) and truncoct-14 foldable (index 10) to `projectionModes` array with corresponding `M_TRUNCOCT_PREVIEW` and `M_TRUNCOCT_FOLDABLE` constants

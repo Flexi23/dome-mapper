@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Buckyball Net Optimizer</title>
+<title>Buckyball Net Layouter</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { background: #1a1a2e; color: #ccc; font-family: system-ui, sans-serif; overflow: hidden; }
@@ -167,7 +167,7 @@ function guidedUnfold(startFace, predefinedParents) {
 // Predefined optimized parent trees per paper format (keyed by aspect ratio string)
 const predefinedParents = {
 	'1.41421': {"parents":[12,13,14,15,13,15,21,23,28,-1,30,19,4,9,5,9,20,1,2,3,4,13,5,15,12,9,0,25,9,9,6,19],"tabs":{"18-31":31,"10-31":31,"30-31":31,"18-26":26,"2-26":26,"10-26":26,"22-23":23,"5-23":23,"19-23":23,"3-23":23,"5-29":29,"14-29":29,"8-29":29,"28-29":29,"15-29":29,"2-22":22,"18-22":22,"2-24":24,"0-24":24,"4-28":28,"12-28":12,"13-28":28,"3-25":25,"1-25":25,"13-25":25,"15-25":25,"17-21":21,"20-21":21,"4-21":21,"0-20":20,"12-20":20,"14-22":22,"1-21":21,"14-24":24,"17-30":17,"17-27":27,"1-27":1,"11-31":31,"6-17":17,"6-20":20,"7-19":19,"7-22":22,"7-18":18,"8-12":8,"10-18":18,"19-27":27,"11-17":17}},
-	'1.29412': {"parents":[20,13,24,25,20,29,20,31,24,28,16,17,0,4,29,5,20,6,26,3,-1,4,18,15,0,13,0,1,4,28,6,30],"tabs":{"7-22":7,"22-23":23,"11-30":30,"11-31":11,"11-19":19,"6-21":21,"17-21":21,"20-21":21,"1-21":21,"13-21":21,"9-13":13,"9-25":25,"9-15":9,"9-29":29,"14-22":22,"8-12":12,"4-12":12,"6-16":16,"0-16":16,"17-30":30,"17-27":17,"1-25":25,"19-27":27,"5-23":23,"2-26":26,"2-18":18,"2-22":22,"8-14":8,"8-29":8,"8-28":28,"5-14":14,"1-17":17,"7-23":23,"15-25":25,"7-18":18,"15-29":29}},
+	'1.29412': {"parents":[20,13,24,25,-1,29,20,31,24,28,16,17,0,4,29,5,20,6,26,3,4,4,18,15,0,13,0,1,4,28,6,30],"tabs":{"7-22":7,"22-23":23,"11-30":30,"11-31":11,"11-19":19,"6-21":21,"17-21":21,"20-21":21,"1-21":21,"13-21":21,"9-13":13,"9-25":25,"9-15":9,"9-29":29,"14-22":22,"8-12":12,"4-12":12,"6-16":16,"0-16":16,"17-30":30,"17-27":17,"1-25":25,"19-27":27,"5-23":23,"2-26":26,"2-18":18,"2-22":22,"8-14":8,"8-29":8,"8-28":28,"5-14":14,"1-17":17,"7-23":23,"15-25":25,"7-18":18,"15-29":29}},
 	'1.64706': {"parents":[12,21,14,27,12,14,20,22,-1,28,18,30,8,1,8,5,0,1,2,11,12,20,14,22,8,1,24,1,8,8,6,18],"tabs":{"19-23":23,"10-30":30,"10-16":16,"9-25":25,"15-25":25,"3-23":23,"17-21":17,"13-25":25,"3-25":25,"4-28":28,"12-28":28,"13-21":13,"9-29":29,"5-29":29,"16-20":20,"0-20":20,"0-24":24,"2-24":24,"18-22":22,"7-23":23,"15-29":29,"9-15":15,"6-17":17,"11-17":17,"6-21":21,"28-29":29,"14-29":29,"10-31":31}},
 	'1.54362': {"parents":[24,25,14,15,12,-1,16,22,14,15,26,19,0,21,5,5,0,1,2,3,0,4,5,5,14,15,24,25,8,5,16,19],"tabs":{"11-30":30,"17-30":30,"10-31":31,"10-30":10,"3-23":23,"19-23":23,"7-23":23,"22-23":23,"15-23":23,"2-22":22,"18-22":22,"14-22":22,"2-26":2,"16-26":26,"10-16":16,"11-17":17,"9-29":29,"8-29":29,"28-29":29,"4-20":20,"6-20":20,"0-26":26,"17-27":27,"1-27":27}},
 	'1.29870': {"parents":[24,21,24,27,21,29,21,18,12,29,30,17,4,9,24,9,20,21,2,27,4,-1,14,15,12,1,16,1,29,8,6,30],"tabs":{"13-28":28,"12-28":28,"4-28":28,"8-28":28,"4-13":13,"13-21":21,"5-15":15,"5-23":5,"5-14":14,"6-20":20,"11-27":27,"19-31":31,"10-31":10,"10-26":10,"24-26":26,"7-22":7,"22-23":23,"3-25":25,"3-19":19,"19-23":19,"9-28":28,"1-13":13,"18-22":22,"18-31":31,"18-26":26,"10-18":18}}
@@ -270,6 +270,7 @@ function seedFromParents(pp) { return pp.indexOf(-1); }
 let currentLayout = null;
 let hoveredEdge = null;    // { face, edge, targetFace, ghostPos } of hovered boundary edge
 let hoveredFace = -1;      // index of hovered polygon face (-1 = none)
+let hoveredFacePreviewFill = undefined; // fill preview for re-root on face hover
 let boundaryEdges = [];    // all open boundary edges with ghost polygon data
 let glueTabMode = false;   // when true, clicking flaps toggles tab ownership instead of reparenting
 let tabOwnership = {};     // edge key "min-max" → owner face index
@@ -351,6 +352,22 @@ function reparent(layout, newParent, child) {
 	layout.count = placed.filter(Boolean).length;
 }
 
+// Re-root: reverse the path from newRoot to the current root in the parent tree
+function rerootTree(parent, newRoot) {
+	const pp = parent.slice();
+	const path = [];
+	let cur = newRoot;
+	while (cur >= 0) {
+		path.push(cur);
+		cur = pp[cur];
+	}
+	for (let i = 0; i < path.length - 1; i++) {
+		pp[path[i + 1]] = path[i];
+	}
+	pp[newRoot] = -1;
+	return pp;
+}
+
 // Optimize rotation for best paper fit and apply it in-place
 function optimizeAndApplyRotation(layout) {
 	const { res, placed, parent, mirrored } = layout;
@@ -391,6 +408,7 @@ function computeLayout() {
 	const seed = seedFromParents(pp);
 	const layout = guidedUnfold(seed, pp);
 	layout.seed = seed;
+	layout.mirrored = preset.mirrored || false;
 	currentLayout = layout;
 	optimizeAndApplyRotation(currentLayout);
 	draw();
@@ -788,6 +806,21 @@ function draw() {
 		ctx.fillText(i, cx, cy);
 	}
 
+	// ── Ghost root marker on hovered face ──
+	if (hoveredFace >= 0 && hoveredFace !== seed && !glueTabMode && placed[hoveredFace]) {
+		const [rx, ry] = toScreen(res[hoveredFace].x, res[hoveredFace].y);
+		const rr = Math.max(6, viewScale * 0.18);
+		ctx.beginPath();
+		ctx.arc(rx, ry, rr, 0, 2 * Math.PI);
+		ctx.fillStyle = 'rgba(255, 180, 60, 0.3)';
+		ctx.fill();
+		ctx.lineWidth = 2;
+		ctx.strokeStyle = 'rgba(255, 220, 120, 0.6)';
+		ctx.setLineDash([4, 3]);
+		ctx.stroke();
+		ctx.setLineDash([]);
+	}
+
 	// ── Score info ──
 	const nArea = netArea(placed, parent);
 	const pArea = paperScore(_bbPts, 0);
@@ -828,6 +861,15 @@ canvas.addEventListener('mousemove', e => {
 	if (hit !== hoveredEdge || face !== hoveredFace) {
 		hoveredEdge = hit;
 		hoveredFace = face;
+		hoveredFacePreviewFill = undefined;
+		if (face >= 0 && face !== currentLayout.seed && !glueTabMode) {
+			const newPP = rerootTree(currentLayout.parent, face);
+			const preview = guidedUnfold(face, newPP);
+			preview.mirrored = currentLayout.mirrored;
+			optimizeAndApplyRotation(preview);
+			const pts = bboxCriticalPoints(preview.res, preview.placed, preview.parent, preview.mirrored);
+			hoveredFacePreviewFill = parseFloat((netArea(preview.placed, preview.parent) / paperScore(pts, 0) * 100).toFixed(1));
+		}
 		if (hit && currentLayout) {
 			if (glueTabMode && hit.isCutEdge) {
 				const key = edgeKey(hit.face, hit.targetFace);
@@ -866,6 +908,19 @@ canvas.addEventListener('mousemove', e => {
 		tooltip.style.top = (e.clientY + 14) + 'px';
 		tooltip.innerHTML = label;
 		canvas.style.cursor = 'pointer';
+	} else if (face >= 0 && face !== currentLayout.seed && !glueTabMode) {
+		const curFill = currentLayout._currentFill || 0;
+		let fillStr = '';
+		if (hoveredFacePreviewFill !== undefined) {
+			const diff = hoveredFacePreviewFill - curFill;
+			const diffStr = diff > 0 ? `<span style="color:#4f4">+${diff.toFixed(1)}%</span>` : diff < 0 ? `<span style="color:#f44">${diff.toFixed(1)}%</span>` : `<span style="color:#888">±0%</span>`;
+			fillStr = ` → ${hoveredFacePreviewFill.toFixed(1)}% ${diffStr}`;
+		}
+		tooltip.style.display = 'block';
+		tooltip.style.left = (e.clientX + 14) + 'px';
+		tooltip.style.top = (e.clientY + 14) + 'px';
+		tooltip.innerHTML = `Set as root${fillStr}`;
+		canvas.style.cursor = 'pointer';
 	} else {
 		tooltip.style.display = 'none';
 		canvas.style.cursor = 'default';
@@ -880,8 +935,79 @@ canvas.addEventListener('mouseleave', () => {
 	draw();
 });
 
+// Find the placed face closest to the bounding box center and re-root there
+function autoReroot(layout) {
+	const { res, placed, parent, mirrored } = layout;
+	const pts = bboxCriticalPoints(res, placed, parent, mirrored || false);
+	const bb = bboxDims(pts, 0);
+	const cx = (bb.mnX + bb.mxX) / 2, cy = (bb.mnY + bb.mxY) / 2;
+	let bestFace = -1, bestDist = Infinity;
+	for (let i = 0; i < 32; i++) {
+		if (!placed[i]) continue;
+		const dx = res[i].x - cx, dy = res[i].y - cy;
+		const d = dx * dx + dy * dy;
+		if (d < bestDist) { bestDist = d; bestFace = i; }
+	}
+	if (bestFace < 0 || bestFace === layout.seed) return;
+	const newPP = rerootTree(parent, bestFace);
+	const newLayout = guidedUnfold(bestFace, newPP);
+	newLayout.seed = bestFace;
+	newLayout.mirrored = layout.mirrored;
+	optimizeAndApplyRotation(newLayout);
+	// Resolve 180° flip
+	let dot = 0;
+	for (let i = 0; i < 32; i++) {
+		if (!placed[i] || !newLayout.placed[i]) continue;
+		dot += newLayout.res[i].x * res[i].x + newLayout.res[i].y * res[i].y;
+	}
+	if (dot < 0) {
+		for (let i = 0; i < 32; i++) {
+			if (!newLayout.placed[i]) continue;
+			newLayout.res[i].x = -newLayout.res[i].x;
+			newLayout.res[i].y = -newLayout.res[i].y;
+			newLayout.res[i].r += Math.PI;
+		}
+	}
+	Object.assign(layout, newLayout);
+}
+
 canvas.addEventListener('click', e => {
-	if (!hoveredEdge || !currentLayout) return;
+	if (!currentLayout) return;
+	// Re-root on face click
+	if (hoveredFace >= 0 && hoveredFace !== currentLayout.seed && !hoveredEdge && !glueTabMode) {
+		const oldRes = currentLayout.res;
+		const oldPlaced = currentLayout.placed;
+		undoStack.push(cloneLayout(currentLayout));
+		redoStack.length = 0;
+		historyIndex++;
+		history.pushState({ idx: historyIndex }, '');
+		const newPP = rerootTree(currentLayout.parent, hoveredFace);
+		const layout = guidedUnfold(hoveredFace, newPP);
+		layout.seed = hoveredFace;
+		layout.mirrored = currentLayout.mirrored;
+		currentLayout = layout;
+		optimizeAndApplyRotation(currentLayout);
+		// Resolve 180° ambiguity: pick orientation closer to the old layout
+		let dot = 0;
+		for (let i = 0; i < 32; i++) {
+			if (!oldPlaced[i] || !layout.placed[i]) continue;
+			dot += layout.res[i].x * oldRes[i].x + layout.res[i].y * oldRes[i].y;
+		}
+		if (dot < 0) {
+			for (let i = 0; i < 32; i++) {
+				if (!layout.placed[i]) continue;
+				layout.res[i].x = -layout.res[i].x;
+				layout.res[i].y = -layout.res[i].y;
+				layout.res[i].r += Math.PI;
+			}
+		}
+		hoveredFace = -1;
+		hoveredFacePreviewFill = undefined;
+		tooltip.style.display = 'none';
+		draw();
+		return;
+	}
+	if (!hoveredEdge) return;
 	if (glueTabMode) {
 		if (!hoveredEdge.isCutEdge) return;
 		undoStack.push(cloneLayout(currentLayout));
@@ -902,6 +1028,7 @@ canvas.addEventListener('click', e => {
 	const { face, targetFace } = hoveredEdge;
 	reparent(currentLayout, face, targetFace);
 	optimizeAndApplyRotation(currentLayout);
+	autoReroot(currentLayout);
 	hoveredEdge = null;
 	tooltip.style.display = 'none';
 	draw();
@@ -985,7 +1112,7 @@ document.getElementById('btn-glue-tab').addEventListener('click', () => {
 
 document.getElementById('btn-export-clip').addEventListener('click', () => {
 	if (!currentLayout) return;
-	const data = { parents: currentLayout.parent, tabs: cloneTabOwnership() };
+	const data = { parents: currentLayout.parent, tabs: cloneTabOwnership(), mirrored: currentLayout.mirrored || false };
 	const text = JSON.stringify(data);
 	navigator.clipboard.writeText(text).then(() => {
 		const btn = document.getElementById('btn-export-clip');
@@ -999,12 +1126,13 @@ document.getElementById('btn-import-clip').addEventListener('click', async () =>
 	try {
 		const text = await navigator.clipboard.readText();
 		const data = JSON.parse(text);
-		let pp, tabs = {};
+		let pp, tabs = {}, mirrored = false;
 		if (Array.isArray(data) && data.length === 32) {
 			pp = data;
 		} else if (data.parents && Array.isArray(data.parents)) {
 			pp = data.parents;
 			if (data.tabs) tabs = data.tabs;
+			if (data.mirrored) mirrored = true;
 		} else if (data.faces && Array.isArray(data.faces)) {
 			pp = new Array(32).fill(-1);
 			for (const f of data.faces) pp[f.id] = f.parent;
@@ -1012,6 +1140,7 @@ document.getElementById('btn-import-clip').addEventListener('click', async () =>
 		const seed = pp.indexOf(-1);
 		const layout = guidedUnfold(seed, pp);
 		layout.seed = seed;
+		layout.mirrored = mirrored;
 		undoStack.push(cloneLayout(currentLayout));
 		redoStack.length = 0;
 		historyIndex++;
