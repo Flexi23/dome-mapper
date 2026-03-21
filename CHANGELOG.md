@@ -5,7 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.13.0] - 2026-03-21
+
+### Added
+
+#### Viewer (`index.html`)
+- **Layout exchange with Net Layouter** — Layout dropdown to select predefined layouts, "🎉 Open Editor" button to launch the layouter, and "📋 Paste Layout" button to import JSON layouts from the clipboard
+- **`computeBucky32Layout(parentTree, importAngle, tabsMap, paperAspect)`** — new function that unfolds a buckyball net from a parent tree, applies the supplied rotation angle, and uploads face positions/rotations to the GPU; replaces the old seed-search loop
+- **`computeBuckyPreRot(seed, rootRot)`** — new function computing the `buckyPreRot` matrix from seed face and root rotation angle, with try/catch guard for `levelQuat` temporal dead zone at init time
+- **`window.importBucky32Layout()`** — global API enabling cross-window layout import from the layouter via `window.opener`
+- **Predefined layout presets** — `bucky32Presets` array with optimized layouts (parent trees, tab ownership, rotation angles, aspect ratios) for DIN A, US Letter, Legal, Tabloid, and B5 JIS paper formats
+- **Paper-format-aware bounding box** — tight vertex + glue-tab-corner bounding box for accurate paper outline fitting, replacing the approximate circumradius-circle approach
+- **Shader-drawn paper outline** — the dashed green paper rectangle in foldable mode is now rendered in the fragment shader via a `buckyPaperRect` uniform instead of baked into the overlay texture; automatically hidden during PNG export
+
+#### Net Layouter (`buckyball-net-layouter.html`)
+- **Custom layout management** — "＋ New" button to create custom paper formats, "🗑" icon button to delete them; custom layouts persist in `localStorage`
+- **Paper format outline** — dashed green rectangle showing the paper boundary overlaid on the canvas, sized to the selected aspect ratio
+- **Rotation angle + aspect ratio in export** — clipboard JSON now includes `angle` and `aspect` fields: `{ label, parents, tabs, mirrored, angle, aspect }`
+- **Layout labels** — layout name is tracked in layout state and included in export JSON
+
+### Changed
+
+#### Viewer (`index.html`)
+- **`buckyPreRot` is now a uniform** — changed from `const mat3` to `uniform mat3`, dynamically computed from the imported layout's seed face and root rotation
+- **Thorough code commenting** — comprehensive inline documentation added to all functions, shader blocks, and data flow
+
+#### Net Layouter (`buckyball-net-layouter.html`)
+- **Presets as array** — predefined layouts changed from object to indexed array format
+- **Delete button compacted** — moved from a full-width button to a small "🗑" icon in the label row next to "＋ New", with a tooltip for clarity
+- **Thorough code commenting** — comprehensive inline documentation added to all functions, geometry constants, and event handlers
+
+### Fixed
+
+#### Viewer (`index.html`)
+- **`levelQuat` temporal dead zone** — `computeBuckyPreRot` is called at init before `levelQuat` is declared; fixed with a try/catch that falls back to identity matrix
+- **Paper outline precision** — bounding box computation for paper fitting now uses exact vertex + glue-tab-corner positions instead of crude circumradius circles
+
+#### Net Layouter (`buckyball-net-layouter.html`)
+- **Rotation angle transfer to dome-mapper** — `optimizeAndApplyRotation()` now un-rotates positions to the BFS base state before re-optimizing, ensuring `layout.angle` always stores the absolute total rotation (not an incremental delta); fixes wrong rotation when transferring layouts after reparent, tab toggle, or custom save operations
+- **180° flip angle tracking** — re-root click handler and `autoReroot()` now update `layout.angle` when resolving 180° ambiguity (adding π to positions)
+- **Flip angle reset** — `flipLayout()` now resets `layout.angle` to 0 before re-optimization, since mirroring invalidates the previous rotation
 
 ### Removed
 - **Gamepad / joystick navigation** — removed the entire Three.js-based 3D joystick overlay, gamepad polling, button HUD, hat-switch projection cycling, rocker-to-globe-size mapping, and throttle-to-playback-speed control; keyboard and mouse navigation are unaffected

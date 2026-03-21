@@ -20,6 +20,9 @@ canvas { display: block; }
 #ui button:hover { background: #3a3a6a; }
 #ui .btn-row { display: flex; gap: 6px; }
 #ui .btn-row button { flex: 1; }
+#ui .label-row { display: flex; justify-content: space-between; align-items: center; margin: 4px 0 2px; }
+#ui .label-row button { width: auto; margin: 0; padding: 1px 6px; font-size: 11px; line-height: 1.4; }
+#ui .label-row span { display: flex; gap: 4px; align-items: center; }
 #score { color: #8f8; margin-top: 6px; }
 #tooltip {
 	position: fixed; pointer-events: none; z-index: 20;
@@ -30,25 +33,23 @@ canvas { display: block; }
 </head>
 <body>
 <div id="ui">
-	<label>
-		Paper format:
-		<select id="paper-fmt">
-			<option value="1.41421" selected>DIN A (1:√2)</option>
-			<option value="1.29412">US Letter (8.5×11 in)</option>
-			<option value="1.64706">US Legal (8.5×14 in)</option>
-			<option value="1.54362">US Tabloid (11×17 in)</option>
-			<option value="1.29870">B5 JIS (182×257 mm)</option>
-		</select>
-	</label>
+	<div class="label-row">
+		<span>Paper format:</span>
+		<span>
+			<button id="btn-delete-custom" style="display:none" title="Delete custom format">🗑</button>
+			<button id="btn-save-custom" title="Create new custom format">＋ New</button>
+		</span>
+	</div>
+	<select id="paper-fmt"></select>
 
 	<div class="btn-row">
 		<button id="btn-flip-h">↔ Flip H</button>
 		<button id="btn-flip-v">↕ Flip V</button>
 	</div>
-	<button id="btn-glue-tab">✂ Glue tab placement</button>
+	<button id="btn-glue-tab">✂ Place Glue Tabs</button>
 	<div class="btn-row">
-		<button id="btn-export-clip">📋 Copy</button>
-		<button id="btn-import-clip">📥 Paste</button>
+		<button id="btn-export-clip" title="Copy layout to clipboard">📋 Copy</button>
+		<button id="btn-import-clip" title="Paste layout from clipboard">📥 Paste</button>
 	</div>
 	<div id="score"></div>
 </div>
@@ -57,22 +58,61 @@ canvas { display: block; }
 
 <script>
 'use strict';
+// ═══════════════════════════════════════════════════════════════════════
+// Buckyball Net Layouter
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Interactive editor for 2D net layouts of a truncated icosahedron
+// (buckyball / soccer ball / C₆₀ fullerene).
+//
+// A truncated icosahedron has 32 faces: 12 regular pentagons and
+// 20 regular hexagons.  This tool unfolds them into a flat "net" that
+// can be printed, cut out and glued together.  The user can:
+//   - reparent faces (drag a boundary edge to attach a face elsewhere)
+//   - re-root the tree (click a face to make it the BFS root)
+//   - flip / mirror the layout
+//   - toggle glue-tab ownership on cut edges
+//   - select from predefined layouts optimized for common paper formats
+//   - save / load custom layouts via localStorage
+//   - copy / paste layouts to/from the companion dome-mapper viewer
+//
+// The net is represented as a spanning tree of the 32-face adjacency
+// graph.  Each face stores its BFS parent; the root face has parent -1.
+// Unfolding is deterministic given the parent tree: starting from the
+// root, each child is placed adjacent to its parent at the correct
+// edge angle.  Rotation is then optimized to maximize paper utilization.
+//
+// ═══════════════════════════════════════════════════════════════════════
 
-// ── Vector helpers ──
+// ── 3D vector helpers (used for spherical geometry of face centers) ──
 function dot3(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 function cross3(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
 function norm3(v) { const l = Math.sqrt(dot3(v, v)); return [v[0] / l, v[1] / l, v[2] / l]; }
 function scale3(v, s) { return [v[0] * s, v[1] * s, v[2] * s]; }
 function sub3(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
 
-// ── Truncated icosahedron geometry ──
-const PHI = (1 + Math.sqrt(5)) / 2;
-const iA = 1 / Math.sqrt(1 + PHI * PHI);
-const iB = PHI * iA;
-const dC = 1 / Math.sqrt(3);
-const dD = PHI * dC;
-const dE = dC / PHI;
+// ═══════════════════════════════════════════════════════════════════════
+// Truncated Icosahedron Geometry
+// ═══════════════════════════════════════════════════════════════════════
+//
+// The 32 face centers lie on the unit sphere.  They come from two
+// Platonic duals:
+//   • Indices 0–11: pentagon centers = vertices of an icosahedron,
+//     computed from the two coordinates iA = 1/√(1+φ²) and iB = φ·iA.
+//   • Indices 12–31: hexagon centers = vertices of a dodecahedron,
+//     computed from dC = 1/√3, dD = φ/√3, dE = 1/(φ√3).
+//
+// These coordinates must stay in sync with the GLSL buckyFaces[] array
+// in the dome-mapper vertex shader.
 
+const PHI = (1 + Math.sqrt(5)) / 2;        // golden ratio φ ≈ 1.618
+const iA = 1 / Math.sqrt(1 + PHI * PHI);   // icosahedron vertex coord ≈ 0.5257
+const iB = PHI * iA;                        // φ · iA ≈ 0.8507
+const dC = 1 / Math.sqrt(3);               // dodecahedron vertex coord ≈ 0.5774
+const dD = PHI * dC;                        // φ · dC ≈ 0.9342
+const dE = dC / PHI;                        // dC/φ ≈ 0.3568
+
+// c3[i] = unit-sphere normal of face i (pentagon 0–11, hexagon 12–31)
 const c3 = [
 	[0, iA, iB], [0, iA, -iB], [0, -iA, iB], [0, -iA, -iB],
 	[iA, iB, 0], [iA, -iB, 0], [-iA, iB, 0], [-iA, -iB, 0],
@@ -84,9 +124,14 @@ const c3 = [
 	[dD, dE, 0], [dD, -dE, 0], [-dD, dE, 0], [-dD, -dE, 0]
 ];
 
+// Number of sides: pentagons (indices 0–11) have 5, hexagons (12–31) have 6
 const nSides = i => i < 12 ? 5 : 6;
 
-// Adjacency (< 0.8 rad)
+// ── Adjacency graph ──
+// Two faces are neighbors if their center normals are separated by less
+// than 0.8 rad (~46°).  On a truncated icosahedron the actual separation
+// of adjacent face centers ranges from ~0.55 to ~0.72 rad, so 0.8 is a
+// safe threshold that captures all true neighbors without false positives.
 const adj = Array.from({ length: 32 }, () => []);
 for (let i = 0; i < 32; i++)
 	for (let j = i + 1; j < 32; j++) {
@@ -94,7 +139,12 @@ for (let i = 0; i < 32; i++)
 		if (d < 0.8) { adj[i].push(j); adj[j].push(i); }
 	}
 
-// Tangent frames
+// ── Tangent frames (per-face local 2D coordinate systems) ──
+// For each face with outward normal N, we build an orthonormal basis
+// {T1, T2} in its tangent plane.  T1 = normalize(N × up), T2 = N × T1.
+// When N is nearly parallel to [0,1,0], we fall back to [1,0,0] as the
+// reference up vector to avoid degeneracy.
+// These frames define the angular origin for edge numbering (see edgeIdx).
 const frames = [];
 for (let i = 0; i < 32; i++) {
 	const N = c3[i];
@@ -105,6 +155,22 @@ for (let i = 0; i < 32; i++) {
 	frames.push([T1, T2]);
 }
 
+// ── Edge indexing ──
+// Determine which edge slot (0…n-1) of face i faces the adjacent face j.
+//
+// Each face's n edges are numbered counter-clockwise starting from the
+// direction of T1.  Edge k spans the angular sector from (k-½)·2π/n to
+// (k+½)·2π/n in the tangent frame.
+//
+// Algorithm:
+//  1. Project center of face j onto tangent plane of face i.
+//  2. Compute polar angle via atan2 in the {T1, T2} basis.
+//  3. Quantize into one of n equal sectors via Math.round.
+//
+// The +1e-10 epsilon resolves a floating-point tie-breaking issue: for
+// certain face pairs the exact result is a half-integer (e.g. 5.5), but
+// IEEE 754 arithmetic yields 5.4999…99 which would round to the wrong
+// edge.  The epsilon nudges these boundary values past the threshold.
 function edgeIdx(i, j) {
 	const N = c3[i], [T1, T2] = frames[i], M = c3[j];
 	const proj = sub3(M, scale3(N, dot3(M, N)));
@@ -115,24 +181,47 @@ function edgeIdx(i, j) {
 	return Math.round(a * n / (2 * Math.PI) + 1e-10) % n;
 }
 
-const ap5 = 1 / (2 * Math.tan(Math.PI / 5));
-const ap6 = Math.sqrt(3) / 2;
-const tabH = ap5 * 0.3;
-const tabInset = 0.15;
-const singleTabArea = (1 - tabInset) * tabH;
+// ── Polygon metric constants (unit edge length) ──
+const ap5 = 1 / (2 * Math.tan(Math.PI / 5)); // pentagon apothem ≈ 0.6882
+const ap6 = Math.sqrt(3) / 2;                 // hexagon apothem  ≈ 0.8660
+const tabH = ap5 * 0.3;                       // glue tab height (outward from edge)
+const tabInset = 0.15;                         // tab inset fraction at each end
+const singleTabArea = (1 - tabInset) * tabH;  // area of one trapezoidal glue tab
+// Return apothem (center-to-edge distance) for face i
 function ap(i) { return nSides(i) === 5 ? ap5 : ap6; }
+// Return circumradius (center-to-vertex distance) for face i
+// Pentagon: 1/(2·sin(π/5)) ≈ 0.8507;  Hexagon: 1.0
 function circumR(i) { return nSides(i) === 5 ? 1 / (2 * Math.sin(Math.PI / 5)) : 1.0; }
 
-// ── Net unfolding ──
+// ═══════════════════════════════════════════════════════════════════════
+// Net Unfolding (BFS tree → 2D positions)
+// ═══════════════════════════════════════════════════════════════════════
+//
+// The net is defined by a parent tree: parent[i] = the face that face i
+// was unfolded from, or -1 for the root.  BFS from the root places each
+// child adjacent to its parent along their shared edge.
+//
+// tryPlace() also performs a collision check against all already-placed
+// faces, rejecting positions that would overlap.  This is mainly used
+// during reparenting where the new subtree may collide with existing faces.
+
+// Try to place face j adjacent to face i.  Returns {x, y, r} on success
+// or null if the candidate position overlaps an already-placed face.
+// The `mirrored` flag flips the edge numbering (horizontal mirror).
 function tryPlace(i, j, res, placed, mirrored) {
 	const pi = res[i], ni = nSides(i);
 	const ki = edgeIdx(i, j), kj = edgeIdx(j, i), nj = nSides(j);
 	const s = mirrored ? -1 : 1;
+	// Direction from face i's center toward the shared edge with j
 	const phi = pi.r + s * 2 * Math.PI * ki / ni;
+	// Distance between face centers = sum of their apothems
 	const dist = ap(i) + ap(j);
 	const px = pi.x + dist * Math.cos(phi);
 	const py = pi.y + dist * Math.sin(phi);
+	// Rotation of face j: 180° flip across the shared edge, adjusted
+	// for j's own edge angle toward i
 	const theta = phi + Math.PI - s * 2 * Math.PI * kj / nj;
+	// Collision check: reject if too close to any placed face
 	for (let k = 0; k < 32; k++) {
 		if (!placed[k] || k === i) continue;
 		const dx = px - res[k].x, dy = py - res[k].y;
@@ -142,6 +231,10 @@ function tryPlace(i, j, res, placed, mirrored) {
 	return { x: px, y: py, r: theta };
 }
 
+// Unfold a complete net from a parent tree via BFS.
+// Places the root at the origin with rotation 0, then iteratively places
+// each child face at its parent's shared edge using ghostPlace().
+// Returns the layout state: { res[], placed[], parent[], count, mirrored }.
 function guidedUnfold(startFace, predefinedParents) {
 	const placed = new Array(32).fill(false);
 	const parent = predefinedParents.slice();
@@ -164,17 +257,74 @@ function guidedUnfold(startFace, predefinedParents) {
 	return { res, placed, parent, count, mirrored: false };
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Predefined Layouts (Presets)
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Each preset is a fully optimized net layout for a specific paper format.
+// Fields:
+//   label    – display name shown in the <select> dropdown
+//   aspect   – paper width/height ratio (always ≥ 1, landscape)
+//   parents  – int[32] BFS parent tree (-1 = root)
+//   tabs     – { "min-max": ownerFace } glue tab ownership map
+//   mirrored – whether the net was horizontally mirrored
+//   angle    – optimal rotation angle (radians) for this paper format
+//
+// Presets were generated by the layouter's optimization algorithm and
+// hand-tuned for maximum paper utilization on each format.
 // Predefined optimized parent trees per paper format (keyed by aspect ratio string)
-const predefinedParents = {
-	'1.41421': {"parents":[12,13,14,15,13,15,21,23,28,-1,30,19,4,9,5,9,20,1,2,3,4,13,5,15,12,9,0,25,9,9,6,19],"tabs":{"18-31":31,"10-31":31,"30-31":31,"18-26":26,"2-26":26,"10-26":26,"22-23":23,"5-23":23,"19-23":23,"3-23":23,"5-29":29,"14-29":29,"8-29":29,"28-29":29,"15-29":29,"2-22":22,"18-22":22,"2-24":24,"0-24":24,"4-28":28,"12-28":12,"13-28":28,"3-25":25,"1-25":25,"13-25":25,"15-25":25,"17-21":21,"20-21":21,"4-21":21,"0-20":20,"12-20":20,"14-22":22,"1-21":21,"14-24":24,"17-30":17,"17-27":27,"1-27":1,"11-31":31,"6-17":17,"6-20":20,"7-19":19,"7-22":22,"7-18":18,"8-12":8,"10-18":18,"19-27":27,"11-17":17}},
-	'1.29412': {"parents":[20,13,24,25,-1,29,20,31,24,28,16,17,0,4,29,5,20,6,26,3,4,4,18,15,0,13,0,1,4,28,6,30],"tabs":{"7-22":7,"22-23":23,"11-30":30,"11-31":11,"11-19":19,"6-21":21,"17-21":21,"20-21":21,"1-21":21,"13-21":21,"9-13":13,"9-25":25,"9-15":9,"9-29":29,"14-22":22,"8-12":12,"4-12":12,"6-16":16,"0-16":16,"17-30":30,"17-27":17,"1-25":25,"19-27":27,"5-23":23,"2-26":26,"2-18":18,"2-22":22,"8-14":8,"8-29":8,"8-28":28,"5-14":14,"1-17":17,"7-23":23,"15-25":25,"7-18":18,"15-29":29}},
-	'1.64706': {"parents":[12,21,14,27,12,14,20,22,-1,28,18,30,8,1,8,5,0,1,2,11,12,20,14,22,8,1,24,1,8,8,6,18],"tabs":{"19-23":23,"10-30":30,"10-16":16,"9-25":25,"15-25":25,"3-23":23,"17-21":17,"13-25":25,"3-25":25,"4-28":28,"12-28":28,"13-21":13,"9-29":29,"5-29":29,"16-20":20,"0-20":20,"0-24":24,"2-24":24,"18-22":22,"7-23":23,"15-29":29,"9-15":15,"6-17":17,"11-17":17,"6-21":21,"28-29":29,"14-29":29,"10-31":31}},
-	'1.54362': {"parents":[24,25,14,15,12,-1,16,22,14,15,26,19,0,21,5,5,0,1,2,3,0,4,5,5,14,15,24,25,8,5,16,19],"tabs":{"11-30":30,"17-30":30,"10-31":31,"10-30":10,"3-23":23,"19-23":23,"7-23":23,"22-23":23,"15-23":23,"2-22":22,"18-22":22,"14-22":22,"2-26":2,"16-26":26,"10-16":16,"11-17":17,"9-29":29,"8-29":29,"28-29":29,"4-20":20,"6-20":20,"0-26":26,"17-27":27,"1-27":27}},
-	'1.29870': {"parents":[24,21,24,27,21,29,21,18,12,29,30,17,4,9,24,9,20,21,2,27,4,-1,14,15,12,1,16,1,29,8,6,30],"tabs":{"13-28":28,"12-28":28,"4-28":28,"8-28":28,"4-13":13,"13-21":21,"5-15":15,"5-23":5,"5-14":14,"6-20":20,"11-27":27,"19-31":31,"10-31":10,"10-26":10,"24-26":26,"7-22":7,"22-23":23,"3-25":25,"3-19":19,"19-23":19,"9-28":28,"1-13":13,"18-22":22,"18-31":31,"18-26":26,"10-18":18}}
-};
+const presets = [
+	{"label":"DIN A (1:√2)","parents":[12,13,14,15,13,15,21,23,28,-1,30,19,4,9,5,9,20,1,2,3,4,13,5,15,12,9,0,25,9,9,6,19],"tabs":{"18-31":31,"10-31":31,"30-31":31,"18-26":26,"2-26":26,"10-26":26,"22-23":23,"5-23":23,"19-23":23,"3-23":23,"5-29":29,"14-29":29,"8-29":29,"28-29":29,"15-29":29,"2-22":22,"18-22":22,"2-24":24,"0-24":24,"4-28":28,"12-28":12,"13-28":28,"3-25":25,"1-25":25,"13-25":25,"15-25":25,"17-21":21,"20-21":21,"4-21":21,"0-20":20,"12-20":20,"14-22":22,"1-21":21,"14-24":24,"17-30":17,"17-27":27,"1-27":1,"11-31":31,"6-17":17,"6-20":20,"7-19":19,"7-22":22,"7-18":18,"8-12":8,"10-18":18,"19-27":27,"11-17":17},"mirrored":false,"angle":0.715584993317675,"aspect":1.41421},
+	{label:'US Letter (8.5×11 in)',aspect:1.29412,parents:[20,13,24,25,-1,29,20,31,24,28,16,17,0,4,29,5,20,6,26,3,4,4,18,15,0,13,0,1,4,28,6,30],tabs:{"7-22":7,"22-23":23,"11-30":30,"11-31":11,"11-19":19,"6-21":21,"17-21":21,"20-21":21,"1-21":21,"13-21":21,"9-13":13,"9-25":25,"9-15":9,"9-29":29,"14-22":22,"8-12":12,"4-12":12,"6-16":16,"0-16":16,"17-30":30,"17-27":17,"1-25":25,"19-27":27,"5-23":23,"2-26":26,"2-18":18,"2-22":22,"8-14":8,"8-29":8,"8-28":28,"5-14":14,"1-17":17,"7-23":23,"15-25":25,"7-18":18,"15-29":29},mirrored:false,angle:1.0995574287564276},
+	{label:'US Legal (8.5×14 in)',aspect:1.64706,parents:[12,21,14,27,12,14,20,22,12,28,18,30,-1,1,8,5,0,1,2,11,12,20,14,22,8,1,24,1,8,8,6,18],tabs:{"19-23":23,"10-30":30,"10-16":16,"9-25":25,"15-25":25,"3-23":23,"17-21":17,"13-25":25,"3-25":25,"4-28":28,"12-28":28,"13-21":13,"9-29":29,"5-29":29,"16-20":20,"0-20":20,"0-24":24,"2-24":24,"18-22":22,"7-23":23,"15-29":29,"9-15":15,"6-17":17,"11-17":17,"6-21":21,"28-29":29,"14-29":29,"10-31":31},mirrored:false,angle:1.4835298641951802},
+	{label:'US Tabloid (11×17 in)',aspect:1.54362,parents:[24,25,14,15,12,-1,16,22,14,15,26,19,0,21,5,5,0,1,2,3,0,4,5,5,14,15,24,25,8,5,16,19],tabs:{"11-30":30,"17-30":30,"10-31":31,"10-30":10,"3-23":23,"19-23":23,"7-23":23,"22-23":23,"15-23":23,"2-22":22,"18-22":22,"14-22":22,"2-26":2,"16-26":26,"10-16":16,"11-17":17,"9-29":29,"8-29":29,"28-29":29,"4-20":20,"6-20":20,"0-26":26,"17-27":27,"1-27":27},mirrored:false,angle:0.17453292519943295},
+	{label:'B5 JIS (182×257 mm)',aspect:1.2987,parents:[24,21,24,27,12,29,21,18,12,29,30,17,-1,9,24,9,20,21,2,27,4,4,14,15,12,1,16,1,29,8,6,30],tabs:{"13-28":28,"12-28":28,"4-28":28,"8-28":28,"4-13":13,"13-21":21,"5-15":15,"5-23":5,"5-14":14,"6-20":20,"11-27":27,"19-31":31,"10-31":10,"10-26":10,"24-26":26,"7-22":7,"22-23":23,"3-25":25,"3-19":19,"19-23":19,"9-28":28,"1-13":13,"18-22":22,"18-31":31,"18-26":26,"10-18":18},mirrored:false,angle:1.4660765716752369}
+];
 
-// ── Scoring ──
-// Compute bounding-box critical points: polygon vertices + owned tab outer vertices
+// ═══════════════════════════════════════════════════════════════════════
+// Custom Layouts (persisted in localStorage)
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Users can save the current layout as a custom format with arbitrary
+// paper dimensions.  Custom layouts are stored as a JSON object in
+// localStorage under the key 'bucky-custom-layouts'.  Each entry is
+// keyed by a unique ID (e.g. "custom_1700000000000") and contains the
+// same fields as a preset plus width/height in mm or inches.
+const CUSTOM_STORAGE_KEY = 'bucky-custom-layouts';
+
+// Load all custom layouts from localStorage (returns {} on error)
+function loadCustomLayouts() {
+	try { return JSON.parse(localStorage.getItem(CUSTOM_STORAGE_KEY)) || {}; } catch { return {}; }
+}
+
+// Persist the full custom layouts object to localStorage
+function saveCustomLayouts(obj) {
+	localStorage.setItem(CUSTOM_STORAGE_KEY, JSON.stringify(obj));
+}
+
+// Return the paper aspect ratio for the currently selected format.
+// Checks presets first, then custom layouts, with DIN A as fallback.
+function getAspect() {
+	const key = paperFmt.value;
+	const idx = parseInt(key);
+	if (idx >= 0 && idx < presets.length) return presets[idx].aspect;
+	const customs = loadCustomLayouts();
+	if (customs[key] && customs[key].aspect) return customs[key].aspect;
+	return 1.41421; // DIN A fallback (1:√2)
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Scoring: Paper Utilization Metrics
+// ═══════════════════════════════════════════════════════════════════════
+//
+// The "page fill" percentage = netArea / paperArea tells the user how
+// efficiently the net uses the paper.  To compute the paper area we
+// need the tightest axis-aligned bounding box at a given rotation angle,
+// scaled to fit the paper's aspect ratio.
+
+// Collect all points that define the outer silhouette of the net,
+// including polygon vertices AND the outer corners of owned glue tabs.
+// Returns a flat array [x0, y0, x1, y1, …] for efficient rotation.
 function bboxCriticalPoints(res, placed, parent, mirrored) {
 	const pts = [];
 	for (let i = 0; i < 32; i++) {
@@ -217,6 +367,8 @@ function bboxCriticalPoints(res, placed, parent, mirrored) {
 	return pts; // flat array [x0, y0, x1, y1, ...]
 }
 
+// Compute axis-aligned bounding-box dimensions after rotating all points
+// by `angle` radians.  Returns { w, h, mnX, mxX, mnY, mxY }.
 function bboxDims(pts, angle) {
 	const cs = Math.cos(angle), sn = Math.sin(angle);
 	let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
@@ -229,15 +381,18 @@ function bboxDims(pts, angle) {
 	return { w: mxX - mnX, h: mxY - mnY, mnX, mxX, mnY, mxY };
 }
 
-// Paper area for a given rotation angle (lower = better fill)
+// Compute the paper area needed to contain the rotated net within the
+// selected paper's aspect ratio.  Lower is better (tighter fit).
+// The paper is scaled so the net just fits, then we return the total area.
 function paperScore(pts, angle) {
 	const d = bboxDims(pts, angle);
-	const aspect = parseFloat(document.getElementById('paper-fmt').value);
+	const aspect = getAspect();
 	const s = Math.min(aspect / d.w, 1 / d.h);
 	return aspect / (s * s);
 }
 
-// Sum of placed polygon face areas + glue tab areas
+// Total area of all placed polygon faces plus one glue tab per cut edge.
+// This is the numerator in the page-fill percentage.
 function netArea(placed, parent) {
 	let area = 0;
 	for (let i = 0; i < 32; i++) {
@@ -257,32 +412,40 @@ function netArea(placed, parent) {
 	return area;
 }
 
-// ── State ──
+// ═══════════════════════════════════════════════════════════════════════
+// Application State
+// ═══════════════════════════════════════════════════════════════════════
+
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
-const paperFmt = document.getElementById('paper-fmt');
+const paperFmt = document.getElementById('paper-fmt');  // <select> for paper format
+const scoreDiv = document.getElementById('score');       // page-fill readout
+const tooltip = document.getElementById('tooltip');      // hover tooltip
 
-const scoreDiv = document.getElementById('score');
-const tooltip = document.getElementById('tooltip');
-
+// Extract the root face index (parent == -1) from a parent array
 function seedFromParents(pp) { return pp.indexOf(-1); }
 
-let currentLayout = null;
-let hoveredEdge = null;    // { face, edge, targetFace, ghostPos } of hovered boundary edge
+let currentLayout = null;  // the active layout object (res[], placed[], parent[], etc.)
+let hoveredEdge = null;    // { face, edge, targetFace, ghostPos, … } of hovered boundary edge
 let hoveredFace = -1;      // index of hovered polygon face (-1 = none)
-let hoveredFacePreviewFill = undefined; // fill preview for re-root on face hover
-let boundaryEdges = [];    // all open boundary edges with ghost polygon data
+let hoveredFacePreviewFill = undefined; // preview fill% for re-root on face hover
+let boundaryEdges = [];    // all open boundary edges with flap/ghost data (rebuilt on each draw)
 let glueTabMode = false;   // when true, clicking flaps toggles tab ownership instead of reparenting
-let tabOwnership = {};     // edge key "min-max" → owner face index
-const undoStack = [];      // snapshots of layout state for undo
-const redoStack = [];      // snapshots of layout state for redo
+let tabOwnership = {};     // edge key "min-max" → owner face index (which side gets the glue tab)
+
+// Undo / redo history (each entry is a full layout snapshot)
+const undoStack = [];
+const redoStack = [];
 let historyIndex = 0;
 history.replaceState({ idx: 0 }, '');
 
+// Canonical edge key for an undirected edge between faces i and j
 function edgeKey(i, j) { return Math.min(i, j) + '-' + Math.max(i, j); }
 
+// Shallow-clone the tabOwnership map
 function cloneTabOwnership() { return Object.assign({}, tabOwnership); }
 
+// Deep-clone a layout for undo/redo snapshots (includes tabOwnership)
 function cloneLayout(layout) {
 	return {
 		res: layout.res.map(r => r ? { x: r.x, y: r.y, r: r.r } : r),
@@ -291,11 +454,18 @@ function cloneLayout(layout) {
 		count: layout.count,
 		seed: layout.seed,
 		mirrored: layout.mirrored || false,
+		label: layout.label || '',
 		tabOwnershipSnapshot: cloneTabOwnership()
 	};
 }
 
-// Compute ghost position: where face j would be if unfolded from face i along their shared edge
+// ═══════════════════════════════════════════════════════════════════════
+// Tree Operations (ghost placement, reparenting, re-rooting)
+// ═══════════════════════════════════════════════════════════════════════
+
+// Compute where face j would appear if unfolded from face i along their
+// shared edge.  Used both for preview (ghost polygon) and actual placement.
+// The `mirrored` flag reverses the edge numbering for horizontally flipped nets.
 function ghostPlace(i, j, res, mirrored) {
 	const pi = res[i], ni = nSides(i);
 	const ki = edgeIdx(i, j), kj = edgeIdx(j, i), nj = nSides(j);
@@ -309,7 +479,8 @@ function ghostPlace(i, j, res, mirrored) {
 	};
 }
 
-// Get all BFS descendants of face j
+// Collect all BFS descendants of face j in the parent tree.
+// Walks from each placed face up to the root; if it passes through j, it's a descendant.
 function getDescendants(j, parent, placed) {
 	const descs = [];
 	for (let k = 0; k < 32; k++) {
@@ -321,7 +492,11 @@ function getDescendants(j, parent, placed) {
 	return descs;
 }
 
-// Reparent: move face `child` (and its subtree) so it's unfolded from `newParent`
+// Reparent face `child` so it unfolds from `newParent` instead of its
+// current parent.  The child and its entire subtree are detached, then
+// the child is placed at the ghost position relative to newParent, and
+// all descendants are re-placed via BFS using tryPlace() (which checks
+// for collisions with already-placed faces).
 function reparent(layout, newParent, child) {
 	const { res, placed, parent, mirrored } = layout;
 	const descs = getDescendants(child, parent, placed);
@@ -352,7 +527,9 @@ function reparent(layout, newParent, child) {
 	layout.count = placed.filter(Boolean).length;
 }
 
-// Re-root: reverse the path from newRoot to the current root in the parent tree
+// Re-root the parent tree at `newRoot` by reversing the parent pointers
+// along the path from newRoot to the current root.  Returns a new parent
+// array; does not modify the original.
 function rerootTree(parent, newRoot) {
 	const pp = parent.slice();
 	const path = [];
@@ -368,9 +545,33 @@ function rerootTree(parent, newRoot) {
 	return pp;
 }
 
-// Optimize rotation for best paper fit and apply it in-place
+// ═══════════════════════════════════════════════════════════════════════
+// Rotation Optimization
+// ═══════════════════════════════════════════════════════════════════════
+//
+// After unfolding, the net is rotated to minimize wasted paper area.
+// We brute-force 180 angles (1° steps), score each by the paper area
+// needed, and keep the best.  The angle is then applied in-place to all
+// face positions and rotations.
+
+// Optimize rotation for best paper fit and apply the rotation in-place
 function optimizeAndApplyRotation(layout) {
 	const { res, placed, parent, mirrored } = layout;
+	// Undo any previous rotation so the optimization always starts from
+	// the un-rotated BFS base state.  This ensures layout.angle is the
+	// absolute total rotation — not an incremental delta — which is what
+	// the dome-mapper needs when reproducing the layout from scratch.
+	const prevAngle = layout.angle || 0;
+	if (prevAngle !== 0) {
+		const pc = Math.cos(-prevAngle), ps = Math.sin(-prevAngle);
+		for (let i = 0; i < 32; i++) {
+			if (!placed[i]) continue;
+			const x = res[i].x, y = res[i].y;
+			res[i].x = x * pc - y * ps;
+			res[i].y = x * ps + y * pc;
+			res[i].r -= prevAngle;
+		}
+	}
 	const pts = bboxCriticalPoints(res, placed, parent, mirrored || false);
 	let bestA = 0, bestAr = Infinity;
 	for (let deg = 0; deg < 180; deg += 1) {
@@ -379,6 +580,7 @@ function optimizeAndApplyRotation(layout) {
 		if (ar < bestAr) { bestAr = ar; bestA = rad; }
 	}
 	if (bestA > Math.PI / 2) bestA -= Math.PI; // prefer small rotation over near-flip
+	layout.angle = bestA;
 	if (bestA !== 0) {
 		const cs = Math.cos(bestA), sn = Math.sin(bestA);
 		for (let i = 0; i < 32; i++) {
@@ -391,7 +593,8 @@ function optimizeAndApplyRotation(layout) {
 	}
 }
 
-// Get polygon vertices in world coords
+// Return the n vertices of face i's polygon in world coordinates.
+// Each vertex is at angle (2k+1)·π/n from the face center, at circumradius distance.
 function polyVerts(fx, fy, rot, n, cr) {
 	const verts = [];
 	for (let k = 0; k < n; k++) {
@@ -401,22 +604,44 @@ function polyVerts(fx, fy, rot, n, cr) {
 	return verts;
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Layout Computation Entry Point
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Called when the user selects a preset or custom layout from the dropdown.
+// Reads the parent tree, restores tab ownership, unfolds, optimizes
+// rotation, and redraws.
 function computeLayout() {
-	const preset = predefinedParents[paperFmt.value];
+	const key = paperFmt.value;
+	const idx = parseInt(key);
+	const customs = loadCustomLayouts();
+	const preset = (idx >= 0 && idx < presets.length) ? presets[idx] : customs[key];
+	if (!preset) return;
 	const pp = preset.parents;
 	tabOwnership = preset.tabs ? Object.assign({}, preset.tabs) : {};
 	const seed = seedFromParents(pp);
 	const layout = guidedUnfold(seed, pp);
 	layout.seed = seed;
 	layout.mirrored = preset.mirrored || false;
+	layout.label = preset.label || '';
 	currentLayout = layout;
 	optimizeAndApplyRotation(currentLayout);
+	updateDeleteBtnVisibility();
 	draw();
 }
 
-// ── Canvas coordinate transform ──
+// ═══════════════════════════════════════════════════════════════════════
+// Canvas Coordinate Transforms
+// ═══════════════════════════════════════════════════════════════════════
+//
+// The net lives in a world-space coordinate system centered on the
+// bounding box of the layout.  viewScale and viewO{X,Y} map between
+// world coords and screen (pixel) coords.  toScreen()/toWorld() convert
+// between the two.
+
 let viewOX = 0, viewOY = 0, viewScale = 1;
 
+// World → screen pixel coordinates (Y is flipped: world-up = screen-up)
 function toScreen(x, y) {
 	return [canvas.width / 2 + (x - viewOX) * viewScale, canvas.height / 2 - (y - viewOY) * viewScale];
 }
@@ -424,7 +649,10 @@ function toWorld(sx, sy) {
 	return [(sx - canvas.width / 2) / viewScale + viewOX, -(sy - canvas.height / 2) / viewScale + viewOY];
 }
 
-// ── Classify edges ──
+// ── Edge classification ──
+// For each face, map each edge slot to its neighbor info.
+// An edge is "internal" if the neighbor is placed AND is a parent-child pair
+// (i.e. the edge is a fold line, not a cut line).
 function classifyEdges(layout) {
 	const { res, placed, parent, mirrored } = layout;
 	const edgeNeighbor = [];
@@ -442,7 +670,7 @@ function classifyEdges(layout) {
 	return edgeNeighbor;
 }
 
-// Point-in-polygon test (convex, either winding)
+// Point-in-polygon test for convex polygons (works for either winding order)
 function pointInPoly(wx, wy, verts) {
 	let pos = 0, neg = 0;
 	for (let p = 0; p < verts.length; p++) {
@@ -454,7 +682,20 @@ function pointInPoly(wx, wy, verts) {
 	return true;
 }
 
-// ── Draw ──
+// ═══════════════════════════════════════════════════════════════════════
+// Canvas Rendering
+// ═══════════════════════════════════════════════════════════════════════
+//
+// The draw() function renders the entire interactive net visualization:
+//  1. Compute bounding box and fit the view to the canvas
+//  2. Draw paper outline (dashed green rectangle)
+//  3. Build boundary edge list with flap trapezoids and ghost data
+//  4. Draw glue-tab trapezoids (clipped outside polygon interiors)
+//  5. Draw ghost polygon preview on hover (reparent or tab toggle)
+//  6. Draw parent tree lines (orange) and root highlight
+//  7. Draw polygon faces with fill, edge lines, and face labels
+//  8. Show ghost root marker on hovered face (re-root preview)
+//  9. Compute and display page-fill score
 function draw() {
 	if (!currentLayout) return;
 	const { res, placed, parent, count, seed, mirrored } = currentLayout;
@@ -478,9 +719,9 @@ function draw() {
 
 	ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-	// Draw paper outline for reference (always landscape)
+	// ── Paper outline (dashed green rectangle showing the paper boundary) ──
 	{
-		const aspect = parseFloat(paperFmt.value);
+		const aspect = getAspect();
 		const netW = mxX - mnX, netH = mxY - mnY;
 		const s = Math.min(aspect / netW, 1 / netH);
 		const pW = aspect / s, pH = 1 / s;
@@ -497,7 +738,11 @@ function draw() {
 
 	const edgeNeighbor = classifyEdges(currentLayout);
 
-	// ── Build boundary edge list with flap trapezoids + ghost data ──
+	// ── Build boundary edge list ──
+	// For each non-internal edge of each placed face, compute:
+	//   - flapVerts: trapezoid vertices for the glue tab drawing
+	//   - ghostPos/ghostVerts: where the neighbor face would be if unfolded here
+	//   - isCutEdge: whether the neighbor is already placed (edge is a cut line)
 	boundaryEdges = [];
 
 	for (let i = 0; i < 32; i++) {
@@ -543,8 +788,9 @@ function draw() {
 		}
 	}
 
-	// ── Draw flap trapezoids on all boundary edges ──
-	// Clip to exclude polygon interiors
+	// ── Draw flap trapezoids ──
+	// Clip rendering to the area OUTSIDE all polygon interiors so that
+	// tab trapezoids only appear beyond the polygon edges (using evenodd fill rule).
 	ctx.save();
 	ctx.beginPath();
 	ctx.rect(0, 0, canvas.width, canvas.height);
@@ -825,11 +1071,22 @@ function draw() {
 	const nArea = netArea(placed, parent);
 	const pArea = paperScore(_bbPts, 0);
 	const fill = (nArea / pArea * 100).toFixed(1);
-	scoreDiv.textContent = `Page fill: ${fill}%`;
+	const nameTag = currentLayout.label ? `"${currentLayout.label}" — ` : '';
+	scoreDiv.textContent = `${nameTag}Page fill: ${fill}%`;
 	currentLayout._currentFill = parseFloat(fill);
 }
 
-// ── Mouse interaction: hit test flap trapezoids + polygon faces ──
+// ═══════════════════════════════════════════════════════════════════════
+// Mouse Interaction
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Hover: shows ghost preview of reparenting or tab toggling, with
+//        fill% change prediction in tooltip.
+// Click on boundary flap: reparent face (normal mode) or toggle tab (glue tab mode).
+// Click on placed face: re-root the tree at that face.
+
+// Hit-test all boundary-edge trapezoids at screen position (mx, my).
+// In glue tab mode, only the owning side's flap is considered.
 function hitTestEdge(mx, my) {
 	const [wx, wy] = toWorld(mx, my);
 	for (const edge of boundaryEdges) {
@@ -843,6 +1100,8 @@ function hitTestEdge(mx, my) {
 	return null;
 }
 
+// Hit-test placed polygon faces at screen position (mx, my).
+// Returns face index or -1.
 function hitTestFace(mx, my) {
 	if (!currentLayout) return -1;
 	const [wx, wy] = toWorld(mx, my);
@@ -855,6 +1114,9 @@ function hitTestFace(mx, my) {
 	return -1;
 }
 
+// ── Mousemove handler ──
+// On every mouse move: hit-test edges and faces, compute preview fill%,
+// update ghost previews, and show tooltip with fill-change prediction.
 canvas.addEventListener('mousemove', e => {
 	const hit = hitTestEdge(e.clientX, e.clientY);
 	const face = hit ? -1 : hitTestFace(e.clientX, e.clientY);
@@ -935,7 +1197,11 @@ canvas.addEventListener('mouseleave', () => {
 	draw();
 });
 
-// Find the placed face closest to the bounding box center and re-root there
+// ── Auto-reroot: find the optimal root face ──
+// After a reparent operation, the face closest to the bounding-box center
+// often makes a better root (more symmetric layout).  This function
+// re-roots the tree at that face and resolves 180° flip ambiguity by
+// matching the new layout's orientation to the old one (positive dot product).
 function autoReroot(layout) {
 	const { res, placed, parent, mirrored } = layout;
 	const pts = bboxCriticalPoints(res, placed, parent, mirrored || false);
@@ -967,10 +1233,14 @@ function autoReroot(layout) {
 			newLayout.res[i].y = -newLayout.res[i].y;
 			newLayout.res[i].r += Math.PI;
 		}
+		newLayout.angle = (newLayout.angle || 0) + Math.PI;
 	}
 	Object.assign(layout, newLayout);
 }
 
+// ── Click handler ──
+// Re-root on face click, toggle tab ownership on flap click (glue tab mode),
+// or reparent on flap click (normal mode).  Each action pushes an undo snapshot.
 canvas.addEventListener('click', e => {
 	if (!currentLayout) return;
 	// Re-root on face click
@@ -1000,6 +1270,7 @@ canvas.addEventListener('click', e => {
 				layout.res[i].y = -layout.res[i].y;
 				layout.res[i].r += Math.PI;
 			}
+			layout.angle = (layout.angle || 0) + Math.PI;
 		}
 		hoveredFace = -1;
 		hoveredFacePreviewFill = undefined;
@@ -1034,6 +1305,10 @@ canvas.addEventListener('click', e => {
 	draw();
 });
 
+// ── Undo / Redo ──
+// Each undo snapshot includes the full layout state plus tabOwnership.
+// restoreFromSnapshot() ensures the tab map is also restored.
+
 function restoreFromSnapshot(snapshot) {
 	if (snapshot.tabOwnershipSnapshot) {
 		tabOwnership = snapshot.tabOwnershipSnapshot;
@@ -1062,6 +1337,7 @@ function performRedo() {
 	draw();
 }
 
+// Browser history integration: undo on back, redo on forward
 window.addEventListener('popstate', e => {
 	const newIdx = (e.state && e.state.idx) || 0;
 	if (newIdx < historyIndex) { performUndo(); }
@@ -1069,15 +1345,22 @@ window.addEventListener('popstate', e => {
 	historyIndex = newIdx;
 });
 
+// Keyboard shortcuts: Ctrl+Z = undo, Ctrl+Y = redo
 window.addEventListener('keydown', e => {
 	if (e.ctrlKey && e.key === 'z') { e.preventDefault(); history.back(); }
 	if (e.ctrlKey && e.key === 'y') { e.preventDefault(); history.forward(); }
 });
 
-// ── Controls ──
+// ═══════════════════════════════════════════════════════════════════════
+// UI Controls
+// ═══════════════════════════════════════════════════════════════════════
+
+// Paper format dropdown: reload layout when the selection changes
 paperFmt.addEventListener('change', computeLayout);
 
 // ── Mirror / Flip ──
+// Flipping the net mirrors all face positions and inverts the mirrored flag.
+// The rotation is then re-optimized for the new orientation.
 function flipLayout(axis) {
 	if (!currentLayout) return;
 	const { res, placed } = currentLayout;
@@ -1092,12 +1375,16 @@ function flipLayout(axis) {
 		}
 	}
 	currentLayout.mirrored = !currentLayout.mirrored;
+	currentLayout.angle = 0; // flip invalidates the previous rotation
 	optimizeAndApplyRotation(currentLayout);
 	draw();
 }
 document.getElementById('btn-flip-h').addEventListener('click', () => flipLayout('h'));
 document.getElementById('btn-flip-v').addEventListener('click', () => flipLayout('v'));
 
+// ── Glue Tab Mode Toggle ──
+// When active, clicking a boundary flap toggles which side of a cut edge
+// owns the glue tab.  Visual feedback: button turns orange.
 document.getElementById('btn-glue-tab').addEventListener('click', () => {
 	glueTabMode = !glueTabMode;
 	const btn = document.getElementById('btn-glue-tab');
@@ -1110,9 +1397,22 @@ document.getElementById('btn-glue-tab').addEventListener('click', () => {
 	draw();
 });
 
+// ═══════════════════════════════════════════════════════════════════════
+// Clipboard Export / Import
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Export (📋 Copy): serializes the current layout as JSON with fields
+//   { label, parents, tabs, mirrored, angle, aspect }
+// This format is understood by both this layouter and the dome-mapper.
+//
+// Import (📥 Paste): accepts three JSON formats:
+//   1. Full object: { parents: [...], tabs: {...}, mirrored, label, ... }
+//   2. Simple array: [32 ints] (parent tree only, no tabs/label)
+//   3. Legacy faces format: { faces: [{ id, parent }, ...] }
+
 document.getElementById('btn-export-clip').addEventListener('click', () => {
 	if (!currentLayout) return;
-	const data = { parents: currentLayout.parent, tabs: cloneTabOwnership(), mirrored: currentLayout.mirrored || false };
+	const data = { label: paperFmt.options[paperFmt.selectedIndex].textContent, parents: currentLayout.parent, tabs: cloneTabOwnership(), mirrored: currentLayout.mirrored || false, angle: currentLayout.angle || 0, aspect: getAspect() };
 	const text = JSON.stringify(data);
 	navigator.clipboard.writeText(text).then(() => {
 		const btn = document.getElementById('btn-export-clip');
@@ -1126,13 +1426,14 @@ document.getElementById('btn-import-clip').addEventListener('click', async () =>
 	try {
 		const text = await navigator.clipboard.readText();
 		const data = JSON.parse(text);
-		let pp, tabs = {}, mirrored = false;
+		let pp, tabs = {}, mirrored = false, label = '';
 		if (Array.isArray(data) && data.length === 32) {
 			pp = data;
 		} else if (data.parents && Array.isArray(data.parents)) {
 			pp = data.parents;
 			if (data.tabs) tabs = data.tabs;
 			if (data.mirrored) mirrored = true;
+			if (data.label || data.name) label = data.label || data.name;
 		} else if (data.faces && Array.isArray(data.faces)) {
 			pp = new Array(32).fill(-1);
 			for (const f of data.faces) pp[f.id] = f.parent;
@@ -1141,6 +1442,7 @@ document.getElementById('btn-import-clip').addEventListener('click', async () =>
 		const layout = guidedUnfold(seed, pp);
 		layout.seed = seed;
 		layout.mirrored = mirrored;
+		layout.label = label;
 		undoStack.push(cloneLayout(currentLayout));
 		redoStack.length = 0;
 		historyIndex++;
@@ -1150,6 +1452,7 @@ document.getElementById('btn-import-clip').addEventListener('click', async () =>
 		optimizeAndApplyRotation(currentLayout);
 		hoveredEdge = null;
 		hoveredFace = -1;
+		updateDeleteBtnVisibility();
 		draw();
 		btn.textContent = '✅ Loaded!';
 		setTimeout(() => btn.textContent = '📥 Paste', 1500);
@@ -1162,7 +1465,95 @@ document.getElementById('btn-import-clip').addEventListener('click', async () =>
 
 window.addEventListener('resize', () => { if (currentLayout) draw(); });
 
-// ── Init ──
+// ═══════════════════════════════════════════════════════════════════════
+// Custom Layout Management (save / delete / populate select)
+// ═══════════════════════════════════════════════════════════════════════
+
+// Populate the paper-format <select> with preset entries (by array index)
+// followed by any custom entries from localStorage (by string key).
+function populateSelect() {
+	paperFmt.innerHTML = '';
+	presets.forEach((p, i) => {
+		const opt = document.createElement('option');
+		opt.value = i;
+		opt.textContent = p.label;
+		paperFmt.appendChild(opt);
+	});
+	const customs = loadCustomLayouts();
+	for (const key of Object.keys(customs)) {
+		const opt = document.createElement('option');
+		opt.value = key;
+		const c = customs[key];
+		const dims = (c.width && c.height) ? ` (${c.width}×${c.height})` : '';
+		opt.textContent = (c.label || key) + dims;
+		paperFmt.appendChild(opt);
+	}
+}
+
+// Show the "🗑 Delete" button only when a custom layout is selected
+function updateDeleteBtnVisibility() {
+	const customs = loadCustomLayouts();
+	document.getElementById('btn-delete-custom').style.display =
+		customs[paperFmt.value] ? '' : 'none';
+}
+
+// ── Save custom layout ──
+// Prompts for a name and paper dimensions, saves to localStorage,
+// selects the new entry, and re-optimizes rotation for the new aspect ratio.
+document.getElementById('btn-save-custom').addEventListener('click', () => {
+	if (!currentLayout) return;
+	const defaultLabel = currentLayout.label || '';
+	const name = prompt('Layout name:', defaultLabel);
+	if (!name) return;
+	const sizeStr = prompt('Paper size (width × height, e.g. 297x210):');
+	if (!sizeStr) return;
+	const parts = sizeStr.split(/[x×,\s]+/).map(Number).filter(n => n > 0);
+	if (parts.length < 2) { alert('Invalid size. Use e.g. 297x210'); return; }
+	const w = Math.max(parts[0], parts[1]), h = Math.min(parts[0], parts[1]);
+	const aspect = w / h;
+	const key = 'custom_' + Date.now();
+	const customs = loadCustomLayouts();
+	customs[key] = {
+		label: name,
+		width: parts[0],
+		height: parts[1],
+		aspect,
+		parents: currentLayout.parent.slice(),
+		tabs: cloneTabOwnership(),
+		mirrored: currentLayout.mirrored || false
+	};
+	saveCustomLayouts(customs);
+	currentLayout.label = name;
+	populateSelect();
+	paperFmt.value = key;
+	// Re-optimize rotation for the new aspect ratio
+	optimizeAndApplyRotation(currentLayout);
+	updateDeleteBtnVisibility();
+	draw();
+});
+
+// ── Delete custom layout ──
+// Removes the selected custom layout from localStorage after confirmation.
+document.getElementById('btn-delete-custom').addEventListener('click', () => {
+	const key = paperFmt.value;
+	const customs = loadCustomLayouts();
+	if (!customs[key]) return;
+	const name = customs[key].label || key;
+	if (!confirm('Delete custom layout \"' + name + '\"?')) return;
+	delete customs[key];
+	saveCustomLayouts(customs);
+	populateSelect();
+	paperFmt.value = 0;
+	updateDeleteBtnVisibility();
+	computeLayout();
+});
+
+populateSelect();
+
+// ═══════════════════════════════════════════════════════════════════════
+// Initialization
+// ═══════════════════════════════════════════════════════════════════════
+// Load the first preset (DIN A) and render.
 computeLayout();
 </script>
 </body>

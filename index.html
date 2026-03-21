@@ -563,7 +563,7 @@
 			</div>
 		</div>
 		<div class="slider-group">
-			<div class="group-label">Projection</div>
+			<div class="group-label">Projection <label>Grid <input type="checkbox" id="grid-toggle-proj"></label></div>
 			<div id="method-params" class="grid">
 				<span>Method</span>
 				<select id="projection-select" style="grid-column:2/-1">
@@ -605,6 +605,14 @@
 						<button id="stereo-copy" title="Copy stereographic parameters">Copy</button>
 						<button id="stereo-paste" title="Paste stereographic parameters">Paste</button>
 					</div>
+				</span>
+				<span id="bucky-layout-row" class="span hide-in-level-off" style="display:none">
+					<span>Layout</span>
+					<select id="bucky-layout-select" style="grid-column:2/-1"></select>
+					<span style="grid-column:2/-1;display:flex;gap:4px">
+						<button id="bucky-open-layouter" title="Open the net layout editor">🌐 Open Editor</button>
+						<button id="bucky-paste-layout" title="Paste layout from layouter (JSON)">📋 Paste Layout</button>
+					</span>
 				</span>
 				<span id="net-row" class="span hide-in-level-off" style="display:none">
 					<span>Net</span> <input type="range" id="net-alpha-slider" min="0" max="100" value="33" step="1"> <span class="val" id="net-alpha-val">33%</span>
@@ -692,6 +700,7 @@ uniform vec4 buckyNet[32];   // flat net layout: (x, y, rotation, gnomonicScale)
 uniform float buckyScale;    // inverse normalization scale for polygon sizes
 uniform sampler2D buckyOverlay; // 2D canvas overlay: edges + glue tabs
 uniform vec4 buckyBBox;         // bounding box in net space (minX, minY, maxX, maxY)
+uniform vec4 buckyPaperRect;     // paper format rectangle in net space (minX, minY, maxX, maxY); (0,0,0,0) = hidden
 uniform vec4 exportClip;        // viewport clip range in screenUV space (default: -1,-1,1,1)
 uniform mat3 levelMatrix;       // horizon leveling rotation (applied to texture sampling only)
 uniform vec2 pointer;            // mouse position in 0..1 screen space
@@ -749,12 +758,8 @@ const float RFACE_HEX  = 0.9149168;
 // All 30 faces equidistant; rFace = φ/√(1+φ²) ≈ BUCKY_B
 const float RFACE_RHOMBIC = 0.8506508084;
 
-// Pre-rotation for buckyball texture: Ry(180°) · Rx(45°) · Rz(-90°)
-const mat3 buckyPreRot = mat3(
-	 0.0,        -0.70710678,  0.70710678,  // column 0
-	-1.0,         0.0,          0.0,         // column 1
-	 0.0,        -0.70710678, -0.70710678   // column 2
-);
+// Pre-rotation for buckyball texture (dynamic, set from JS)
+uniform mat3 buckyPreRot;
 
 // Pre-rotation for rhombic-30 texture: Ry(-144°) · Rx(-57°)
 const mat3 rhombicPreRot = mat3(
@@ -1634,6 +1639,28 @@ void main() {
 		float oa = overlay.a * alphaScale;
 		col = col * (1.0 - oa) + overlay.rgb * alphaScale;
 
+		// ── Paper format outline (dashed green rectangle) ──
+		// Drawn in the shader so it never appears in PNG exports.
+		if (buckyPaperRect.z > buckyPaperRect.x) {
+			float pw = 0.004 * fitScale;
+			float dL = abs(uv.x - buckyPaperRect.x);
+			float dR = abs(uv.x - buckyPaperRect.z);
+			float dB = abs(uv.y - buckyPaperRect.y);
+			float dT = abs(uv.y - buckyPaperRect.w);
+			bool nearV = uv.y > buckyPaperRect.y - pw && uv.y < buckyPaperRect.w + pw;
+			bool nearH = uv.x > buckyPaperRect.x - pw && uv.x < buckyPaperRect.z + pw;
+			float onEdge = 0.0;
+			float peri = 0.0;
+			if (dL < pw && nearV) { onEdge = 1.0; peri = uv.y; }
+			else if (dR < pw && nearV) { onEdge = 1.0; peri = uv.y; }
+			else if (dB < pw && nearH) { onEdge = 1.0; peri = uv.x; }
+			else if (dT < pw && nearH) { onEdge = 1.0; peri = uv.x; }
+			if (onEdge > 0.5) {
+				float dash = step(0.5, fract(peri / fitScale * 30.0));
+				col = mix(col, vec3(0.4, 0.8, 0.4), 0.5 * dash);
+			}
+		}
+
 		fragColor = vec4(col, 1.0);
 		return;
 	} else if (projection > 4.5) {
@@ -2099,9 +2126,11 @@ void main() {
 		const uProjection = gl.getUniformLocation(program, 'projection');
 		const uShowGrid = gl.getUniformLocation(program, 'showGrid');
 		const uBuckyNet = gl.getUniformLocation(program, 'buckyNet');
+		const uBuckyPreRot = gl.getUniformLocation(program, 'buckyPreRot');
 		const uBuckyScale = gl.getUniformLocation(program, 'buckyScale');
 		const uBuckyOverlay = gl.getUniformLocation(program, 'buckyOverlay');
 		const uBuckyBBox = gl.getUniformLocation(program, 'buckyBBox');
+		const uBuckyPaperRect = gl.getUniformLocation(program, 'buckyPaperRect');
 		const uBuckyOverlayAlpha = gl.getUniformLocation(program, 'buckyOverlayAlpha');
 		const uExportClip = gl.getUniformLocation(program, 'exportClip');
 		const uLevelMatrix = gl.getUniformLocation(program, 'levelMatrix');
@@ -2117,10 +2146,10 @@ void main() {
 
 		// ── Compute truncated icosahedron flat net layout ──
 		//
-		// This IIFE runs once at initialization.  It computes a non-overlapping
-		// 2D unfolding (net) of the 32-face truncated icosahedron, uploads the
-		// face positions/rotations as a GLSL uniform array, and renders the
-		// overlay (edges + glue tabs) to a 2D canvas texture.
+		// This IIFE runs once at initialization.  It unfolds a predefined
+		// parent tree (DIN A layout from buckyball-net-layouter.html) into a
+		// 2D net, uploads face positions/rotations as a GLSL uniform array,
+		// and renders the overlay (edges + glue tabs) to a 2D canvas texture.
 		(function uploadBuckyNet() {
 			// Golden ratio and derived constants for face center coordinates
 			const PHI = (1 + Math.sqrt(5)) / 2;
@@ -2235,206 +2264,19 @@ void main() {
 			// Pentagon: 1/(2·sin(π/5)) ≈ 0.8507;  Hexagon: 1.0 (unit edge length)
 			function circumR(i) { return nSides(i) === 5 ? 1 / (2 * Math.sin(Math.PI / 5)) : 1.0; }
 
-			// Attempt to place face j adjacent to already-placed face i in the 2D net.
-			//
-			// Computes the position and rotation where face j would sit if unfolded
-			// from the shared edge with face i, then checks for overlaps with all
-			// previously placed faces.
-			//
-			// Algorithm:
-			//   1. Determine which edge of face i faces face j (ki) and vice versa (kj)
-			//      using edgeIdx().
-			//   2. The shared edge direction in 2D: phi = rotation_i + 2π·ki/ni
-			//      (angle from face i's center toward the shared edge midpoint).
-			//   3. The center-to-center distance = apothem_i + apothem_j (both
-			//      polygons touch edge-to-edge at their apothems).
-			//   4. Face j's rotation: theta = phi + π − 2π·kj/nj (j must be
-			//      rotated so its kj-th edge faces back toward i).
-			//   5. Overlap test: reject if any previously placed face (except
-			//      the parent i) is closer than 85% of the sum of apothems.
-			//      The 0.85 tolerance allows slight geometric imprecision while
-			//      still catching genuine overlaps.
-			//
-			// Parameters:
-			//   i      — index of the already-placed parent face
-			//   j      — index of the face to place
-			//   res    — array of {x, y, r} positions for placed faces
-			//   placed — boolean array indicating which faces are placed
-			//
-			// Returns:
-			//   {x, y, r} position/rotation for face j, or null if it would overlap
-			function tryPlace(i, j, res, placed) {
+			// Place face j adjacent to already-placed face i in the 2D net.
+			// Computes position and rotation from the shared edge geometry.
+			function place(i, j, res) {
 				const pi = res[i], ni = nSides(i);
 				const ki = edgeIdx(i, j), kj = edgeIdx(j, i), nj = nSides(j);
 				const phi = pi.r + 2 * Math.PI * ki / ni;
 				const dist = ap(i) + ap(j);
-				const px = pi.x + dist * Math.cos(phi);
-				const py = pi.y + dist * Math.sin(phi);
-				const theta = phi + Math.PI - 2 * Math.PI * kj / nj;
-				// Overlap check against all placed faces (except parent)
-				for (let k = 0; k < 32; k++) {
-					if (!placed[k] || k === i) continue;
-					const dx = px - res[k].x, dy = py - res[k].y;
-					const d = Math.sqrt(dx * dx + dy * dy);
-					if (d < (ap(j) + ap(k)) * 0.85) return null;
-				}
-				return { x: px, y: py, r: theta };
+				return {
+					x: pi.x + dist * Math.cos(phi),
+					y: pi.y + dist * Math.sin(phi),
+					r: phi + Math.PI - 2 * Math.PI * kj / nj
+				};
 			}
-
-			// Unfold the truncated icosahedron into a flat 2D net via overlap-aware BFS.
-			//
-			// Starting from a seed face placed at the origin with zero rotation, this
-			// function iteratively places adjacent faces using tryPlace().  It uses a
-			// multi-pass approach instead of a strict BFS queue: each pass scans all
-			// unplaced faces and tries to attach them to any placed neighbor.  This
-			// allows faces that were blocked in one pass (due to overlap with earlier
-			// placements) to find an alternative parent in a later pass.
-			//
-			// The loop terminates when a full pass completes with no new placements.
-			// Typically all 32 faces are placed, but some seed faces may produce
-			// incomplete layouts due to unavoidable geometric conflicts.
-			//
-			// Parameters:
-			//   startFace — index (0–31) of the seed face to begin unfolding from
-			//
-			// Returns:
-			//   { res, placed, parent, count }
-			//   res[i]     = {x, y, r} — 2D center position and rotation of face i
-			//   placed[i]  = true if face i was successfully placed
-			//   parent[i]  = index of the face from which face i was unfolded (-1 for seed)
-			//   count      = total number of placed faces (ideally 32)
-			function unfold(startFace) {
-				const placed = new Array(32).fill(false);
-				const parent = new Array(32).fill(-1);
-				const res = new Array(32);
-				res[startFace] = { x: 0, y: 0, r: 0 };
-				placed[startFace] = true;
-				let count = 1;
-				// Multi-pass: keep trying until no more faces can be placed
-				let changed = true;
-				while (changed) {
-					changed = false;
-					for (let j = 0; j < 32; j++) {
-						if (placed[j]) continue;
-						for (const i of adj[j]) {
-							if (!placed[i]) continue;
-							const pos = tryPlace(i, j, res, placed);
-							if (pos) {
-								res[j] = pos;
-								placed[j] = true;
-								parent[j] = i;
-								count++;
-								changed = true;
-								break;
-							}
-						}
-					}
-				}
-				return { res, placed, parent, count };
-			}
-
-			// Compute the axis-aligned bounding box area of a layout after rotation.
-			//
-			// Used to find the rotation angle that makes the layout most compact.
-			// Each face is approximated as a circle with its circumradius, so the
-			// bounding box conservatively encloses all polygon vertices.
-			//
-			// Parameters:
-			//   res    — array of {x, y, r} face positions
-			//   placed — boolean array of placed faces
-			//   angle  — rotation angle (radians) to apply before measuring
-			//
-			// Returns:
-			//   area of the axis-aligned bounding box (width × height)
-			function bboxArea(res, placed, angle) {
-				const cs = Math.cos(angle), sn = Math.sin(angle);
-				let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
-				for (let i = 0; i < 32; i++) {
-					if (!placed[i]) continue;
-					const cr = circumR(i);
-					const rx = res[i].x * cs - res[i].y * sn;
-					const ry = res[i].x * sn + res[i].y * cs;
-					mnX = Math.min(mnX, rx - cr); mxX = Math.max(mxX, rx + cr);
-					mnY = Math.min(mnY, ry - cr); mxY = Math.max(mxY, ry + cr);
-				}
-				return (mxX - mnX) * (mxY - mnY);
-			}
-
-			// ── Layout optimization: try all 32 seed faces ──
-			// Each seed produces a different unfolding topology.  For each complete
-			// layout (all 32 faces placed), we search for the rotation angle that
-			// minimizes the axis-aligned bounding box area (2° steps, 0–180°).
-			// The layout with the smallest optimized bounding box wins.
-			let best = null, bestScore = Infinity;
-			for (let s = 0; s < 32; s++) {
-				const layout = unfold(s);
-				if (layout.count < 32) continue; // skip incomplete layouts
-				// Find the rotation angle that minimizes bounding box area
-				let bestA = 0, bestAr = Infinity;
-				for (let deg = 0; deg < 180; deg += 2) {
-					const rad = deg * Math.PI / 180;
-					const ar = bboxArea(layout.res, layout.placed, rad);
-					if (ar < bestAr) { bestAr = ar; bestA = rad; }
-				}
-				if (bestAr < bestScore) {
-					bestScore = bestAr;
-					best = { ...layout, angle: bestA };
-				}
-			}
-
-			// Fallback: if no seed produces a complete layout (all 32 faces),
-			// pick the most complete one (maximum placed faces)
-			if (!best) {
-				let maxCount = 0;
-				for (let s = 0; s < 32; s++) {
-					const layout = unfold(s);
-					if (layout.count > maxCount) {
-						maxCount = layout.count;
-						best = { ...layout, angle: 0 };
-					}
-				}
-			}
-
-			const { res, placed, parent, angle } = best;
-
-			// Apply the optimal rotation to all placed face positions
-			const cs = Math.cos(angle), sn = Math.sin(angle);
-			for (let i = 0; i < 32; i++) {
-				if (!placed[i]) continue;
-				const x = res[i].x, y = res[i].y;
-				res[i].x = x * cs - y * sn;
-				res[i].y = x * sn + y * cs;
-				res[i].r += angle;
-			}
-
-			// Ensure landscape orientation: if the layout is taller than wide,
-			// rotate the entire net by 90° so it fits better in a widescreen viewport
-			let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
-			for (let i = 0; i < 32; i++) {
-				if (!placed[i]) continue;
-				const cr = circumR(i);
-				mnX = Math.min(mnX, res[i].x - cr); mxX = Math.max(mxX, res[i].x + cr);
-				mnY = Math.min(mnY, res[i].y - cr); mxY = Math.max(mxY, res[i].y + cr);
-			}
-			if ((mxY - mnY) > (mxX - mnX)) {
-				// Rotate 90° for landscape
-				for (let i = 0; i < 32; i++) {
-					if (!placed[i]) continue;
-					const x = res[i].x, y = res[i].y;
-					res[i].x = -y; res[i].y = x;
-					res[i].r += Math.PI / 2;
-				}
-				const tmpMnX = mnX, tmpMxX = mxX;
-				mnX = -mxY; mxX = -mnY; mnY = tmpMnX; mxY = tmpMxX;
-			}
-
-			// Center the layout at (0,0) and normalize to fit within [-0.95, 0.95]
-			const cx = (mnX + mxX) / 2, cy = (mnY + mxY) / 2;
-			const scale = (mxY - mnY) / 2 / 0.95;
-
-			// Prepare the uniform data array: 32 faces × 4 floats each
-			// [x, y, rotation, faceOffset] per face
-			const data = new Float32Array(32 * 4);
 
 			// ── Compute tangent frame alignment offset per face ──
 			//
@@ -2455,10 +2297,6 @@ void main() {
 			//      edgeIdx of an adjacent face to ensure consistency with the BFS
 			//      layout topology.
 			const tiVerts = [];
-			// Generate all vertices of a truncated icosahedron.  The vertices are
-			// the even permutations of (0,±1,±3φ), (±2,±(1+2φ),±φ),
-			// (±1,±(2+φ),±2φ), with all sign combinations, normalized to unit length.
-			// The function deduplicates entries to produce exactly 60 unique vertices.
 			function addEvenPerms(a, b, c) {
 				for (const [x, y, z] of [[a, b, c], [b, c, a], [c, a, b]]) {
 					const signs = x === 0
@@ -2475,11 +2313,9 @@ void main() {
 			addEvenPerms(2, 1 + 2 * PHI, PHI);
 			addEvenPerms(1, 2 + PHI, 2 * PHI);
 
-			// For each face, find its vertices and compute offset = vertexAngle - π/n.
 			const faceOffsets = [];
 			for (let i = 0; i < 32; i++) {
 				const N = c3[i], [T1, T2] = frames[i], n = nSides(i);
-				// Find a vertex belonging to this face (angular distance < 0.42 rad)
 				let vAngle = 0;
 				for (const v of tiVerts) {
 					if (Math.acos(Math.min(1, dot3(v, N))) < 0.42) {
@@ -2487,13 +2323,10 @@ void main() {
 						break;
 					}
 				}
-				// Canonical polygon has vertex 0 at angle π/n; reduce offset to [-π/n, π/n]
 				let off = vAngle - Math.PI / n;
 				const step = 2 * Math.PI / n;
 				while (off > Math.PI / n + 1e-9) off -= step;
 				while (off < -Math.PI / n - 1e-9) off += step;
-				// Resolve ±π/n boundary ambiguity: ensure offset is consistent with
-				// edgeIdx used by BFS layout (which determines polygon rotation in 2D)
 				if (adj[i].length > 0 && Math.abs(Math.abs(off) - Math.PI / n) < 0.01) {
 					const j = adj[i][0], M = c3[j];
 					const proj = sub3(M, scale3(N, dot3(M, N)));
@@ -2508,195 +2341,397 @@ void main() {
 				faceOffsets.push(off);
 			}
 
-			// ── Pack face data into uniform array and upload to GPU ──
-			// Each face gets 4 floats: [x, y, rotation, faceOffset]
-			// Unplaced faces are pushed off-screen (x=y=9.0) so the shader skips them.
-			for (let i = 0; i < 32; i++) {
-				if (!placed[i]) { data[i * 4] = 9.0; data[i * 4 + 1] = 9.0; data[i * 4 + 2] = 0; data[i * 4 + 3] = 0; continue; }
-				data[i * 4] = (res[i].x - cx) / scale;
-				data[i * 4 + 1] = (res[i].y - cy) / scale;
-				data[i * 4 + 2] = res[i].r;
-				data[i * 4 + 3] = faceOffsets[i];
+			// ═══════════════════════════════════════════════════════════
+			// Buckyball Pre-Rotation Matrix
+			// ═══════════════════════════════════════════════════════════
+			//
+			// This matrix orients the truncated icosahedron in 3D so that
+			// the root face of the 2D net maps to the center of the
+			// equirectangular projection, with the net's "up" direction
+			// aligned to the leveled horizon.
+			//
+			// Algorithm:
+			//  1. From the root face's 2D rotation angle (rootRot) and its
+			//     tangent-frame offset (faceOffsets), compute which 3D
+			//     tangent directions correspond to "up" and "right" in
+			//     the flat net.
+			//  2. Build a target frame from the current levelMatrix:
+			//     tFwd = Ry(90°) · levelMatrix^T · x̂  (maps to equirect center)
+			//     tUp  = Ry(90°) · levelMatrix^T · ŷ  (maps to equirect up)
+			//     tR   = tUp × tFwd                    (completes the basis)
+			//  3. The pre-rotation R maps the source frame {h3d, v3d, N}
+			//     onto the target frame {tR, tUp, tFwd}, stored column-major
+			//     as a mat3 for the GLSL uniform.
+			function computeBuckyPreRot(seedFace, rootRot) {
+				const N = c3[seedFace];
+				const [T1, T2] = frames[seedFace];
+				const alpha = rootRot - faceOffsets[seedFace];
+				// "up in 2D net" → 3D tangent direction
+				const sa = Math.sin(alpha), ca = Math.cos(alpha);
+				const v3d = [sa*T1[0]+ca*T2[0], sa*T1[1]+ca*T2[1], sa*T1[2]+ca*T2[2]];
+				// "right in 2D net" → 3D tangent direction
+				const h3d = [ca*T1[0]-sa*T2[0], ca*T1[1]-sa*T2[1], ca*T1[2]-sa*T2[2]];
+				// Target frame = Ry(90°) · levelMatrix^T · {x̂, ŷ}
+				// Maps N → equirect center, v3d → equirect up (horizon-corrected)
+				// At init time levelQuat is not yet initialized (let TDZ),
+				// so fall back to the identity matrix (no leveling applied).
+				let lm;
+				try { lm = levelMatrix(); } catch (_) { lm = new Float32Array([1,0,0, 0,1,0, 0,0,1]); }
+				const tFwd = [lm[6], lm[3], -lm[0]];
+				const tUp  = [lm[7], lm[4], -lm[1]];
+				const tR   = [tUp[1]*tFwd[2]-tUp[2]*tFwd[1], tUp[2]*tFwd[0]-tUp[0]*tFwd[2], tUp[0]*tFwd[1]-tUp[1]*tFwd[0]];
+				// R = [tR, tUp, tFwd] · [h3d, v3d, N]^T (column-major)
+				const m = new Float32Array(9);
+				for (let j = 0; j < 3; j++)
+					for (let i = 0; i < 3; i++)
+						m[j*3+i] = tR[i]*h3d[j] + tUp[i]*v3d[j] + tFwd[i]*N[j];
+				return m;
 			}
-			gl.uniform4fv(uBuckyNet, data);
-			gl.uniform1f(uBuckyScale, scale);
 
-			// ── Render buckyball net overlay onto an offscreen 2D canvas ──
+			// ═══════════════════════════════════════════════════════════
+			// Layout Computation (unfold → rotate → pack → overlay)
+			// ═══════════════════════════════════════════════════════════
 			//
-			// The overlay provides visual aids for cutting and folding the printed net:
-			//   - Solid lines for polygon edges (cut lines)
-			//   - Dashed trapezoidal flaps on boundary edges (glue tabs)
+			// Given a parent tree, this function:
+			//  1. BFS-unfolds all 32 faces into 2D positions
+			//  2. Optimizes or applies rotation angle for paper fit
+			//  3. Enforces landscape orientation (when angle not imported)
+			//  4. Centers and scales to normalized coordinates
+			//  5. Packs face data into a Float32Array uniform (vec4 per face:
+			//     x, y, rotation, tangent-frame offset)
+			//  6. Renders an overlay texture (polygon edges + glue tabs +
+			//     paper outline) onto a 2D canvas, then uploads as GL texture
 			//
-			// The overlay is rendered to a high-resolution offscreen canvas, then
-			// uploaded as a WebGL texture and alpha-composited by the fragment shader.
-
-			// Compute the bounding box of all placed faces in normalized net space,
-			// including circumradius padding so polygon edges aren't clipped
-			let bbX0 = Infinity, bbX1 = -Infinity, bbY0 = Infinity, bbY1 = -Infinity;
-			for (let i = 0; i < 32; i++) {
-				if (!placed[i]) continue;
-				const cr = circumR(i) / scale;
-				bbX0 = Math.min(bbX0, data[i * 4] - cr); bbX1 = Math.max(bbX1, data[i * 4] + cr);
-				bbY0 = Math.min(bbY0, data[i * 4 + 1] - cr); bbY1 = Math.max(bbY1, data[i * 4 + 1] + cr);
-			}
-			// Add extra padding beyond the polygon edges to accommodate glue tabs
-			const bbPad = 0.02 + ap5 / scale * 0.35;
-			bbX0 -= bbPad; bbX1 += bbPad; bbY0 -= bbPad; bbY1 += bbPad;
-			const bbW = bbX1 - bbX0, bbH = bbY1 - bbY0;
-
-			// Create offscreen canvas with 2048px height, width scaled to match aspect ratio
-			const OVH = 2048, OVW = Math.round(OVH * bbW / bbH);
-			const oCanvas = document.createElement('canvas');
-			oCanvas.width = OVW; oCanvas.height = OVH;
-			const ctx = oCanvas.getContext('2d');
-
-			// Coordinate conversion from net space (normalized [-1,1]) to canvas pixels.
-			// ovX/ovY map normalized net coordinates to pixel positions, with Y flipped
-			// because canvas Y grows downward but net space Y grows upward.
-			const ovSX = OVW / bbW, ovSY = OVH / bbH;
-			function ovX(x) { return (x - bbX0) * ovSX; }
-			function ovY(y) { return OVH - (y - bbY0) * ovSY; }
-
-			ctx.clearRect(0, 0, OVW, OVH);
-
-			// ── Classify edges as internal (fold) or boundary (cut/glue) ──
-			//
-			// For each face i and each of its n edges (indexed by drawing-edge k),
-			// determine the neighboring face j and whether this edge is internal
-			// (shared with a BFS tree neighbor → fold line) or boundary (free edge
-			// → needs a glue tab when assembling the physical model).
-			//
-			// Note: edgeIdx returns the spherical edge sector index, but drawing
-			// edges are offset by one sector, so: drawing-edge d = (edgeIdx - 1) mod n.
-			const edgeNeighbor = [];
-			for (let i = 0; i < 32; i++) {
-				const n = nSides(i);
-				edgeNeighbor.push(new Array(n).fill(null));
-				if (!placed[i]) continue;
-				for (const j of adj[i]) {
-					const k = edgeIdx(i, j);
-					const isInternal = placed[j] && (parent[j] === i || parent[i] === j);
-					edgeNeighbor[i][(k - 1 + n) % n] = { j, isInternal };
+			// Returns { seed, rootRot } used by computeBuckyPreRot.
+			function computeBucky32Layout(parentTree, importAngle, tabsMap, paperAspect) {
+				// ── Step 1: BFS unfold ──
+				const layoutSeed = parentTree.indexOf(-1);
+				const lPlaced = new Array(32).fill(false);
+				const lParent = parentTree.slice();
+				const lRes = new Array(32);
+				lRes[layoutSeed] = { x: 0, y: 0, r: 0 };
+				lPlaced[layoutSeed] = true;
+				const q = [layoutSeed];
+				let qi = 0;
+				while (qi < q.length) {
+					const p = q[qi++];
+					for (let j = 0; j < 32; j++) {
+						if (lPlaced[j] || lParent[j] !== p) continue;
+						lRes[j] = place(p, j, lRes);
+						lPlaced[j] = true;
+						q.push(j);
+					}
 				}
-			}
 
-			// ── Draw glue tabs on boundary edges ──
-			//
-			// Glue tabs are small trapezoidal flaps extending outward from boundary
-			// edges (edges not shared with a neighbor in the 2D net).  When the net
-			// is printed and cut out, these tabs are folded and glued under the
-			// adjacent face to hold the 3D shape together.
-			//
-			// The tabs are drawn with a clip path that excludes all polygon interiors
-			// (using the even-odd fill rule), so tabs from one face don't draw over
-			// the texture content of adjacent faces.
-			//
-			// Tab geometry: a trapezoid with the full edge width at the base and
-			// 70% width (tabInset = 0.15 on each side) at the outer edge.
-			// Only one tab is drawn per boundary edge pair (the face with the
-			// smaller index draws the tab) to avoid duplicates.
-			const tabH = ap5 / scale * 0.3;
-			const tabInset = 0.15;
-			// ── Render glue tabs ──
-			ctx.save();
-			// Build clip path: full canvas rect + all polygon holes (evenodd excludes polygon interiors)
-			ctx.beginPath();
-			ctx.rect(0, 0, oCanvas.width, oCanvas.height);
-			for (let i = 0; i < 32; i++) {
-				if (!placed[i]) continue;
-				const fx = data[i * 4], fy = data[i * 4 + 1], rot = data[i * 4 + 2];
-				const n = nSides(i), cr = circumR(i) / scale;
-				for (let k = 0; k < n; k++) {
-					const a = rot + (2 * k + 1) * Math.PI / n;
-					const vx = fx + cr * Math.cos(a), vy = fy + cr * Math.sin(a);
-					if (k === 0) ctx.moveTo(ovX(vx), ovY(vy));
-					else ctx.lineTo(ovX(vx), ovY(vy));
+				// ── Step 2: Rotation (imported or brute-force optimized) ──
+				let angle;
+				if (importAngle != null) {
+					angle = importAngle;
+				} else {
+					angle = 0;
+					let bestAr = Infinity;
+					for (let deg = 0; deg < 180; deg += 2) {
+						const rad = deg * Math.PI / 180;
+						const csr = Math.cos(rad), snr = Math.sin(rad);
+						let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
+						for (let i = 0; i < 32; i++) {
+							if (!lPlaced[i]) continue;
+							const cr = circumR(i);
+							const rx = lRes[i].x * csr - lRes[i].y * snr;
+							const ry = lRes[i].x * snr + lRes[i].y * csr;
+							mnX = Math.min(mnX, rx - cr); mxX = Math.max(mxX, rx + cr);
+							mnY = Math.min(mnY, ry - cr); mxY = Math.max(mxY, ry + cr);
+						}
+						const ar = (mxX - mnX) * (mxY - mnY);
+						if (ar < bestAr) { bestAr = ar; angle = rad; }
+					}
 				}
-				ctx.closePath();
-			}
-			ctx.clip('evenodd');
-			ctx.fillStyle = 'rgba(255, 180, 200, 1.0)';
-			ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
-			ctx.lineWidth = 1;
-			ctx.setLineDash([6, 4]);
-			for (let i = 0; i < 32; i++) {
-				if (!placed[i]) continue;
-				const fx = data[i * 4], fy = data[i * 4 + 1], rot = data[i * 4 + 2];
-				const n = nSides(i), cr = circumR(i) / scale;
-				for (let k = 0; k < n; k++) {
-					const info = edgeNeighbor[i][k];
-					if (info && info.isInternal) continue; // internal edge, no tab
-					if (info && info.j < i) continue; // one flap per edge pair: keep smaller index
-					// Edge vertices
-					const a1 = rot + (2 * k + 1) * Math.PI / n;
-					const a2 = rot + (2 * (k + 1) + 1) * Math.PI / n;
-					const v1x = fx + cr * Math.cos(a1), v1y = fy + cr * Math.sin(a1);
-					const v2x = fx + cr * Math.cos(a2), v2y = fy + cr * Math.sin(a2);
-					// Outward normal (away from face center)
-					const emx = (v1x + v2x) / 2 - fx, emy = (v1y + v2y) / 2 - fy;
-					const eml = Math.sqrt(emx * emx + emy * emy);
-					const nx = emx / eml, ny = emy / eml;
-					// Outer edge (inset for trapezoid)
-					const dx = v2x - v1x, dy = v2y - v1y;
-					const o1x = v1x + nx * tabH + dx * tabInset, o1y = v1y + ny * tabH + dy * tabInset;
-					const o2x = v2x + nx * tabH - dx * tabInset, o2y = v2y + ny * tabH - dy * tabInset;
-					ctx.beginPath();
-					ctx.moveTo(ovX(v1x), ovY(v1y));
-					ctx.lineTo(ovX(o1x), ovY(o1y));
-					ctx.lineTo(ovX(o2x), ovY(o2y));
-					ctx.lineTo(ovX(v2x), ovY(v2y));
+
+				// ── Step 3: Apply rotation to all face positions ──
+				const rcs = Math.cos(angle), rsn = Math.sin(angle);
+				for (let i = 0; i < 32; i++) {
+					if (!lPlaced[i]) continue;
+					const x = lRes[i].x, y = lRes[i].y;
+					lRes[i].x = x * rcs - y * rsn;
+					lRes[i].y = x * rsn + y * rcs;
+					lRes[i].r += angle;
+				}
+
+				// ── Step 4: Landscape orientation ──
+				// If the net is taller than wide, rotate 90° to landscape.
+				// Skipped when the rotation angle was imported from the layouter
+				// (which already accounts for orientation).
+				let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
+				for (let i = 0; i < 32; i++) {
+					if (!lPlaced[i]) continue;
+					const cr = circumR(i);
+					mnX = Math.min(mnX, lRes[i].x - cr); mxX = Math.max(mxX, lRes[i].x + cr);
+					mnY = Math.min(mnY, lRes[i].y - cr); mxY = Math.max(mxY, lRes[i].y + cr);
+				}
+				if (importAngle == null && (mxY - mnY) > (mxX - mnX)) {
+					for (let i = 0; i < 32; i++) {
+						if (!lPlaced[i]) continue;
+						const x = lRes[i].x, y = lRes[i].y;
+						lRes[i].x = -y; lRes[i].y = x;
+						lRes[i].r += Math.PI / 2;
+					}
+					const tmpMnX = mnX, tmpMxX = mxX;
+					mnX = -mxY; mxX = -mnY; mnY = tmpMnX; mxY = tmpMxX;
+				}
+
+				// ── Step 5: Center + normalize to unit height ──
+				const cx = (mnX + mxX) / 2, cy = (mnY + mxY) / 2;
+				const scale = (mxY - mnY) / 2 / 0.95; // 5% padding
+
+				// ── Step 6: Pack uniform data (vec4 per face) ──
+				// xy = normalized position, z = rotation, w = tangent-frame offset
+				// Unplaced faces get (9, 9, 0, 0) to push them off-screen in the shader.
+				const data = new Float32Array(32 * 4);
+				for (let i = 0; i < 32; i++) {
+					if (!lPlaced[i]) { data[i*4] = 9; data[i*4+1] = 9; data[i*4+2] = 0; data[i*4+3] = 0; continue; }
+					data[i*4] = (lRes[i].x - cx) / scale;
+					data[i*4+1] = (lRes[i].y - cy) / scale;
+					data[i*4+2] = lRes[i].r;
+					data[i*4+3] = faceOffsets[i];
+				}
+				gl.uniform4fv(uBuckyNet, data);
+				gl.uniform1f(uBuckyScale, scale);
+
+				// ── Step 7: Compute overlay bounding box (with padding for tabs) ──
+				let bbX0 = Infinity, bbX1 = -Infinity, bbY0 = Infinity, bbY1 = -Infinity;
+				for (let i = 0; i < 32; i++) {
+					if (!lPlaced[i]) continue;
+					const cr = circumR(i) / scale;
+					bbX0 = Math.min(bbX0, data[i*4] - cr); bbX1 = Math.max(bbX1, data[i*4] + cr);
+					bbY0 = Math.min(bbY0, data[i*4+1] - cr); bbY1 = Math.max(bbY1, data[i*4+1] + cr);
+				}
+				const bbPad = 0.02 + ap5 / scale * 0.35;
+				bbX0 -= bbPad; bbX1 += bbPad; bbY0 -= bbPad; bbY1 += bbPad;
+				const bbW = bbX1 - bbX0, bbH = bbY1 - bbY0;
+
+				// ── Step 8: Render overlay texture ──
+				// A 2D canvas texture showing polygon edges, glue tabs, and
+				// paper format outline.  Uploaded to GL as a texture that the
+				// fragment shader composites over the equirectangular projection.
+				const OVH = 2048, OVW = Math.round(OVH * bbW / bbH);
+				const oCanvas = document.createElement('canvas');
+				oCanvas.width = OVW; oCanvas.height = OVH;
+				const ctx = oCanvas.getContext('2d');
+				const ovSX = OVW / bbW, ovSY = OVH / bbH;
+				function ovX(x) { return (x - bbX0) * ovSX; }
+				function ovY(y) { return OVH - (y - bbY0) * ovSY; }
+				ctx.clearRect(0, 0, OVW, OVH);
+
+				// Classify edges: internal (fold line) vs. boundary (cut line)
+				const edgeNeighbor = [];
+				for (let i = 0; i < 32; i++) {
+					const n = nSides(i);
+					edgeNeighbor.push(new Array(n).fill(null));
+					if (!lPlaced[i]) continue;
+					for (const j of adj[i]) {
+						const k = edgeIdx(i, j);
+						const isInternal = lPlaced[j] && (lParent[j] === i || lParent[i] === j);
+						edgeNeighbor[i][(k - 1 + n) % n] = { j, isInternal };
+					}
+				}
+
+				// Draw glue-tab trapezoids (clipped outside polygon interiors)
+				// Tab ownership comes from tabsMap if provided; otherwise the
+				// lower-indexed face gets the tab by default.
+				const tabH = ap5 / scale * 0.3;
+				const tabInset = 0.15;
+				ctx.save();
+				ctx.beginPath();
+				ctx.rect(0, 0, oCanvas.width, oCanvas.height);
+				for (let i = 0; i < 32; i++) {
+					if (!lPlaced[i]) continue;
+					const fx = data[i*4], fy = data[i*4+1], rot = data[i*4+2];
+					const n = nSides(i), cr = circumR(i) / scale;
+					for (let k = 0; k < n; k++) {
+						const a = rot + (2*k+1) * Math.PI / n;
+						const vx = fx + cr * Math.cos(a), vy = fy + cr * Math.sin(a);
+						if (k === 0) ctx.moveTo(ovX(vx), ovY(vy));
+						else ctx.lineTo(ovX(vx), ovY(vy));
+					}
 					ctx.closePath();
-					ctx.fill();
+				}
+				ctx.clip('evenodd');
+				ctx.fillStyle = 'rgba(255, 180, 200, 1.0)';
+				ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+				ctx.lineWidth = 1;
+				ctx.setLineDash([6, 4]);
+				for (let i = 0; i < 32; i++) {
+					if (!lPlaced[i]) continue;
+					const fx = data[i*4], fy = data[i*4+1], rot = data[i*4+2];
+					const n = nSides(i), cr = circumR(i) / scale;
+					for (let k = 0; k < n; k++) {
+						const info = edgeNeighbor[i][k];
+						if (info && info.isInternal) continue;
+						if (info) {
+							const ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							if (tabsMap && ek in tabsMap) { if (tabsMap[ek] !== i) continue; }
+							else { if (info.j < i) continue; }
+						}
+						const a1 = rot + (2*k+1) * Math.PI / n;
+						const a2 = rot + (2*(k+1)+1) * Math.PI / n;
+						const v1x = fx + cr*Math.cos(a1), v1y = fy + cr*Math.sin(a1);
+						const v2x = fx + cr*Math.cos(a2), v2y = fy + cr*Math.sin(a2);
+						const emx = (v1x+v2x)/2-fx, emy = (v1y+v2y)/2-fy;
+						const eml = Math.sqrt(emx*emx + emy*emy);
+						const nx = emx/eml, ny = emy/eml;
+						const dx = v2x-v1x, dy = v2y-v1y;
+						const o1x = v1x+nx*tabH+dx*tabInset, o1y = v1y+ny*tabH+dy*tabInset;
+						const o2x = v2x+nx*tabH-dx*tabInset, o2y = v2y+ny*tabH-dy*tabInset;
+						ctx.beginPath();
+						ctx.moveTo(ovX(v1x), ovY(v1y));
+						ctx.lineTo(ovX(o1x), ovY(o1y));
+						ctx.lineTo(ovX(o2x), ovY(o2y));
+						ctx.lineTo(ovX(v2x), ovY(v2y));
+						ctx.closePath();
+						ctx.fill();
+						ctx.stroke();
+					}
+				}
+				ctx.setLineDash([]);
+				ctx.restore();
+
+				// Draw polygon edge outlines
+				ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+				ctx.lineWidth = 1.5;
+				ctx.lineJoin = 'round';
+				for (let i = 0; i < 32; i++) {
+					if (!lPlaced[i]) continue;
+					const fx = data[i*4], fy = data[i*4+1], rot = data[i*4+2];
+					const n = nSides(i), cr = circumR(i) / scale;
+					ctx.beginPath();
+					for (let k = 0; k <= n; k++) {
+						const a = rot + (2*k+1) * Math.PI / n;
+						const vx = fx + cr * Math.cos(a), vy = fy + cr * Math.sin(a);
+						if (k === 0) ctx.moveTo(ovX(vx), ovY(vy));
+						else ctx.lineTo(ovX(vx), ovY(vy));
+					}
+					ctx.closePath();
 					ctx.stroke();
 				}
-			}
-			ctx.setLineDash([]);
-			ctx.restore();
 
-			// ── Draw polygon edges (cut lines) ──
-			// Solid semi-transparent black lines along all polygon boundaries.
-			// These represent the lines where the printed net should be cut.
-			ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-			ctx.lineWidth = 1.5;
-			ctx.lineJoin = 'round';
-			for (let i = 0; i < 32; i++) {
-				if (!placed[i]) continue;
-				const fx = data[i * 4], fy = data[i * 4 + 1], rot = data[i * 4 + 2];
-				const n = nSides(i), cr = circumR(i) / scale;
-				ctx.beginPath();
-				for (let k = 0; k <= n; k++) {
-					const a = rot + (2 * k + 1) * Math.PI / n;
-					const vx = fx + cr * Math.cos(a), vy = fy + cr * Math.sin(a);
-					if (k === 0) ctx.moveTo(ovX(vx), ovY(vy));
-					else ctx.lineTo(ovX(vx), ovY(vy));
+				// Compute tight vertex + glue-tab-corner bounding box
+				// (more accurate than the circumR-based overlay bbox above)
+				let netX0 = Infinity, netX1 = -Infinity, netY0 = Infinity, netY1 = -Infinity;
+				for (let i = 0; i < 32; i++) {
+					if (!lPlaced[i]) continue;
+					const fx = data[i*4], fy = data[i*4+1], rot = data[i*4+2];
+					const n = nSides(i), cr = circumR(i) / scale;
+					for (let k = 0; k < n; k++) {
+						const a1 = rot + (2*k+1) * Math.PI / n;
+						const a2 = rot + (2*(k+1)+1) * Math.PI / n;
+						const v1x = fx + cr*Math.cos(a1), v1y = fy + cr*Math.sin(a1);
+						const v2x = fx + cr*Math.cos(a2), v2y = fy + cr*Math.sin(a2);
+						netX0 = Math.min(netX0, v1x); netX1 = Math.max(netX1, v1x);
+						netY0 = Math.min(netY0, v1y); netY1 = Math.max(netY1, v1y);
+						// Include tab outer corners for boundary edges
+						const info = edgeNeighbor[i][k];
+						if (info && info.isInternal) continue;
+						let hasTab = true;
+						if (info) {
+							const ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							if (tabsMap && ek in tabsMap) hasTab = (tabsMap[ek] === i);
+							else hasTab = (i < info.j);
+						}
+						if (hasTab) {
+							const emx = (v1x+v2x)/2-fx, emy = (v1y+v2y)/2-fy;
+							const eml = Math.sqrt(emx*emx + emy*emy);
+							const nx = emx/eml, ny = emy/eml;
+							const dx = v2x-v1x, dy = v2y-v1y;
+							const o1x = v1x+nx*tabH+dx*tabInset, o1y = v1y+ny*tabH+dy*tabInset;
+							const o2x = v2x+nx*tabH-dx*tabInset, o2y = v2y+ny*tabH-dy*tabInset;
+							netX0 = Math.min(netX0, o1x, o2x); netX1 = Math.max(netX1, o1x, o2x);
+							netY0 = Math.min(netY0, o1y, o2y); netY1 = Math.max(netY1, o1y, o2y);
+						}
+					}
 				}
-				ctx.closePath();
-				ctx.stroke();
+				window.buckyTightBBox = { x0: netX0, y0: netY0, x1: netX1, y1: netY1 };
+
+				// Compute paper format rectangle (for shader outline)
+				let paperX0 = 0, paperY0 = 0, paperX1 = 0, paperY1 = 0;
+				if (paperAspect > 0) {
+					const netW = netX1 - netX0, netH = netY1 - netY0;
+					const ps = Math.min(paperAspect / netW, 1 / netH);
+					const pW2 = paperAspect / ps / 2, pH2 = 1 / ps / 2;
+					const pcx = (netX0 + netX1) / 2, pcy = (netY0 + netY1) / 2;
+					paperX0 = pcx - pW2; paperY0 = pcy - pH2;
+					paperX1 = pcx + pW2; paperY1 = pcy + pH2;
+				}
+				gl.uniform4f(uBuckyPaperRect, paperX0, paperY0, paperX1, paperY1);
+
+				// ── Step 9: Upload overlay texture to WebGL ──
+				const overlayTex = gl.createTexture();
+				gl.activeTexture(gl.TEXTURE1);
+				gl.bindTexture(gl.TEXTURE_2D, overlayTex);
+				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, oCanvas);
+				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+				gl.generateMipmap(gl.TEXTURE_2D);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+				gl.uniform1i(uBuckyOverlay, 1);
+				gl.uniform4f(uBuckyBBox, bbX0, bbY0, bbX1, bbY1);
+
+				window.buckyBBox = { x0: bbX0, y0: bbY0, x1: bbX1, y1: bbY1 };
+				window._bucky32PaperRect = { x0: paperX0, y0: paperY0, x1: paperX1, y1: paperY1 };
+				window._bucky32Data = data;
+				window._bucky32Scale = scale;
+				window._bucky32BBox = [bbX0, bbY0, bbX1, bbY1];
+				window._bucky32OverlayTex = overlayTex;
+
+				return { seed: layoutSeed, rootRot: lRes[layoutSeed].r };
 			}
 
-			// ── Upload overlay canvas as WebGL texture ──
-			const overlayTex = gl.createTexture();
-			gl.activeTexture(gl.TEXTURE1);
-			gl.bindTexture(gl.TEXTURE_2D, overlayTex);
-			gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
-			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, oCanvas);
-			gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-			gl.generateMipmap(gl.TEXTURE_2D);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-			gl.uniform1i(uBuckyOverlay, 1);
-			gl.uniform4f(uBuckyBBox, bbX0, bbY0, bbX1, bbY1);
+			// ── Predefined net layouts ──
+			// Each preset contains label, aspect ratio, parent tree, tab
+			// ownership map, mirrored flag, and optimal rotation angle.
+			// Generated by buckyball-net-layouter.html.
+			const bucky32Presets = [
+				{"label":"DIN A (1:√2)","parents":[12,13,14,15,13,15,21,23,28,-1,30,19,4,9,5,9,20,1,2,3,4,13,5,15,12,9,0,25,9,9,6,19],"tabs":{"18-31":31,"10-31":31,"30-31":31,"18-26":26,"2-26":26,"10-26":26,"22-23":23,"5-23":23,"19-23":23,"3-23":23,"5-29":29,"14-29":29,"8-29":29,"28-29":29,"15-29":29,"2-22":22,"18-22":22,"2-24":24,"0-24":24,"4-28":28,"12-28":12,"13-28":28,"3-25":25,"1-25":25,"13-25":25,"15-25":25,"17-21":21,"20-21":21,"4-21":21,"0-20":20,"12-20":20,"14-22":22,"1-21":21,"14-24":24,"17-30":17,"17-27":27,"1-27":1,"11-31":31,"6-17":17,"6-20":20,"7-19":19,"7-22":22,"7-18":18,"8-12":8,"10-18":18,"19-27":27,"11-17":17},"mirrored":false,"angle":0.715584993317675,"aspect":1.41421},
+				{label:'US Letter (8.5×11 in)',aspect:1.29412,parents:[20,13,24,25,-1,29,20,31,24,28,16,17,0,4,29,5,20,6,26,3,4,4,18,15,0,13,0,1,4,28,6,30],tabs:{"7-22":7,"22-23":23,"11-30":30,"11-31":11,"11-19":19,"6-21":21,"17-21":21,"20-21":21,"1-21":21,"13-21":21,"9-13":13,"9-25":25,"9-15":9,"9-29":29,"14-22":22,"8-12":12,"4-12":12,"6-16":16,"0-16":16,"17-30":30,"17-27":17,"1-25":25,"19-27":27,"5-23":23,"2-26":26,"2-18":18,"2-22":22,"8-14":8,"8-29":8,"8-28":28,"5-14":14,"1-17":17,"7-23":23,"15-25":25,"7-18":18,"15-29":29},mirrored:false,angle:1.0995574287564276},
+				{label:'US Legal (8.5×14 in)',aspect:1.64706,parents:[12,21,14,27,12,14,20,22,12,28,18,30,-1,1,8,5,0,1,2,11,12,20,14,22,8,1,24,1,8,8,6,18],tabs:{"19-23":23,"10-30":30,"10-16":16,"9-25":25,"15-25":25,"3-23":23,"17-21":17,"13-25":25,"3-25":25,"4-28":28,"12-28":28,"13-21":13,"9-29":29,"5-29":29,"16-20":20,"0-20":20,"0-24":24,"2-24":24,"18-22":22,"7-23":23,"15-29":29,"9-15":15,"6-17":17,"11-17":17,"6-21":21,"28-29":29,"14-29":29,"10-31":31},mirrored:false,angle:1.4835298641951802},
+				{label:'US Tabloid (11×17 in)',aspect:1.54362,parents:[24,25,14,15,12,-1,16,22,14,15,26,19,0,21,5,5,0,1,2,3,0,4,5,5,14,15,24,25,8,5,16,19],tabs:{"11-30":30,"17-30":30,"10-31":31,"10-30":10,"3-23":23,"19-23":23,"7-23":23,"22-23":23,"15-23":23,"2-22":22,"18-22":22,"14-22":22,"2-26":2,"16-26":26,"10-16":16,"11-17":17,"9-29":29,"8-29":29,"28-29":29,"4-20":20,"6-20":20,"0-26":26,"17-27":27,"1-27":27},mirrored:false,angle:0.17453292519943295},
+				{label:'B5 JIS (182×257 mm)',aspect:1.2987,parents:[24,21,24,27,12,29,21,18,12,29,30,17,-1,9,24,9,20,21,2,27,4,4,14,15,12,1,16,1,29,8,6,30],tabs:{"13-28":28,"12-28":28,"4-28":28,"8-28":28,"4-13":13,"13-21":21,"5-15":15,"5-23":5,"5-14":14,"6-20":20,"11-27":27,"19-31":31,"10-31":10,"10-26":10,"24-26":26,"7-22":7,"22-23":23,"3-25":25,"3-19":19,"19-23":19,"9-28":28,"1-13":13,"18-22":22,"18-31":31,"18-26":26,"10-18":18},mirrored:false,angle:1.4660765716752369}
+			];
 
-			// Expose bounding box to outer scope for screenshot export clipping
-			window.buckyBBox = { x0: bbX0, y0: bbY0, x1: bbX1, y1: bbY1 };
+			// Populate the layout <select> dropdown from the presets array.
+			// Called on init and after pasting a new layout.
+			function populateBuckySelect() {
+				const sel = document.getElementById('bucky-layout-select');
+				sel.innerHTML = '';
+				for (let i = 0; i < bucky32Presets.length; i++) {
+					const opt = document.createElement('option');
+					opt.value = i;
+					opt.textContent = bucky32Presets[i].label;
+					sel.appendChild(opt);
+				}
+			}
+			populateBuckySelect();
 
-			// ── Store data for mode-switching re-upload ──
-			window._bucky32Data = data;
-			window._bucky32Scale = scale;
-			window._bucky32BBox = [bbX0, bbY0, bbX1, bbY1];
-			window._bucky32OverlayTex = overlayTex;
+			// ── Initial layout: load the first preset (DIN A) ──
+			const defaultPreset = bucky32Presets[0];
+			const { seed: initSeed, rootRot: initRootRot } = computeBucky32Layout(defaultPreset.parents, defaultPreset.angle, defaultPreset.tabs, defaultPreset.aspect);
+			gl.uniformMatrix3fv(uBuckyPreRot, false, computeBuckyPreRot(initSeed, initRootRot));
+
+			// ── Public API for layout import (called by the layouter or paste handler) ──
+			// Recomputes the full layout, updates the pre-rotation matrix,
+			// resets the foldable animation quaternion, and triggers a redraw.
+			window.importBucky32Layout = function(parentTree, importAngle, tabsMap, paperAspect) {
+				const { seed, rootRot } = computeBucky32Layout(parentTree, importAngle, tabsMap, paperAspect || 0);
+				gl.uniformMatrix3fv(uBuckyPreRot, false, computeBuckyPreRot(seed, rootRot));
+				foldable32facesQuat = [0, 0, 0, 1];
+				needsRedraw = true;
+			};
+
+			// Expose presets array and select populator for the paste handler
+			window.bucky32Presets = bucky32Presets;
+			window.populateBuckySelect = populateBuckySelect;
 		})();
 
 		// ── Compute rhombic triacontahedron flat net layout (30 golden rhombi) ──
@@ -3664,6 +3699,8 @@ void main() {
 
 		const projectionSelect = document.getElementById('projection-select');
 		const gridToggle = document.getElementById('grid-toggle');
+		const gridToggleProj = document.getElementById('grid-toggle-proj');
+		function syncGridToggles(v) { showGrid = v; gridToggle.checked = v; gridToggleProj.checked = v; needsRedraw = true; }
 		const playbackRow = document.getElementById('playback-row');
 		const playbackVal = document.getElementById('playback-val');
 
@@ -3783,7 +3820,8 @@ void main() {
 			globeReflect = 0.75; globeReflectSlider.value = 75; globeReflectVal.textContent = '75%';
 			saveProjectionConfig();
 		});
-		gridToggle.addEventListener('change', () => { showGrid = gridToggle.checked; needsRedraw = true; });
+		gridToggle.addEventListener('change', () => syncGridToggles(gridToggle.checked));
+		gridToggleProj.addEventListener('change', () => syncGridToggles(gridToggleProj.checked));
 
 		// Magnifier controls
 		const magnifierToggle = document.getElementById('magnifier-toggle');
@@ -3916,8 +3954,7 @@ void main() {
 				camQuat = [0, 0, 0, 1];
 				globeVisible = false;
 				globeToggle.checked = false;
-				showGrid = true;
-				gridToggle.checked = true;
+				syncGridToggles(true);
 				hideDuringLevel.forEach(el => el.classList.add('hide-in-level'));
 				updateProjectionUI();
 				updateLevelSliders();
@@ -3927,12 +3964,10 @@ void main() {
 					camQuat = _prevLevelState.camQuat;
 					globeVisible = _prevLevelState.globeVisible;
 					globeToggle.checked = globeVisible;
-					showGrid = _prevLevelState.showGrid;
-					gridToggle.checked = showGrid;
+					syncGridToggles(_prevLevelState.showGrid);
 					_prevLevelState = null;
 				} else {
-					showGrid = false;
-					gridToggle.checked = false;
+					syncGridToggles(false);
 				}
 				hideDuringLevel.forEach(el => el.classList.remove('hide-in-level'));
 				updateProjectionUI();
@@ -3961,6 +3996,7 @@ void main() {
 		const globeRow = document.getElementById('globe-row');
 		const screenshotRow = document.getElementById('screenshot-row');
 		const magnifierGroup = document.getElementById('magnifier-group');
+		const buckyLayoutRow = document.getElementById('bucky-layout-row');
 		function updateProjectionUI() {
 			const isPerspective = projectionModeIndex === M_PERSP;
 			const isAzimuthal = projectionModeIndex === M_AZIMUTHAL;
@@ -3982,6 +4018,7 @@ void main() {
 			collageRotationRow.style.display = isCollage ? 'contents' : 'none';
 			stereographicRow.style.display = isStereo ? 'contents' : 'none';
 			netRow.style.display = (isFoldable || isAnyPreview) ? 'contents' : 'none';
+			buckyLayoutRow.style.display = isBucky ? 'contents' : 'none';
 			facesRow.style.display = isAnyPreview ? 'contents' : 'none';
 			globeRow.style.display = (isFoldable || isAnyPreview || isAzimuthal || isCollage || isStereo) ? 'none' : '';
 			magnifierGroup.style.display = (isFoldable || isAnyPreview) ? 'none' : '';
@@ -3992,6 +4029,45 @@ void main() {
 		projectionSelect.value = projectionModes[projectionModeIndex];
 		updateProjectionUI();
 		updateLevelBtnState();
+
+		const buckyLayoutSelect = document.getElementById('bucky-layout-select');
+
+		// ── Preset select change: apply the chosen layout ──
+		buckyLayoutSelect.addEventListener('change', () => {
+			const preset = window.bucky32Presets[buckyLayoutSelect.value];
+			if (preset) window.importBucky32Layout(preset.parents, preset.angle != null ? preset.angle : null, preset.tabs, preset.aspect);
+		});
+
+		// ── Open layouter in a popup window ──
+		document.getElementById('bucky-open-layouter').addEventListener('click', () => {
+			window.open('buckyball-net-layouter.html', 'layouter');
+		});
+
+		// ── Paste layout from clipboard ──
+		// Validates the JSON, adds or overwrites a preset entry (matching
+		// by label), repopulates the select, and imports the layout.
+		document.getElementById('bucky-paste-layout').addEventListener('click', async () => {
+			try {
+				const text = await navigator.clipboard.readText();
+				const obj = JSON.parse(text);
+				if (!obj.parents || obj.parents.length !== 32 || obj.parents.filter(p => p === -1).length !== 1)
+					return alert('Invalid layout: expected { parents: [32 ints with one -1] }');
+				const label = obj.label || obj.name || 'Custom';
+				const entry = { label, aspect: obj.aspect || 0, parents: obj.parents, tabs: obj.tabs || null, angle: obj.angle != null ? obj.angle : null };
+				const existingIdx = window.bucky32Presets.findIndex(p => p.label === label);
+				if (existingIdx >= 0) {
+					window.bucky32Presets[existingIdx] = entry;
+				} else {
+					window.bucky32Presets.push(entry);
+				}
+				const idx = existingIdx >= 0 ? existingIdx : window.bucky32Presets.length - 1;
+				window.populateBuckySelect();
+				window.importBucky32Layout(obj.parents, obj.angle != null ? obj.angle : null, obj.tabs || null, obj.aspect || 0);
+				buckyLayoutSelect.value = idx;
+			} catch (e) {
+				alert('Paste failed: ' + e.message);
+			}
+		});
 
 		const netAlphaSlider = document.getElementById('net-alpha-slider');
 		const netAlphaVal = document.getElementById('net-alpha-val');
@@ -4689,7 +4765,7 @@ void main() {
 					case 'KeyQ': case 'Numpad7': rotateRoll(-step); break;
 					case 'KeyE': case 'Numpad9': rotateRoll(step); break;
 					case 'KeyX':
-						if (isNew) { showGrid = !showGrid; gridToggle.checked = showGrid; }
+						if (isNew) syncGridToggles(!showGrid);
 						break;
 					case 'KeyL':
 						if (isNew) setLevelMode(!levelMode);
@@ -5109,8 +5185,7 @@ void main() {
 				isLeveled = false;
 				levelMode = false;
 				levelAnglesDiv.style.display = 'none';
-				showGrid = false;
-				gridToggle.checked = false;
+				syncGridToggles(false);
 				updateLevelSliders();
 				updateLevelBtnState();
 			}
@@ -5165,7 +5240,7 @@ void main() {
 				gl.uniform4f(uExportClip, -1, -1, 1, 1);
 			} else if (isBucky && window.buckyBBox) {
 				// Export clipped tightly to the net bounding box
-				const bb = window.buckyBBox;
+				const bb = window.buckyTightBBox || window.buckyBBox;
 				const bW = bb.x1 - bb.x0;
 				const bH = bb.y1 - bb.y0;
 
@@ -5179,11 +5254,21 @@ void main() {
 					w = Math.round(S * bW / bH);
 				}
 
-				// exportClip is in screenUV space (before uv.x *= aspect in the shader).
-				// bbox values are in uv space (after aspect scaling), so divide x by
-				// the export canvas aspect to compensate.
+				// Hide paper outline during export
+				gl.uniform4f(uBuckyPaperRect, 0, 0, 0, 0);
+
+				// The shader maps screenUV → uv via: uv = screenUV * aspect * fitScale
+				// where fitScale = max(bbHalfW / aspect, bbHalfH) is computed
+				// from the GLSL buckyBBox uniform (= window.buckyBBox, the overlay bbox).
+				// We must use the same values here so the coordinate mapping matches.
 				const exportAspect = w / h;
-				gl.uniform4f(uExportClip, bb.x0 / exportAspect, bb.y0, bb.x1 / exportAspect, bb.y1);
+				const ovBB = window.buckyBBox;
+				const bbHalfW = Math.max(Math.abs(ovBB.x0), Math.abs(ovBB.x1));
+				const bbHalfH = Math.max(Math.abs(ovBB.y0), Math.abs(ovBB.y1));
+				const fitScale = Math.max(bbHalfW / exportAspect, bbHalfH);
+				gl.uniform4f(uExportClip,
+					bb.x0 / (exportAspect * fitScale), bb.y0 / fitScale,
+					bb.x1 / (exportAspect * fitScale), bb.y1 / fitScale);
 			} else {
 				// Other projections: keep viewport aspect, match texture height
 				const aspect = canvas.width / canvas.height;
@@ -5222,8 +5307,12 @@ void main() {
 			const pixels = new Uint8Array(w * h * 4);
 			gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
 
-			// Restore exportClip and canvas size
+			// Restore exportClip, paper rect, and canvas size
 			gl.uniform4f(uExportClip, -1, -1, 1, 1);
+			if (window._bucky32PaperRect) {
+				const pr = window._bucky32PaperRect;
+				gl.uniform4f(uBuckyPaperRect, pr.x0, pr.y0, pr.x1, pr.y1);
+			}
 			resize();
 
 			// Flip Y and write to 2D canvas for PNG export
@@ -5357,8 +5446,7 @@ void main() {
 					isLeveled = false;
 					levelMode = false;
 					levelAnglesDiv.style.display = 'none';
-					showGrid = false;
-					gridToggle.checked = false;
+					syncGridToggles(false);
 					updateLevelSliders();
 					updateLevelBtnState();
 					saveProjectionConfig();
@@ -5385,8 +5473,7 @@ void main() {
 				isLeveled = false;
 				levelMode = false;
 				levelAnglesDiv.style.display = 'none';
-				showGrid = false;
-				gridToggle.checked = false;
+				syncGridToggles(false);
 				updateLevelSliders();
 				updateLevelBtnState();
 				saveProjectionConfig();
