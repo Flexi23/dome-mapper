@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Gamepad / joystick navigation** — removed the entire Three.js-based 3D joystick overlay, gamepad polling, button HUD, hat-switch projection cycling, rocker-to-globe-size mapping, and throttle-to-playback-speed control; keyboard and mouse navigation are unaffected
 - **Three.js dependency** — the ES module importmap and joystick overlay script (~540 lines) have been removed; the viewer is now fully dependency-free
 
+## [0.15.0] - 2026-03-22
+
+### Added
+- **Touch support** — full multi-touch interaction via Pointer Events; all mouse-based interactions now work on touchscreens
+- **Two-finger pixel-lock gesture** — in perspective, stereographic, azimuthal, collage, and preview modes, two fingers hold their respective texture points fixed while implicitly adjusting FOV or zoom; rotation is solved via `quatFromTwoVectorPairs` (simultaneous two-vector rotation), FOV via analytic quadratic solver (`solvePerspFov`), zoom via Newton-Raphson (`solveZoom`)
+- **Pinch-to-zoom fallback** — equirectangular and foldable modes (where pixel-lock zoom is not possible) continue single-finger drag with the primary finger while the second finger is ignored
+- **Double-tap on sliders** — range inputs respond to double-tap (300 ms threshold) by dispatching a synthetic `dblclick` event, enabling touch-based reset to default values
+- **Viewport meta tag** — `<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">` prevents browser-level pinch zoom on mobile
+- **`touch-action` CSS** — `none` on canvas, `pan-y` on controls panel, `none` on timeline; prevents browser scroll/zoom gestures from interfering with pointer events
+- **Scrollable controls panel** — `max-height: calc(100vh - 24px)` with `overflow-y: auto` makes the controls panel scrollable on small screens
+- **`pointercancel` handler** — cleans up gesture state when the browser cancels a touch (e.g. system gesture)
+- **Stale pointer cleanup** — `_activePointers` map is cleared on fresh gesture start (no active drag or pinch) to prevent orphaned entries from missed `pointerup` events
+- **Auto-disable magnifier on touch** — magnifier is automatically turned off on the first non-mouse `pointerdown`, since the lens effect requires hover and is disruptive on touchscreens
+
+### Changed
+- **`screenToLocalDir` signature** — accepts optional `unclamped` parameter; when `true`, azimuthal and collage projections return directions beyond the disc boundary (`r > 1`) for smooth gesture continuity
+- **Pointer event flow** — `setPointerCapture` called immediately on `pointerdown`; two-finger detection and state initialization happen before single-finger drag setup
+- **`resetPinchState()` helper** — centralizes cleanup of all pinch-related variables (`_pinchActive`, `_pinchTwoFingerLock`, `_pinchPrimaryId`, `_pinchLocalDir1/2`, `_pinchDragStartQuat`) on finger lift
+
 ## [0.14.0] - 2026-03-21
 
 ### Added

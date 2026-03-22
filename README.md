@@ -52,8 +52,11 @@ When served over HTTP the viewer auto-loads a default video (or image as fallbac
 | Drag | Look around (quaternion trackball) |
 | Shift + Drag | Roll rotation |
 | Scroll wheel | Adjust FOV / zoom (projection-dependent) |
-| Click (no drag) | Play / pause video |
-| Double-click | Fly-to: animate camera so clicked point becomes center |
+| Two-finger drag | Both fingers hold their texture points; implicitly adjusts FOV/zoom (perspective, stereographic, azimuthal) |
+| Pinch (equirectangular) | Primary finger drags; second finger ignored |
+| Click / tap (no drag) | Play / pause video |
+| Double-click / double-tap | Fly-to: animate camera so clicked point becomes center |
+| Double-tap slider | Reset slider to default value |
 
 ### Keyboard
 

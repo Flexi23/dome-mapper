@@ -13,6 +13,7 @@
 
 <head>
 	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 	<title>dome-mapper – Equirectangular Sphere Raycaster</title>
 	<style>
 		* {
@@ -32,6 +33,7 @@
 			display: block;
 			width: 100vw;
 			height: 100vh;
+			touch-action: none;
 		}
 
 		#drop-zone {
@@ -507,6 +509,17 @@
 			background: #fff;
 			border: none;
 			box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+		}
+
+		#controls {
+			touch-action: pan-y;
+			-webkit-overflow-scrolling: touch;
+			max-height: calc(100vh - 24px);
+			overflow-y: auto;
+		}
+
+		#timeline {
+			touch-action: none;
 		}
 
 	</style>
@@ -3944,6 +3957,19 @@ void main() {
 				sl.value = Math.min(+sl.max, Math.max(+sl.min, +sl.value + dir * step));
 				sl.dispatchEvent(new Event('input', { bubbles: true }));
 			}, { passive: false });
+
+			// Double-tap on touch: synthesize dblclick for range sliders
+			let _lastTapTime = 0;
+			sl.addEventListener('touchend', e => {
+				const now = Date.now();
+				if (now - _lastTapTime < 300) {
+					e.preventDefault();
+					sl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+					_lastTapTime = 0;
+				} else {
+					_lastTapTime = now;
+				}
+			});
 		});
 
 		const levelBtn = document.getElementById('level-btn');
@@ -4217,10 +4243,121 @@ void main() {
 		let _clickStartX = 0, _clickStartY = 0; // for click-vs-drag detection
 		let dragStartWorldDir = null; // world-space direction (for level mode pixel-lock)
 
+		// ── Two-finger pixel-lock gesture ──
+		let _pinchActive = false;
+		let _pinchTwoFingerLock = false;   // true when both fingers pixel-lock (perspective, azimuthal, stereo)
+		let _pinchPrimaryId = null;        // first finger's pointerId (used as fallback in equirect)
+		let _pinchLocalDir1 = null;        // local-space direction under finger 1 at start
+		let _pinchLocalDir2 = null;        // local-space direction under finger 2 at start
+		let _pinchCosAngle = 0;            // dot(localDir1, localDir2) — angular constraint
+		let _pinchDragStartQuat = null;    // camQuat snapshot at pinch start
+		let _activePointers = new Map();   // pointerId → {x, y}
+
+		// Find rotation that maps from1→to1 AND from2→to2 simultaneously
+		function quatFromTwoVectorPairs(from1, to1, from2, to2) {
+			const q1 = quatFromTwoVectors(from1, to1);
+			const rotated2 = quatRotVec(q1, from2);
+			// Find rotation around to1 axis to align rotated2 with to2
+			const d1 = rotated2[0]*to1[0] + rotated2[1]*to1[1] + rotated2[2]*to1[2];
+			const d2 = to2[0]*to1[0] + to2[1]*to1[1] + to2[2]*to1[2];
+			const p1 = [rotated2[0] - d1*to1[0], rotated2[1] - d1*to1[1], rotated2[2] - d1*to1[2]];
+			const p2 = [to2[0] - d2*to1[0], to2[1] - d2*to1[1], to2[2] - d2*to1[2]];
+			const len1 = Math.hypot(p1[0], p1[1], p1[2]);
+			const len2 = Math.hypot(p2[0], p2[1], p2[2]);
+			if (len1 < 1e-6 || len2 < 1e-6) return q1;
+			const np1 = [p1[0]/len1, p1[1]/len1, p1[2]/len1];
+			const np2 = [p2[0]/len2, p2[1]/len2, p2[2]/len2];
+			const dotP = np1[0]*np2[0] + np1[1]*np2[1] + np1[2]*np2[2];
+			const cross = (np1[1]*np2[2] - np1[2]*np2[1])*to1[0]
+				+ (np1[2]*np2[0] - np1[0]*np2[2])*to1[1]
+				+ (np1[0]*np2[1] - np1[1]*np2[0])*to1[2];
+			const angle = Math.atan2(cross, dotP);
+			const q2 = quatFromAxisAngle(to1[0], to1[1], to1[2], angle);
+			return quatNormalize(quatMul(q2, q1));
+		}
+
+		// Solve perspective FOV from two screen positions and their angular separation
+		function solvePerspFov(cx1, cy1, cx2, cy2, targetCos) {
+			const dpr = Math.min(devicePixelRatio, 2);
+			const resX = canvas.width, resY = canvas.height;
+			const aspect = resX / resY;
+			const u1 = (cx1 * dpr / resX * 2 - 1) * aspect;
+			const v1 = (innerHeight - cy1) * dpr / resY * 2 - 1;
+			const u2 = (cx2 * dpr / resX * 2 - 1) * aspect;
+			const v2 = (innerHeight - cy2) * dpr / resY * 2 - 1;
+			const A = u1*u2 + v1*v2;
+			const B1 = u1*u1 + v1*v1;
+			const B2 = u2*u2 + v2*v2;
+			const C2 = targetCos * targetCos;
+			// Quadratic in S = tan²(fov/2)
+			const qa = A*A - C2*B1*B2;
+			const qb = 2*A - C2*(B1+B2);
+			const qc = 1 - C2;
+			const disc = qb*qb - 4*qa*qc;
+			if (disc < 0) return fovDeg;
+			const sqrtDisc = Math.sqrt(disc);
+			let S;
+			if (Math.abs(qa) < 1e-10) {
+				if (Math.abs(qb) < 1e-10) return fovDeg;
+				S = -qc / qb;
+			} else {
+				const S1 = (-qb + sqrtDisc) / (2*qa);
+				const S2 = (-qb - sqrtDisc) / (2*qa);
+				// Pick positive root whose numerator sign matches targetCos
+				const ok1 = S1 > 0 && Math.sign(A*S1 + 1) === Math.sign(targetCos);
+				const ok2 = S2 > 0 && Math.sign(A*S2 + 1) === Math.sign(targetCos);
+				if (ok1 && ok2) S = Math.min(S1, S2);
+				else if (ok1) S = S1;
+				else if (ok2) S = S2;
+				else if (S1 > 0) S = S1;
+				else if (S2 > 0) S = S2;
+				else return fovDeg;
+			}
+			return Math.max(20, Math.min(170, 2 * Math.atan(Math.sqrt(S)) * 180 / Math.PI));
+		}
+
+		// Solve azimuthalZoom via Newton-Raphson starting from current zoom.
+		// Starting from the current value avoids jumping to a wrong root
+		// (cos vs zoom is non-monotonic for fingers on opposite sides of the disc).
+		function solveZoom(cx1, cy1, cx2, cy2, targetCos) {
+			const saved = azimuthalZoom;
+			let z = saved;
+			let bestZ = z, bestErr = Infinity;
+
+			for (let i = 0; i < 10; i++) {
+				azimuthalZoom = z;
+				const d1 = screenToLocalDir(cx1, cy1);
+				const d2 = screenToLocalDir(cx2, cy2);
+				if (!d1 || !d2) { z *= 0.9; continue; } // reduce until both inside disc
+				const cosVal = d1[0]*d2[0] + d1[1]*d2[1] + d1[2]*d2[2];
+				const err = cosVal - targetCos;
+				if (Math.abs(err) < Math.abs(bestErr)) { bestErr = err; bestZ = z; }
+				if (Math.abs(err) < 1e-6) break;
+
+				// Backward numerical derivative (stays inside disc)
+				const eps = z * 0.001;
+				azimuthalZoom = z - eps;
+				const d1e = screenToLocalDir(cx1, cy1);
+				const d2e = screenToLocalDir(cx2, cy2);
+				if (!d1e || !d2e) { z *= 0.95; continue; }
+				const cosE = d1e[0]*d2e[0] + d1e[1]*d2e[1] + d1e[2]*d2e[2];
+				const df = (cosVal - cosE) / eps;
+				if (Math.abs(df) < 1e-10) break;
+
+				// Clamped Newton step (max 2× change per iteration)
+				const newZ = z - err / df;
+				z = Math.max(0.1, Math.min(3.0, Math.max(z * 0.5, Math.min(z * 2.0, newZ))));
+			}
+			azimuthalZoom = saved;
+			return Math.max(0.1, Math.min(3.0, bestZ));
+		}
+
 		// Convert client (CSS) coordinates to the local (pre-viewMatrix) ray direction
 		// that the shader computes for this pixel.  Returns [x,y,z] unit vector,
 		// or null when the projection doesn't support pixel-locked dragging.
-		function screenToLocalDir(cx, cy) {
+		// When unclamped=true, azimuthal directions extend beyond r=1 (disc boundary)
+		// for smooth two-finger gestures.
+		function screenToLocalDir(cx, cy, unclamped) {
 			const dpr = Math.min(devicePixelRatio, 2);
 			const fragX = cx * dpr;
 			const fragY = (innerHeight - cy) * dpr; // WebGL Y-up
@@ -4250,7 +4387,7 @@ void main() {
 				u *= aspect;
 				u *= azimuthalZoom; v *= azimuthalZoom;
 				const r = Math.sqrt(u * u + v * v);
-				if (r > 1.0) return null; // outside disc
+				if (!unclamped && r > 1.0) return null; // outside disc
 				const theta = r * Math.PI;
 				const phi = Math.atan2(-u, -v);
 				const sinT = Math.sin(theta);
@@ -4278,17 +4415,18 @@ void main() {
 				const ox2 = u - 0.5, oy2 = v;
 				const r1 = Math.sqrt(ox1*ox1 + oy1*oy1);
 				const r2 = Math.sqrt(ox2*ox2 + oy2*oy2);
-				const d1 = r1 / dR, d2 = r2 / dR;
-				const m1 = d1 < 1.0, m2 = d2 < 1.0;
-				if (!m1 && !m2) return null;
+				const d1c = r1 / dR, d2c = r2 / dR;
+				const m1 = d1c < 1.0, m2 = d2c < 1.0;
+				if (!unclamped && !m1 && !m2) return null;
 				const flipSign = collageFlip ? -1 : 1;
-				const useLeft = m1 && (!m2 || v * flipSign < 0);
+				const useLeft = m1 && (!m2 || v * flipSign < 0)
+					|| (!m1 && !m2 && d1c < d2c);
 				let theta, phi;
 				if (useLeft) {
-					theta = d1 * Math.PI;
+					theta = d1c * Math.PI;
 					phi = Math.atan2(-ox1, -oy1);
 				} else {
-					theta = (1.0 - d2) * Math.PI;
+					theta = (1.0 - d2c) * Math.PI;
 					phi = Math.atan2(ox2, -oy2);
 				}
 				const sinT = Math.sin(theta);
@@ -4507,10 +4645,53 @@ void main() {
 			return quatNormalize(quatMul(camQuat, quatMul(q, ci)));
 		}
 		canvas.addEventListener('pointerdown', e => {
+			// Clear stale pointers: if no interaction is active, this is a fresh gesture
+			if (!dragging && !_pinchActive) {
+				_activePointers.clear();
+			}
+			_activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+			canvas.setPointerCapture(e.pointerId);
+
+			// Disable magnifier on first touch gesture (no hover on touch devices)
+			if (e.pointerType !== 'mouse' && magnifierEnabled) {
+				magnifierEnabled = false;
+				magnifierToggle.checked = false;
+			}
+
+			// Two fingers → start two-finger gesture
+			if (_activePointers.size === 2) {
+				_pinchActive = true;
+				const ids = [..._activePointers.keys()];
+				_pinchPrimaryId = ids[0];
+				const canLock = !levelMode
+					&& projectionModeIndex !== M_EQUIRECT
+					&& projectionModeIndex !== M_FOLDABLE
+					&& projectionModeIndex !== M_RHOMBIC_FOLDABLE
+					&& projectionModeIndex !== M_TRUNCOCT_FOLDABLE;
+				_pinchTwoFingerLock = canLock;
+				if (canLock) {
+					dragging = false;
+					const p1 = _activePointers.get(ids[0]);
+					const p2 = _activePointers.get(ids[1]);
+					_pinchLocalDir1 = screenToLocalDir(p1.x, p1.y);
+					_pinchLocalDir2 = screenToLocalDir(p2.x, p2.y);
+					if (_pinchLocalDir1 && _pinchLocalDir2) {
+						_pinchCosAngle = _pinchLocalDir1[0]*_pinchLocalDir2[0]
+							+ _pinchLocalDir1[1]*_pinchLocalDir2[1]
+							+ _pinchLocalDir1[2]*_pinchLocalDir2[2];
+					} else {
+						_pinchTwoFingerLock = false;
+					}
+					_pinchDragStartQuat = Array.from(camQuat);
+				}
+				// In equirect/foldable/level: dragging stays true, primary finger continues
+				return;
+			}
+			if (_activePointers.size > 2) return;
+
 			dragging = true; lastX = e.clientX; lastY = e.clientY;
 			_clickStartX = e.clientX; _clickStartY = e.clientY;
 			flyAnim = null;
-			canvas.setPointerCapture(e.pointerId);
 			dragStartDir = screenToLocalDir(e.clientX, e.clientY);
 			dragStartWorldDir = screenToWorldDir(e.clientX, e.clientY);
 			dragStartQuat = levelMode ? Array.from(levelQuat) : Array.from(activeQuat());
@@ -4531,6 +4712,42 @@ void main() {
 			pointerX = e.clientX / canvas.clientWidth;
 			pointerY = 1.0 - e.clientY / canvas.clientHeight;
 			if (magnifierEnabled || dragging) needsRedraw = true;
+
+			_activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+			// Handle two-finger gesture
+			if (_pinchActive && _activePointers.size >= 2) {
+				if (_pinchTwoFingerLock && _pinchLocalDir1 && _pinchLocalDir2) {
+					const ids = [..._activePointers.keys()];
+					const p1 = _activePointers.get(ids[0]);
+					const p2 = _activePointers.get(ids[1]);
+					// Step 1: solve FOV / zoom from angular constraint
+					if (projectionModeIndex === M_PERSP || projectionModeIndex === M_PREVIEW
+						|| projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_TRUNCOCT_PREVIEW) {
+						fovDeg = solvePerspFov(p1.x, p1.y, p2.x, p2.y, _pinchCosAngle);
+						fovSlider.value = fovDeg;
+						fovVal.textContent = Math.round(fovDeg) + '°';
+					} else if (projectionModeIndex === M_AZIMUTHAL || projectionModeIndex === M_COLLAGE || projectionModeIndex === M_STEREO) {
+						azimuthalZoom = solveZoom(p1.x, p1.y, p2.x, p2.y, _pinchCosAngle);
+						azimuthalZoomSlider.value = Math.round(azimuthalZoom * 100);
+						azimuthalZoomVal.textContent = azimuthalZoom.toFixed(2) + '×';
+					}
+					// Step 2: compute new local dirs with updated FOV/zoom
+					const ld1 = screenToLocalDir(p1.x, p1.y);
+					const ld2 = screenToLocalDir(p2.x, p2.y);
+					if (ld1 && ld2) {
+						// Step 3: find rotation mapping new local dirs → captured local dirs
+						const qRot = quatFromTwoVectorPairs(ld1, _pinchLocalDir1, ld2, _pinchLocalDir2);
+						camQuat = quatNormalize(quatMul(_pinchDragStartQuat, qRot));
+						updateCamSliders();
+					}
+					needsRedraw = true;
+					return;
+				}
+				// Equirect / foldable / level: only process primary finger
+				if (e.pointerId !== _pinchPrimaryId) return;
+				// fall through to single-finger drag code below
+			}
 
 			if (!dragging) return;
 			if (levelMode) {
@@ -4617,7 +4834,25 @@ void main() {
 			updateCamSliders();
 			if (previewBall) updateFacesSliders();
 		});
+		function resetPinchState() {
+			_pinchActive = false;
+			_pinchTwoFingerLock = false;
+			_pinchPrimaryId = null;
+			_pinchLocalDir1 = null;
+			_pinchLocalDir2 = null;
+			_pinchDragStartQuat = null;
+		}
 		canvas.addEventListener('pointerup', e => {
+			_activePointers.delete(e.pointerId);
+			if (_pinchActive) {
+				if (_activePointers.size < 2) {
+					resetPinchState();
+					saveProjectionConfig();
+					// Don't start a drag from the remaining finger
+					dragging = false;
+				}
+				return;
+			}
 			const wasDrag = Math.hypot(e.clientX - _clickStartX, e.clientY - _clickStartY) > 4;
 			dragging = false; dragStartDir = null; dragStartWorldDir = null; dragStartQuat = null; _previewDragBg = false;
 			updateCamSliders();
@@ -4625,6 +4860,11 @@ void main() {
 			if (!wasDrag && videoActive) {
 				if (videoEl.paused) videoEl.play(); else videoEl.pause();
 			}
+		});
+		canvas.addEventListener('pointercancel', e => {
+			_activePointers.delete(e.pointerId);
+			if (_activePointers.size < 2) resetPinchState();
+			dragging = false;
 		});
 
 		canvas.addEventListener('wheel', e => {
