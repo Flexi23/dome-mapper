@@ -5695,12 +5695,28 @@ void main() {
 		// ══════════════════════════════════════════════════════════
 		function isPowerOf2(v) { return (v & (v - 1)) === 0; }
 
+		function ensureTextureSize(img) {
+			const maxSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+			if (img.width <= maxSize && img.height <= maxSize) return img;
+			const scale = maxSize / Math.max(img.width, img.height);
+			const w = Math.floor(img.width * scale);
+			const h = Math.floor(img.height * scale);
+			console.warn('Image ' + img.width + 'x' + img.height + ' exceeds MAX_TEXTURE_SIZE ' + maxSize + ', downscaling to ' + w + 'x' + h);
+			const c = document.createElement('canvas');
+			c.width = w; c.height = h;
+			c.getContext('2d').drawImage(img, 0, 0, w, h);
+			return c;
+		}
+
 		function uploadTexture(img) {
+			const src = ensureTextureSize(img);
 			gl.activeTexture(gl.TEXTURE0);
 			gl.bindTexture(gl.TEXTURE_2D, tex);
-			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
 
-			if (isPowerOf2(img.width) && isPowerOf2(img.height)) {
+			const w = src.width || src.naturalWidth;
+			const h = src.height || src.naturalHeight;
+			if (isPowerOf2(w) && isPowerOf2(h)) {
 				gl.generateMipmap(gl.TEXTURE_2D);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
 			} else {
@@ -5713,14 +5729,14 @@ void main() {
 			// Upload same image with NEAREST filtering for Pixelate mode
 			gl.activeTexture(gl.TEXTURE2);
 			gl.bindTexture(gl.TEXTURE_2D, texNearest);
-			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
-			texWidth = img.width;
-			texHeight = img.height;
+			texWidth = w;
+			texHeight = h;
 			hasTexture = 1;
 			needsRedraw = true;
 			updateProjectionUI();
