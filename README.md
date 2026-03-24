@@ -67,6 +67,7 @@ When served over HTTP the viewer auto-loads a default video (or image as fallbac
 | `Q` / `E` (or Numpad `7` / `9`) | Roll |
 | `X` | Toggle grid overlay |
 | `G` | Toggle globe overlay |
+| `L` | Toggle level / horizon mode |
 | `M` | Toggle magnifier |
 | `Space` | Play / pause video (when video is loaded) |
 
@@ -104,8 +105,6 @@ Held keys debounce briefly, then accelerate exponentially.
 All three preview modes render a **3D polyhedron** floating in front of the panorama background via SDF sphere-tracing. They serve as tangible previews of the face partitioning used by the corresponding foldable modes — you can rotate the ball to inspect how the panorama maps onto each face before printing.
 
 | Property | Buckyball-32 | Rhombic-30 | Truncoct-14 |
-|---|---|---|
-| Polyhedron | Buckyball-32 | Rhombic-30 | Truncoct-14 |
 |---|---|---|---|
 | Polyhedron | Truncated icosahedron | Rhombic triacontahedron | Truncated octahedron |
 | Faces | 32 (12 pentagons + 20 hexagons) | 30 (identical golden rhombi) | 14 (8 hexagons + 6 squares) |
@@ -121,7 +120,7 @@ The SDF for both polyhedra is the intersection of N half-spaces:
 SDF(p) = max over all N faces of: dot(p, faceNormal) − faceDist
 ```
 
-32 half-spaces for the buckyball (with two different face distances), 30 equidistant half-spaces for the rhombic triacontahedron. Both are convex polyhedra rendered without any mesh geometry.
+32 half-spaces for the buckyball (with two different face distances), 30 equidistant half-spaces for the rhombic triacontahedron, 14 half-spaces for the truncated octahedron (two face distances). All three are convex polyhedra rendered without any mesh geometry.
 
 #### View-Space Architecture
 
@@ -336,6 +335,21 @@ After the WebGL shader renders the textured polygons, a 2D canvas overlay is com
 
 The overlay is rendered to an offscreen 2048px-tall canvas, uploaded as a WebGL texture, and alpha-composited in the fragment shader using the bounding box `buckyBBox` for UV mapping.
 
+#### Cut Line Overlay
+
+All three foldable modes (buckyball-32, rhombic-30, truncoct-14) provide a **3-state "Cut line" toggle** (Off → Overlay → Only) that renders the physical cutting outline you'd follow with scissors:
+
+1. **Tab trapezoid outlines**: The three open edges of each glue tab (two diagonals + outer edge; the base polygon edge is omitted to avoid double lines) are drawn as an open path and clipped to polygon interiors via an even-odd winding rule — matching the overlay tab clipping.
+2. **Polygon boundary edges**: Face edges where the current face does **not** own the tab (determined by `tabsMap` ownership or index-based dedup) are drawn. For each shared edge, exactly one face draws the tab outline (step 1) and the other draws its polygon edge here. Truly open edges (no neighbor or neighbor not placed) are always drawn.
+
+The cut line is rendered to a separate offscreen canvas (same resolution as the overlay), uploaded once as TEXTURE3, and composited in the shader:
+
+| Mode | Behavior |
+|---|---|
+| **Off** (0) | Normal view, no cut lines |
+| **Overlay** (1) | Normal view with cut lines composited on top |
+| **Only** (2) | White background with cut lines only (for print) |
+
 #### Data Flow Summary
 
 ```
@@ -420,15 +434,24 @@ The 2D canvas overlay generates trapezoidal glue tabs on boundary edges with:
 
 #### Paper Format Outline
 
-Both foldable modes (buckyball-32 and rhombic-30) render a **dashed green paper format rectangle** in the fragment shader. This outline shows the paper boundary at the selected aspect ratio, fitted tightly around the net's actual vertex + tab bounding box. Because it is drawn in the shader (not the canvas overlay), it is automatically excluded from PNG exports.
+All three foldable modes (buckyball-32, rhombic-30, and truncoct-14) render a **dashed green paper format rectangle** in the fragment shader. This outline shows the paper boundary at the selected aspect ratio, fitted tightly around the net's actual vertex + tab bounding box. Because it is drawn in the shader (not the canvas overlay), it is automatically excluded from PNG/TIFF exports.
 
 The paper rect is computed from the **tight bounding box** (`buckyTightBBox`) — iterating all polygon vertices and glue tab outer corners for exact bounds, rather than the approximate circumscribed-radius overlay bbox.
 
 ---
 
-## PNG Export
+## Export
 
-The export button renders the current view at high resolution and downloads the result as PNG. Each projection uses optimised dimensions:
+The export button renders the current view at high resolution and downloads the result. A **format dropdown** next to the Save button offers two output formats:
+
+| Format | Description |
+|---|---|
+| **PNG** | Standard lossless image; default for all projections |
+| **CMYK TIFF** | Uncompressed TIFF with `PhotometricInterpretation = CMYK`, `SamplesPerPixel = 4`, and `300 DPI` resolution metadata; suitable for professional print workflows (ISO 12647-2:2013) |
+
+When **CMYK TIFF** is selected, an **ICC profile section** appears with a dropdown of cached profiles and a "Load .icc" button. Loaded profiles are persisted in IndexedDB (key prefix `icc:`) and survive page reloads. The selected profile is embedded via TIFF tag 34675 (ICCProfile), enabling tagged output for Fogra51 (PSOcoated_v3) or other print profiles.
+
+Each projection uses optimised dimensions:
 
 | Projection | Dimensions | Clipping |
 |---|---|---|
@@ -445,7 +468,7 @@ The export button renders the current view at high resolution and downloads the 
 
 The implementation resizes the WebGL canvas to export resolution, sets the `exportClip` uniform to remap `screenUV` from the default `(−1,−1)→(1,1)` range to the net's bounding box coordinates (with aspect-ratio compensation), renders a single frame, and reads pixels via `gl.readPixels()` within the same JS task. After export, the canvas and uniform are restored to viewport defaults.
 
-Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png`.
+Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png` (or `.tif` for CMYK TIFF).
 
 ---
 
@@ -461,10 +484,11 @@ Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png`.
 | 📏 **Grid overlay** | 32×16 grid with crosshairs for orientation (toggle via `X` key) |
 | 🎯 **Fly-to** | Double-click to smoothly animate camera toward any point; works in both camera and leveling mode |
 | ⚖️ **Horizon leveling** | Dedicated leveling mode with accept/discard; yaw/pitch/roll sliders; double-click horizon to auto-level; per-file persistence |
-| 📸 **PNG export** | Export current view at source texture resolution; projection-specific dimensions and clipping |
+| 📸 **PNG / CMYK TIFF export** | Export current view at source texture resolution; PNG or CMYK TIFF (300 DPI, optional ICC profile); projection-specific dimensions and clipping |
 | 🔢 **Y / P / R sliders** | Live Euler-angle readout; drag to set orientation, double-click to reset; copy/paste quaternion |
 | 💾 **Multi-file cache** | Multiple panoramas cached in IndexedDB; switch between cached files via file list; last-viewed file restored on reload |
 | ⚙️ **Per-file config** | Camera orientation, FOV, projection mode, grid, globe, leveling, and all projection parameters persisted per file |
+| ✂️ **Cut line overlay** | 3-state toggle (Off / Overlay / Only) rendering physical cut outlines for all three foldable nets; tab edges, polygon edges, and ownership-aware boundary logic |
 | 🎨 **Test pattern** | Built-in checkerboard fallback with meridian/equator markers |
 
 ---

@@ -303,8 +303,12 @@
 			color: #f88;
 		}
 
-		#screenshot-btn {
-			width: 100%;
+		#export-wrap {
+			display: flex;
+			gap: 4px;
+		}
+		#export-btn {
+			flex: 1;
 			padding: 4px 0 !important;
 			font-size: 12px !important;
 			border-radius: 4px !important;
@@ -312,11 +316,67 @@
 			border-color: #4a4 !important;
 			background: #1a3a1a !important;
 		}
-
-		#screenshot-btn:hover {
+		#export-btn:hover {
 			background: #2a5a2a !important;
 			color: #8f8 !important;
 		}
+		#export-fmt {
+			padding: 2px 4px;
+			font-size: 11px;
+			border-radius: 4px;
+			color: #6d6;
+			border: 1px solid #4a4;
+			background: #1a3a1a;
+			cursor: pointer;
+			outline: none;
+		}
+		#export-fmt:hover {
+			background: #2a5a2a;
+			color: #8f8;
+		}
+		#export-fmt option { background: #1a2a1a; color: #6d6; }
+		#icc-section {
+			display: none;
+			margin-top: 4px;
+		}
+		#icc-section.visible { display: block; }
+		#icc-row {
+			display: flex;
+			gap: 4px;
+			align-items: center;
+		}
+		#icc-select {
+			flex: 1;
+			padding: 2px 4px;
+			font-size: 11px;
+			border-radius: 4px;
+			color: #6d6;
+			border: 1px solid #4a4;
+			background: #1a3a1a;
+			cursor: pointer;
+			outline: none;
+			min-width: 0;
+		}
+		#icc-select option { background: #1a2a1a; color: #6d6; }
+		#icc-load-btn {
+			padding: 2px 6px;
+			font-size: 11px;
+			border-radius: 4px;
+			color: #6d6;
+			border: 1px solid #4a4;
+			background: #1a3a1a;
+			cursor: pointer;
+			white-space: nowrap;
+		}
+		#icc-load-btn:hover { background: #2a5a2a; color: #8f8; }
+		#icc-link {
+			display: block;
+			font-size: 10px;
+			color: #586;
+			text-align: center;
+			margin-top: 2px;
+		}
+		#icc-link:hover { color: #8b8; }
 
 		#fullscreen-btn {
 			width: 100%;
@@ -439,6 +499,18 @@
 			opacity: 1;
 		}
 
+		#open-file-btn {
+			display: block;
+			margin-top: 6px;
+			cursor: pointer;
+			font-size: 12px;
+			color: #4af;
+			opacity: 0.7;
+		}
+		#open-file-btn:hover {
+			opacity: 1;
+		}
+
 		/* ── Video timeline overlay ── */
 		#timeline {
 			position: absolute;
@@ -536,6 +608,7 @@
 	</div>
 	<div id="info">
 		<table id="cached-files"></table>
+		<label id="open-file-btn" title="Open image or video">📂 Open file<input type="file" accept="image/*,video/*" multiple style="display:none"></label>
 	</div>
 	<div id="controls">
 		<button id="fullscreen-btn" title="Toggle fullscreen">⛶ Fullscreen</button>
@@ -592,8 +665,8 @@
 					<option value="truncoct-14 preview">truncoct-14 preview</option>
 					<option value="truncoct-14 foldable">truncoct-14 foldable</option>
 				</select>
-				<span id="minecraft-row" class="span hide-in-level-off" style="display:contents">
-					<span>Pixelate</span> <input type="range" id="minecraft-slider" min="0" max="100" value="100" step="1"> <span class="val" id="minecraft-val">100%</span>
+				<span id="pixelate-row" class="span hide-in-level-off" style="display:contents">
+					<span>Pixelate</span> <input type="range" id="pixelate-slider" min="0" max="100" value="100" step="1"> <span class="val" id="pixelate-val">100%</span>
 				</span>
 				<span id="azimuthal-row" class="span hide-in-level-off" style="display:none">
 					<span>Mask</span> <label style="display:flex;align-items:center"><input type="checkbox" id="azimuthal-mask" checked></label> <span></span>
@@ -638,6 +711,9 @@
 				<span id="net-row" class="span hide-in-level-off" style="display:none">
 					<span>Net</span> <input type="range" id="net-alpha-slider" min="0" max="100" value="33" step="1"> <span class="val" id="net-alpha-val">33%</span>
 				</span>
+				<span id="cutline-row" class="span hide-in-level-off" style="display:none">
+					<span>Cut line</span> <button id="cutline-toggle" style="grid-column:2/-1;text-align:left">Off</button>
+				</span>
 				<span id="faces-row" class="span hide-in-level-off" style="display:none">
 					<span>Yaw</span> <input type="range" id="faces-yaw" min="-180" max="180" value="0" step="0.25"> <span class="val" id="faces-yaw-val">0.0°</span>
 					<span>Pitch</span> <input type="range" id="faces-pitch" min="-90" max="90" value="0" step="0.25"> <span class="val" id="faces-pitch-val">0.0°</span>
@@ -674,7 +750,21 @@
 				<span class="val" id="mag-refract-val">2.4×</span>
 			</div>
 		</div>
-		<button id="screenshot-btn" class="hide-in-level-off">Save PNG</button>
+		<div id="export-wrap" class="hide-in-level-off">
+			<button id="export-btn">Export</button>
+			<select id="export-fmt">
+				<option value="png">PNG</option>
+				<option value="tiff">CMYK TIFF</option>
+			</select>
+		</div>
+		<div id="icc-section" class="hide-in-level-off">
+			<div id="icc-row">
+				<select id="icc-select"><option value="">(no ICC profile)</option></select>
+				<button id="icc-load-btn">Load .icc</button>
+			</div>
+			<a id="icc-link" href="https://registry.color.org/profile-registry/" target="_blank" rel="noopener">ICC Profile Registry ↗</a>
+		</div>
+		<input type="file" id="icc-file" accept=".icc,.icm" style="display:none">
 	</div>
 	<canvas id="c"></canvas>
 	<video id="video-el" style="display:none" playsinline></video>
@@ -710,20 +800,22 @@ uniform mat3 previewMatrix;
 uniform sampler2D equirect;
 uniform sampler2D equirectNearest;  // same texture, NEAREST filtering
 uniform float hasTexture;
-uniform float minecraft;             // 0.0 = linear (smooth), 1.0 = nearest (blocky)
+uniform float pixelate;              // 0.0 = linear (smooth), 1.0 = nearest (blocky)
 uniform float globeRadius;   // 0.0 = hidden, else screen-fraction radius
 uniform float globeOpacity;   // 0.0–1.0 overall globe opacity
 uniform float globeReflect;   // 0.0–1.0 environment reflection strength
 uniform float projection;    // 0.0 = equirectangular, 1.0 = perspective, 2.0 = buckyball
 uniform float showGrid;
 uniform float buckyOverlayAlpha; // 0.0–1.0 net overlay opacity (edges only; flaps are always opaque)
-uniform vec4 buckyNet[32];   // flat net layout: (x, y, rotation, gnomonicScale) per face
-uniform float buckyScale;    // inverse normalization scale for polygon sizes
-uniform sampler2D buckyOverlay; // 2D canvas overlay: edges + glue tabs
-uniform vec4 buckyBBox;         // bounding box in net space (minX, minY, maxX, maxY)
-uniform vec4 buckyPaperRect;     // paper format rectangle in net space (minX, minY, maxX, maxY); (0,0,0,0) = hidden
-uniform vec4 exportClip;        // viewport clip range in screenUV space (default: -1,-1,1,1)
-uniform mat3 levelMatrix;       // horizon leveling rotation (applied to texture sampling only)
+uniform vec4 buckyNet[32];       // flat net layout: (x, y, rotation, gnomonicScale) per face
+uniform float buckyScale;        // inverse normalization scale for polygon sizes
+uniform sampler2D buckyOverlay;  // 2D canvas overlay: edges + glue tabs (TEXTURE1)
+uniform vec4 buckyBBox;          // bounding box in net space (minX, minY, maxX, maxY)
+uniform vec4 buckyPaperRect;     // paper format rectangle in net space; (0,0,0,0) = hidden
+uniform sampler2D cutLineOverlay; // cut line canvas overlay (TEXTURE3)
+uniform float cutLineMode;       // 0 = off, 1 = overlay on top, 2 = cut line only
+uniform vec4 exportClip;         // viewport clip range in screenUV space (default: -1,-1,1,1)
+uniform mat3 levelMatrix;        // horizon leveling rotation (texture sampling only)
 uniform vec2 pointer;            // mouse position in 0..1 screen space
 uniform float magnifierRadius;   // lens radius in screen fraction
 uniform float refractivity;      // lens refraction index (1.0 = off)
@@ -931,10 +1023,8 @@ vec2 dirToEquirect(vec3 dir) {
 	return vec2(u, 1.0 - v);
 }
 
-// Apply horizon leveling to a world-space direction for texture sampling.
-// Grid and globe use the un-leveled direction; only texture lookup is adjusted.
-vec2 dirToEquirectLeveled(vec3 dir) {
-	return dirToEquirect(levelMatrix * dir);
+vec3 sampleEquirectLeveled(sampler2D tex, vec3 dir) {
+	return texture(tex, dirToEquirect(levelMatrix * dir)).rgb;
 }
 
 // Procedural checkerboard test pattern rendered on the unit sphere.
@@ -960,6 +1050,14 @@ vec3 testPattern(vec3 dir) {
 	col += vec3(0.0, 0.25, 0.5) * meridian;
 	col += vec3(0.5, 0.2, 0.0) * equator;
 	return col;
+}
+
+// Sample panorama with test-pattern fallback and Pixelate (NEAREST) mode.
+// Returns the lit color WITHOUT grid overlay — callers apply applyGrid() themselves
+// since grid UV computation varies by projection mode.
+vec3 samplePanorama(vec3 dir) {
+	vec3 texCol = mix(sampleEquirectLeveled(equirect, dir), sampleEquirectLeveled(equirectNearest, dir), pixelate);
+	return mix(testPattern(dir), texCol, hasTexture);
 }
 
 // Render a miniature 3D globe overlay via analytic ray-sphere intersection.
@@ -1023,8 +1121,7 @@ vec4 renderGlobe(vec2 screenUV, float radius) {
 	// Environment reflection
 	vec3 refl = reflect(-V, n);
 	vec3 reflWorld = vm * refl;
-	vec2 reflUV = dirToEquirect(reflWorld);
-	vec3 envCol = mix(testPattern(reflWorld), texture(equirect, reflUV).rgb, hasTexture);
+	vec3 envCol = mix(testPattern(reflWorld), texture(equirect, dirToEquirect(reflWorld)).rgb, hasTexture);
 	base = mix(base, envCol, globeReflect * (1.0 - rim * 0.5));
 
 	// Grid overlay
@@ -1099,12 +1196,19 @@ float borderLine(vec2 domain, vec2 thickness) {
 //   RGB color with grid lines composited on top
 vec3 applyGrid(vec3 col, vec2 eqUV) {
 	if (showGrid < 0.5) return col;
-	vec2 px = 1.0 / resolution;
-	float aspect = resolution.x / resolution.y;
+	// Use screen-space derivatives for uniform line thickness across projections
+	vec2 duvdx = dFdx(eqUV) * vec2(2.0, 1.0);
+	vec2 duvdy = dFdy(eqUV) * vec2(2.0, 1.0);
+	// Fix wraparound at the U seam
+	if (duvdx.x > 0.5) duvdx.x -= 1.0;
+	if (duvdx.x < -0.5) duvdx.x += 1.0;
+	if (duvdy.x > 0.5) duvdy.x -= 1.0;
+	if (duvdy.x < -0.5) duvdy.x += 1.0;
+	vec2 px = abs(duvdx) + abs(duvdy);
 	vec2 uvGrid  = fract((eqUV - 0.5) * vec2(2.0, 1.0) * 32.0);
 	vec2 uvCross = fract((eqUV - 0.5) * vec2(2.0, 1.0) * 2.0);
-	float grid  = borderLine(uvGrid,  px * 64.0 * vec2(aspect, 1.0));
-	float cross = borderLine(uvCross, px * 8.0  * vec2(aspect, 1.0));
+	float grid  = borderLine(uvGrid,  px * 96.0);
+	float cross = borderLine(uvCross, px * 12.0);
 	float g = max(grid, cross);
 	col = mix(col, 1.0 - col, -g);
 	return col;
@@ -1124,7 +1228,6 @@ void main() {
 	}
 
 	vec3 rd;
-	vec2 tc;
 	vec2 tcGrid;
 
 	// Projection cascade — threshold N.5 selects mode index N.
@@ -1161,8 +1264,7 @@ void main() {
 		float discSph = bSph * bSph - cSph;
 
 		vec3 perspDir = viewMatrix * rdLocal;
-		vec2 bgTC = dirToEquirectLeveled(perspDir);
-		vec3 bgCol = mix(testPattern(perspDir), texture(equirect, bgTC).rgb, hasTexture);
+		vec3 bgCol = samplePanorama(perspDir);
 		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
 
 		// Project wireframe onto background
@@ -1219,10 +1321,8 @@ void main() {
 
 		vec3 objDir = normalize(hitPos);
 		vec3 texDir = viewMatrix * objDir;
-		tcGrid = dirToEquirect(texDir);
-		tc = dirToEquirectLeveled(texDir);
-		vec3 col = mix(testPattern(texDir), texture(equirect, tc).rgb, hasTexture);
-		col = applyGrid(col, tcGrid);
+		vec3 col = samplePanorama(texDir);
+		col = applyGrid(col, dirToEquirect(texDir));
 
 		float edgeW = 0.0025;
 		float edgeLine = smoothstep(edgeW * 0.15, edgeW, edgeDist);
@@ -1305,19 +1405,28 @@ void main() {
 			vec3 dir = normalize(rFace * N + gno.x * T1 + gno.y * T2);
 			dir = viewMatrix * truncOctPreRot * dir;
 
-			tcGrid = dirToEquirect(dir);
-			tc = dirToEquirectLeveled(dir);
-			col = mix(testPattern(dir), texture(equirect, tc).rgb, hasTexture);
-			col = applyGrid(col, tcGrid);
+			col = samplePanorama(dir);
+			col = applyGrid(col, dirToEquirect(dir));
 		}
 
 		vec2 overlayUV = (uv - buckyBBox.xy) / (buckyBBox.zw - buckyBBox.xy);
 		overlayUV.y = 1.0 - overlayUV.y;
-		vec4 overlay = texture(buckyOverlay, overlayUV);
-		float isFlap = step(0.5, overlay.r);
-		float alphaScale = mix(buckyOverlayAlpha, 1.0, isFlap);
-		float oa = overlay.a * alphaScale;
-		col = col * (1.0 - oa) + overlay.rgb * alphaScale;
+		// Cut line compositing: mode 2 = white bg + cut lines only,
+		// mode 1 = normal view + cut line overlay, mode 0 = normal only
+		if (cutLineMode > 1.5) {
+			vec4 cl = texture(cutLineOverlay, overlayUV);
+			col = vec3(1.0) * (1.0 - cl.a) + cl.rgb;
+		} else {
+			vec4 overlay = texture(buckyOverlay, overlayUV);
+			float isFlap = step(0.5, overlay.r);
+			float alphaScale = mix(buckyOverlayAlpha, 1.0, isFlap);
+			float oa = overlay.a * alphaScale;
+			col = col * (1.0 - oa) + overlay.rgb * alphaScale;
+			if (cutLineMode > 0.5) {
+				vec4 cl = texture(cutLineOverlay, overlayUV);
+				col = col * (1.0 - cl.a) + cl.rgb;
+			}
+		}
 
 		fragColor = vec4(col, 1.0);
 		return;
@@ -1354,8 +1463,7 @@ void main() {
 		float discSph = bSph * bSph - cSph;
 
 		vec3 perspDir = viewMatrix * rdLocal;
-		vec2 bgTC = dirToEquirectLeveled(perspDir);
-		vec3 bgCol = mix(testPattern(perspDir), texture(equirect, bgTC).rgb, hasTexture);
+		vec3 bgCol = samplePanorama(perspDir);
 		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
 
 		// Project wireframe onto background
@@ -1415,10 +1523,8 @@ void main() {
 		// Texture mapping
 		vec3 objDir = normalize(hitPos);
 		vec3 texDir = viewMatrix * objDir;
-		tcGrid = dirToEquirect(texDir);
-		tc = dirToEquirectLeveled(texDir);
-		vec3 col = mix(testPattern(texDir), texture(equirect, tc).rgb, hasTexture);
-		col = applyGrid(col, tcGrid);
+		vec3 col = samplePanorama(texDir);
+		col = applyGrid(col, dirToEquirect(texDir));
 
 		// Edge wireframe
 		float edgeW = 0.0025;
@@ -1517,20 +1623,29 @@ void main() {
 			vec3 dir = normalize(N + gno.x * T1 + gno.y * T2);
 			dir = viewMatrix * rhombicPreRot * dir;
 
-			tcGrid = dirToEquirect(dir);
-			tc = dirToEquirectLeveled(dir);
-			col = mix(testPattern(dir), texture(equirect, tc).rgb, hasTexture);
-			col = applyGrid(col, tcGrid);
+			col = samplePanorama(dir);
+			col = applyGrid(col, dirToEquirect(dir));
 		}
 
 		// ── Composite overlay ──
+		// Cut line compositing: mode 2 = white bg + cut lines only,
+		// mode 1 = normal view + cut line overlay, mode 0 = normal only
 		vec2 overlayUV = (uv - buckyBBox.xy) / (buckyBBox.zw - buckyBBox.xy);
 		overlayUV.y = 1.0 - overlayUV.y;
-		vec4 overlay = texture(buckyOverlay, overlayUV);
-		float isFlap = step(0.5, overlay.r);
-		float alphaScale = mix(buckyOverlayAlpha, 1.0, isFlap);
-		float oa = overlay.a * alphaScale;
-		col = col * (1.0 - oa) + overlay.rgb * alphaScale;
+		if (cutLineMode > 1.5) {
+			vec4 cl = texture(cutLineOverlay, overlayUV);
+			col = vec3(1.0) * (1.0 - cl.a) + cl.rgb;
+		} else {
+			vec4 overlay = texture(buckyOverlay, overlayUV);
+			float isFlap = step(0.5, overlay.r);
+			float alphaScale = mix(buckyOverlayAlpha, 1.0, isFlap);
+			float oa = overlay.a * alphaScale;
+			col = col * (1.0 - oa) + overlay.rgb * alphaScale;
+			if (cutLineMode > 0.5) {
+				vec4 cl = texture(cutLineOverlay, overlayUV);
+				col = col * (1.0 - cl.a) + cl.rgb;
+			}
+		}
 
 		// ── Paper format outline (dashed green rectangle) ──
 		if (buckyPaperRect.z > buckyPaperRect.x) {
@@ -1660,22 +1775,30 @@ void main() {
 			// Apply camera rotation and the fixed aesthetic pre-rotation
 			dir = viewMatrix * buckyPreRot * dir;
 
-			// Sample panorama texture (or test pattern if no texture loaded)
-			tcGrid = dirToEquirect(dir);
-			tc = dirToEquirectLeveled(dir);
-			col = mix(testPattern(dir), texture(equirect, tc).rgb, hasTexture);
-			col = applyGrid(col, tcGrid);
+			col = samplePanorama(dir);
+			col = applyGrid(col, dirToEquirect(dir));
 		}
 
 		// ── Composite 2D net overlay (edges + glue tabs) ──
+		// Cut line compositing: mode 2 = white bg + cut lines only,
+		// mode 1 = normal view + cut line overlay, mode 0 = normal only
 		vec2 overlayUV = (uv - buckyBBox.xy) / (buckyBBox.zw - buckyBBox.xy);
 		overlayUV.y = 1.0 - overlayUV.y;
-		vec4 overlay = texture(buckyOverlay, overlayUV);
-		// Flaps (pink, r > 0.5) always at full opacity; edges scale with slider
-		float isFlap = step(0.5, overlay.r);
-		float alphaScale = mix(buckyOverlayAlpha, 1.0, isFlap);
-		float oa = overlay.a * alphaScale;
-		col = col * (1.0 - oa) + overlay.rgb * alphaScale;
+		if (cutLineMode > 1.5) {
+			vec4 cl = texture(cutLineOverlay, overlayUV);
+			col = vec3(1.0) * (1.0 - cl.a) + cl.rgb;
+		} else {
+			vec4 overlay = texture(buckyOverlay, overlayUV);
+			// Flaps (pink, r > 0.5) always at full opacity; edges scale with slider
+			float isFlap = step(0.5, overlay.r);
+			float alphaScale = mix(buckyOverlayAlpha, 1.0, isFlap);
+			float oa = overlay.a * alphaScale;
+			col = col * (1.0 - oa) + overlay.rgb * alphaScale;
+			if (cutLineMode > 0.5) {
+				vec4 cl = texture(cutLineOverlay, overlayUV);
+				col = col * (1.0 - cl.a) + cl.rgb;
+			}
+		}
 
 		// ── Paper format outline (dashed green rectangle) ──
 		// Drawn in the shader so it never appears in PNG exports.
@@ -1801,8 +1924,7 @@ void main() {
 		rd = vec3(sinT * sin(angle), cos(theta), -sinT * cos(angle));
 		rd = vec3(rd.x, rd.z, -rd.y); // pre-rotation P=+90° (optical axis Y→Z)
 		rd = viewMatrix * rd;
-		tcGrid = vec2(lensUV.x * aspect * 0.25 + 0.5, lensUV.y * 0.5 + 0.5);
-		tc = dirToEquirectLeveled(rd);
+		tcGrid = dirToEquirect(rd);
 	} else if (projection > 3.5) {
 		// ── Azimuthal equidistant collage ──
 		// Two overlapping azimuthal equidistant discs side by side.
@@ -1833,8 +1955,7 @@ void main() {
 			rd = normalize(vec3(sin(theta)*sin(phi), cos(theta), -sin(theta)*cos(phi)));
 			rd = vec3(rd.y, rd.z, rd.x); // pre-rotation P=+90° Y=-90°
 			rd = viewMatrix * rd;
-			tcGrid = vec2(lensUV.x * aspect * 0.25 + 0.5, lensUV.y * 0.5 + 0.5);
-			tc = dirToEquirectLeveled(rd);
+			tcGrid = dirToEquirect(rd);
 		} else {
 		// In overlap: lower half → left disc, upper half → right disc
 		bool useLeft = m1 && (!m2 || uv.y * collageFlip < 0.0);
@@ -1850,8 +1971,7 @@ void main() {
 			rd = vec3(rd.y, rd.z, rd.x); // pre-rotation P=+90° Y=-90°
 		}
 		rd = viewMatrix * rd;
-		tcGrid = vec2(lensUV.x * aspect * 0.25 + 0.5, lensUV.y * 0.5 + 0.5);
-		tc = dirToEquirectLeveled(rd);
+		tcGrid = dirToEquirect(rd);
 		} // end else (inside disc)
 	} else if (projection > 2.5) {
 		// ── Azimuthal equidistant projection ──
@@ -1868,16 +1988,14 @@ void main() {
 			rd = normalize(vec3(sin(theta)*sin(phi), cos(theta), -sin(theta)*cos(phi)));
 			rd = vec3(rd.x, rd.z, -rd.y);
 			rd = viewMatrix * rd;
-			tcGrid = vec2(lensUV.x * aspect * 0.25 + 0.5, lensUV.y * 0.5 + 0.5);
-			tc = dirToEquirectLeveled(rd);
+			tcGrid = dirToEquirect(rd);
 		} else {
 		float theta = r * PI; // full sphere: 0 at center, PI at edge
 		float phi = atan(-uv.x, -uv.y);
 		rd = normalize(vec3(sin(theta) * sin(phi), cos(theta), -sin(theta) * cos(phi)));
 		rd = vec3(rd.x, rd.z, -rd.y); // pre-rotation P=+90° 
 		rd = viewMatrix * rd;
-		tcGrid = vec2(lensUV.x * aspect * 0.25 + 0.5, lensUV.y * 0.5 + 0.5);
-		tc = dirToEquirectLeveled(rd);
+		tcGrid = dirToEquirect(rd);
 		} // end else (inside disc)
 	} else if (projection > 1.5) {
 		// ── Buckyball preview (SDF-raymarched truncated icosahedron) ──
@@ -1931,8 +2049,7 @@ void main() {
 
 		// Background: same panorama mapping as body (viewMatrix · direction)
 		vec3 perspDir = viewMatrix * rdLocal;
-		vec2 bgTC = dirToEquirectLeveled(perspDir);
-		vec3 bgCol = mix(testPattern(perspDir), texture(equirect, bgTC).rgb, hasTexture);
+		vec3 bgCol = samplePanorama(perspDir);
 		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
 
 		// Project net wireframe onto background panorama.
@@ -2019,10 +2136,8 @@ void main() {
 		// seamlessly at silhouette edges.
 		vec3 objDir = normalize(hitPos);
 		vec3 texDir = viewMatrix * objDir;
-		tcGrid = dirToEquirect(texDir);
-		tc = dirToEquirectLeveled(texDir);
-		vec3 col = mix(testPattern(texDir), texture(equirect, tc).rgb, hasTexture);
-		col = applyGrid(col, tcGrid);
+		vec3 col = samplePanorama(texDir);
+		col = applyGrid(col, dirToEquirect(texDir));
 
 		// ── Edge wireframe ──
 		float edgeW = 0.0025;
@@ -2059,7 +2174,6 @@ void main() {
 		rd = normalize(vec3(-uv.x * scale, uv.y * scale, -1.0));
 		rd = viewMatrix * rd;
 		tcGrid = dirToEquirect(rd);
-		tc = dirToEquirectLeveled(rd);
 	} else {
 		// ── Equirectangular projection ──
 		// Screen maps directly to equirect domain; rotation applied on sphere
@@ -2092,12 +2206,11 @@ void main() {
 		p = viewMatrix * p;
 		rd = p;
 		tcGrid = dirToEquirect(p);
-		tc = dirToEquirectLeveled(p);
 	}
 
-	vec3 color = mix(testPattern(rd), mix(texture(equirect, tc).rgb, texture(equirectNearest, tc).rgb, minecraft), hasTexture);
+	vec3 color = samplePanorama(rd);
 
-	// Grid overlay (uses un-leveled tc so grid stays fixed)
+	// Grid overlay (uses un-leveled tcGrid so grid stays fixed)
 	color = applyGrid(color, tcGrid);
 
 	// Globe overlay (uses original screenUV) — skip for azimuthal/collage
@@ -2157,7 +2270,7 @@ void main() {
 		const uEquirect = gl.getUniformLocation(program, 'equirect');
 		const uEquirectNearest = gl.getUniformLocation(program, 'equirectNearest');
 		const uHasTexture = gl.getUniformLocation(program, 'hasTexture');
-		const uMinecraft = gl.getUniformLocation(program, 'minecraft');
+		const uPixelate = gl.getUniformLocation(program, 'pixelate');
 		const uGlobeRadius = gl.getUniformLocation(program, 'globeRadius');
 		const uGlobeOpacity = gl.getUniformLocation(program, 'globeOpacity');
 		const uGlobeReflect = gl.getUniformLocation(program, 'globeReflect');
@@ -2171,6 +2284,8 @@ void main() {
 		const uBuckyBBox = gl.getUniformLocation(program, 'buckyBBox');
 		const uBuckyPaperRect = gl.getUniformLocation(program, 'buckyPaperRect');
 		const uBuckyOverlayAlpha = gl.getUniformLocation(program, 'buckyOverlayAlpha');
+		const uCutLineOverlay = gl.getUniformLocation(program, 'cutLineOverlay');
+		const uCutLineMode = gl.getUniformLocation(program, 'cutLineMode');
 		const uExportClip = gl.getUniformLocation(program, 'exportClip');
 		const uLevelMatrix = gl.getUniformLocation(program, 'levelMatrix');
 		const uPointer = gl.getUniformLocation(program, 'pointer');
@@ -2676,12 +2791,136 @@ void main() {
 				gl.uniform1i(uBuckyOverlay, 1);
 				gl.uniform4f(uBuckyBBox, bbX0, bbY0, bbX1, bbY1);
 
+				// ── Cut line overlay canvas ──
+				// Renders the outline you'd physically cut with scissors:
+				//  1) Tab trapezoid outlines (3 open edges, no base) clipped
+				//     to polygon interiors so they don't protrude into faces
+				//  2) Polygon boundary edges where this face does NOT own the
+				//     tab (the other face draws it), plus truly open edges
+				const clCanvas = document.createElement('canvas');
+				clCanvas.width = OVW;
+				clCanvas.height = OVH;
+				const clCtx = clCanvas.getContext('2d');
+				clCtx.clearRect(0, 0, OVW, OVH);
+				clCtx.strokeStyle = 'rgba(0, 0, 0, 1.0)';
+				clCtx.lineWidth = 2;
+				clCtx.lineJoin = 'round';
+
+				// ── Step 1: Glue tab outlines (clipped to polygon interiors) ──
+				// Build an evenodd clip region: full canvas minus all polygon
+				// interiors. This way tab edges that protrude into a polygon
+				// get clipped at the polygon boundary — matching the overlay.
+				clCtx.save();
+				clCtx.beginPath();
+				clCtx.rect(0, 0, OVW, OVH);
+				for (let i = 0; i < 32; i++) {
+					if (!lPlaced[i]) continue;
+					const fx = data[i * 4], fy = data[i * 4 + 1], rot = data[i * 4 + 2];
+					const n = nSides(i), cr = circumR(i) / scale;
+					for (let k = 0; k < n; k++) {
+						const a = rot + (2 * k + 1) * Math.PI / n;
+						const vx = fx + cr * Math.cos(a);
+						const vy = fy + cr * Math.sin(a);
+						if (k === 0) clCtx.moveTo(ovX(vx), ovY(vy));
+						else clCtx.lineTo(ovX(vx), ovY(vy));
+					}
+					clCtx.closePath();
+				}
+				clCtx.clip('evenodd');
+
+				// Draw tab trapezoids as open paths (v1 → o1 → o2 → v2).
+				// The base edge v1–v2 (polygon edge) is NOT drawn here because
+				// it's handled in step 2 as a face edge. This avoids double lines.
+				for (let i = 0; i < 32; i++) {
+					if (!lPlaced[i]) continue;
+					const fx = data[i * 4], fy = data[i * 4 + 1], rot = data[i * 4 + 2];
+					const n = nSides(i), cr = circumR(i) / scale;
+					for (let k = 0; k < n; k++) {
+						const info = edgeNeighbor[i][k];
+						if (info && info.isInternal) continue; // skip fold lines
+						// Only the face that owns the tab draws it
+						if (info) {
+							const ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							if (tabsMap && ek in tabsMap) { if (tabsMap[ek] !== i) continue; }
+							else { if (info.j < i) continue; }
+						}
+						// Compute trapezoid vertices
+						const a1 = rot + (2 * k + 1) * Math.PI / n;
+						const a2 = rot + (2 * (k + 1) + 1) * Math.PI / n;
+						const v1x = fx + cr * Math.cos(a1), v1y = fy + cr * Math.sin(a1);
+						const v2x = fx + cr * Math.cos(a2), v2y = fy + cr * Math.sin(a2);
+						const emx = (v1x + v2x) / 2 - fx, emy = (v1y + v2y) / 2 - fy;
+						const eml = Math.sqrt(emx * emx + emy * emy);
+						const nx = emx / eml, ny = emy / eml;
+						const dx = v2x - v1x, dy = v2y - v1y;
+						const o1x = v1x + nx * tabH + dx * tabInset;
+						const o1y = v1y + ny * tabH + dy * tabInset;
+						const o2x = v2x + nx * tabH - dx * tabInset;
+						const o2y = v2y + ny * tabH - dy * tabInset;
+						// Open path: diagonal → outer edge → diagonal (no base)
+						clCtx.beginPath();
+						clCtx.moveTo(ovX(v1x), ovY(v1y));
+						clCtx.lineTo(ovX(o1x), ovY(o1y));
+						clCtx.lineTo(ovX(o2x), ovY(o2y));
+						clCtx.lineTo(ovX(v2x), ovY(v2y));
+						clCtx.stroke();
+					}
+				}
+				clCtx.restore();
+
+				// ── Step 2: Polygon face edges ──
+				// Draw boundary edges where this face does NOT own the tab.
+				// For a shared edge, one face draws the tab (step 1) and the
+				// other face draws its polygon edge here. Truly open edges
+				// (no neighbor or neighbor not placed) are always drawn.
+				for (let i = 0; i < 32; i++) {
+					if (!lPlaced[i]) continue;
+					const fx = data[i * 4], fy = data[i * 4 + 1], rot = data[i * 4 + 2];
+					const n = nSides(i), cr = circumR(i) / scale;
+					for (let k = 0; k < n; k++) {
+						const info = edgeNeighbor[i][k];
+						if (info && info.isInternal) continue; // skip fold lines
+						// If the neighbor is placed and this face owns the tab,
+						// the tab outline (step 1) already covers this edge.
+						if (info && lPlaced[info.j]) {
+							const ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							let iOwnTab;
+							if (tabsMap && ek in tabsMap) iOwnTab = (tabsMap[ek] === i);
+							else iOwnTab = !(info.j < i);
+							if (iOwnTab) continue;
+						}
+						const a1 = rot + (2 * k + 1) * Math.PI / n;
+						const a2 = rot + (2 * (k + 1) + 1) * Math.PI / n;
+						const v1x = fx + cr * Math.cos(a1), v1y = fy + cr * Math.sin(a1);
+						const v2x = fx + cr * Math.cos(a2), v2y = fy + cr * Math.sin(a2);
+						clCtx.beginPath();
+						clCtx.moveTo(ovX(v1x), ovY(v1y));
+						clCtx.lineTo(ovX(v2x), ovY(v2y));
+						clCtx.stroke();
+					}
+				}
+				// Upload cut line canvas to TEXTURE3 (premultiplied alpha for clean compositing)
+				const cutLineTex = gl.createTexture();
+				gl.activeTexture(gl.TEXTURE3);
+				gl.bindTexture(gl.TEXTURE_2D, cutLineTex);
+				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, clCanvas);
+				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+				gl.generateMipmap(gl.TEXTURE_2D);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+				gl.uniform1i(uCutLineOverlay, 3);
+
+				// Store layout data on window for mode-switching re-upload
 				window.buckyBBox = { x0: bbX0, y0: bbY0, x1: bbX1, y1: bbY1 };
 				window._bucky32PaperRect = { x0: paperX0, y0: paperY0, x1: paperX1, y1: paperY1 };
 				window._bucky32Data = data;
 				window._bucky32Scale = scale;
 				window._bucky32BBox = [bbX0, bbY0, bbX1, bbY1];
 				window._bucky32OverlayTex = overlayTex;
+				window._bucky32CutLineTex = cutLineTex;
 
 				return { seed: layoutSeed, rootRot: lRes[layoutSeed].r };
 			}
@@ -3131,14 +3370,130 @@ void main() {
 				gl.uniform1f(uBuckyScale, scale);
 				gl.uniform4f(uBuckyBBox, bbX0, bbY0, bbX1, bbY1);
 
+				// ── Cut line overlay canvas ──
+				// Renders the outline you'd physically cut with scissors:
+				//  1) Tab trapezoid outlines (3 open edges, no base) clipped
+				//     to polygon interiors so they don't protrude into faces
+				//  2) Polygon boundary edges where this face does NOT own the
+				//     tab (the other face draws it), plus truly open edges
+				const clCanvas = document.createElement('canvas');
+				clCanvas.width = OVW;
+				clCanvas.height = OVH;
+				const clCtx = clCanvas.getContext('2d');
+				clCtx.clearRect(0, 0, OVW, OVH);
+				clCtx.strokeStyle = 'rgba(0, 0, 0, 1.0)';
+				clCtx.lineWidth = 2;
+				clCtx.lineJoin = 'round';
+
+				// ── Step 1: Glue tab outlines (clipped to polygon interiors) ──
+				// Build an evenodd clip region: full canvas minus all rhombus
+				// interiors. Tab edges protruding into a face get clipped.
+				clCtx.save();
+				clCtx.beginPath();
+				clCtx.rect(0, 0, OVW, OVH);
+				for (let i = 0; i < 30; i++) {
+					if (!lPlaced[i]) continue;
+					const verts = rhombVerts(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
+					clCtx.moveTo(ovX(verts[0][0]), ovY(verts[0][1]));
+					for (let k = 1; k < 4; k++) clCtx.lineTo(ovX(verts[k][0]), ovY(verts[k][1]));
+					clCtx.closePath();
+				}
+				clCtx.clip('evenodd');
+
+				// Draw tab trapezoids as open paths (v1 → o1 → o2 → v2).
+				// Normal direction uses flapHitsAnyFace probe to flip outward.
+				// Inset varies per edge: acute vs obtuse rhombus corners.
+				for (let i = 0; i < 30; i++) {
+					if (!lPlaced[i]) continue;
+					const fx = data[i * 4], fy = data[i * 4 + 1];
+					const verts = rhombVerts(fx, fy, data[i * 4 + 2]);
+					for (let k = 0; k < 4; k++) {
+						const info = edgeNeighbor[i][k];
+						if (info && info.isInternal) continue; // skip fold lines
+						// Only the face that owns the tab draws it
+						if (info) {
+							const ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							if (tabsMap && ek in tabsMap) { if (tabsMap[ek] !== i) continue; }
+							else { if (info.j < i) continue; }
+						}
+						const v1 = verts[k], v2 = verts[(k + 1) % 4];
+						// Compute outward normal via edge midpoint
+						const emx = (v1[0] + v2[0]) / 2 - fx;
+						const emy = (v1[1] + v2[1]) / 2 - fy;
+						const eml = Math.sqrt(emx * emx + emy * emy);
+						let nx = emx / eml, ny = emy / eml;
+						// Probe whether this direction collides with another face
+						const probeCX = (v1[0] + v2[0]) / 2 + nx * tabH * 0.5;
+						const probeCY = (v1[1] + v2[1]) / 2 + ny * tabH * 0.5;
+						if (flapHitsAnyFace(probeCX, probeCY, i)) { nx = -nx; ny = -ny; }
+						const dx = v2[0] - v1[0], dy = v2[1] - v1[1];
+						const ins1 = (k % 2 === 0) ? tabInsetAcute : tabInsetObtuse;
+						const ins2 = (k % 2 === 0) ? tabInsetObtuse : tabInsetAcute;
+						const o1x = v1[0] + nx * tabH + dx * ins1;
+						const o1y = v1[1] + ny * tabH + dy * ins1;
+						const o2x = v2[0] + nx * tabH - dx * ins2;
+						const o2y = v2[1] + ny * tabH - dy * ins2;
+						// Open path: diagonal → outer edge → diagonal (no base)
+						clCtx.beginPath();
+						clCtx.moveTo(ovX(v1[0]), ovY(v1[1]));
+						clCtx.lineTo(ovX(o1x), ovY(o1y));
+						clCtx.lineTo(ovX(o2x), ovY(o2y));
+						clCtx.lineTo(ovX(v2[0]), ovY(v2[1]));
+						clCtx.stroke();
+					}
+				}
+				clCtx.restore();
+
+				// ── Step 2: Polygon face edges ──
+				// Draw boundary edges where this face does NOT own the tab.
+				// For a shared edge, one face draws the tab (step 1) and the
+				// other face draws its polygon edge here. Truly open edges
+				// (no neighbor or neighbor not placed) are always drawn.
+				for (let i = 0; i < 30; i++) {
+					if (!lPlaced[i]) continue;
+					const verts = rhombVerts(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
+					for (let k = 0; k < 4; k++) {
+						const info = edgeNeighbor[i][k];
+						if (info && info.isInternal) continue; // skip fold lines
+						// If the neighbor is placed and this face owns the tab,
+						// the tab outline (step 1) already covers this edge.
+						if (info && lPlaced[info.j]) {
+							const ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							let iOwnTab;
+							if (tabsMap && ek in tabsMap) iOwnTab = (tabsMap[ek] === i);
+							else iOwnTab = !(info.j < i);
+							if (iOwnTab) continue;
+						}
+						const v1 = verts[k], v2 = verts[(k + 1) % 4];
+						clCtx.beginPath();
+						clCtx.moveTo(ovX(v1[0]), ovY(v1[1]));
+						clCtx.lineTo(ovX(v2[0]), ovY(v2[1]));
+						clCtx.stroke();
+					}
+				}
+				// Upload cut line canvas to TEXTURE3 (premultiplied alpha for clean compositing)
+				const cutLineTex = gl.createTexture();
+				gl.activeTexture(gl.TEXTURE3);
+				gl.bindTexture(gl.TEXTURE_2D, cutLineTex);
+				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, clCanvas);
+				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+				gl.generateMipmap(gl.TEXTURE_2D);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+				gl.uniform1i(uCutLineOverlay, 3);
+
 				window.buckyBBox = { x0: bbX0, y0: bbY0, x1: bbX1, y1: bbY1 };
 
-				// Store data for mode-switching re-upload
+				// Store layout data on window for mode-switching re-upload
 				window._rhombic30PaperRect = { x0: paperX0, y0: paperY0, x1: paperX1, y1: paperY1 };
 				window._rhombic30Data = data;
 				window._rhombic30Scale = scale;
 				window._rhombic30BBox = [bbX0, bbY0, bbX1, bbY1];
 				window._rhombic30OverlayTex = overlayTex;
+				window._rhombic30CutLineTex = cutLineTex;
 
 				return { seed: layoutSeed, rootRot: lRes[layoutSeed].r };
 			}
@@ -3552,6 +3907,115 @@ void main() {
 			window._truncOct14Scale = scale;
 			window._truncOct14BBox = [bbX0, bbY0, bbX1, bbY1];
 			window._truncOct14OverlayTex = overlayTex;
+
+			// ── Cut line overlay canvas ──
+			// Renders the outline you'd physically cut with scissors:
+			//  1) Tab trapezoid outlines (3 open edges, no base) clipped
+			//     to polygon interiors so they don't protrude into faces
+			//  2) Polygon boundary edges where this face does NOT own the
+			//     tab (the other face draws it), plus truly open edges
+			const clCanvas = document.createElement('canvas');
+			clCanvas.width = OVW;
+			clCanvas.height = OVH;
+			const clCtx = clCanvas.getContext('2d');
+			clCtx.clearRect(0, 0, OVW, OVH);
+			clCtx.strokeStyle = 'rgba(0, 0, 0, 1.0)';
+			clCtx.lineWidth = 2;
+			clCtx.lineJoin = 'round';
+
+			// ── Step 1: Glue tab outlines (clipped to polygon interiors) ──
+			// Build an evenodd clip region: full canvas minus all polygon
+			// interiors (hexagons + squares). Tab edges protruding into a
+			// face get clipped at the polygon boundary.
+			clCtx.save();
+			clCtx.beginPath();
+			clCtx.rect(0, 0, OVW, OVH);
+			for (let i = 0; i < 14; i++) {
+				if (!placed[i]) continue;
+				const fx = data[i * 4], fy = data[i * 4 + 1], rot = data[i * 4 + 2];
+				const n = nSides(i), cr = circumR(i) / scale;
+				for (let k = 0; k < n; k++) {
+					const a = rot + (2 * k + 1) * Math.PI / n;
+					const vx = fx + cr * Math.cos(a);
+					const vy = fy + cr * Math.sin(a);
+					if (k === 0) clCtx.moveTo(ovX(vx), ovY(vy));
+					else clCtx.lineTo(ovX(vx), ovY(vy));
+				}
+				clCtx.closePath();
+			}
+			clCtx.clip('evenodd');
+
+			// Draw tab trapezoids as open paths (v1 → o1 → o2 → v2).
+			// Truncoct uses simple i < j dedup (no tabsMap).
+			for (let i = 0; i < 14; i++) {
+				if (!placed[i]) continue;
+				const fx = data[i * 4], fy = data[i * 4 + 1], rot = data[i * 4 + 2];
+				const n = nSides(i), cr = circumR(i) / scale;
+				for (let k = 0; k < n; k++) {
+					const info = edgeNeighbor[i][k];
+					if (info && info.isInternal) continue; // skip fold lines
+					if (info && info.j < i) continue;       // dedup: lower index owns tab
+					// Compute trapezoid vertices
+					const a1 = rot + (2 * k + 1) * Math.PI / n;
+					const a2 = rot + (2 * (k + 1) + 1) * Math.PI / n;
+					const v1x = fx + cr * Math.cos(a1), v1y = fy + cr * Math.sin(a1);
+					const v2x = fx + cr * Math.cos(a2), v2y = fy + cr * Math.sin(a2);
+					const emx = (v1x + v2x) / 2 - fx, emy = (v1y + v2y) / 2 - fy;
+					const eml = Math.sqrt(emx * emx + emy * emy);
+					const nx = emx / eml, ny = emy / eml;
+					const dx = v2x - v1x, dy = v2y - v1y;
+					const o1x = v1x + nx * tabH + dx * tabInset;
+					const o1y = v1y + ny * tabH + dy * tabInset;
+					const o2x = v2x + nx * tabH - dx * tabInset;
+					const o2y = v2y + ny * tabH - dy * tabInset;
+					// Open path: diagonal → outer edge → diagonal (no base)
+					clCtx.beginPath();
+					clCtx.moveTo(ovX(v1x), ovY(v1y));
+					clCtx.lineTo(ovX(o1x), ovY(o1y));
+					clCtx.lineTo(ovX(o2x), ovY(o2y));
+					clCtx.lineTo(ovX(v2x), ovY(v2y));
+					clCtx.stroke();
+				}
+			}
+			clCtx.restore();
+
+			// ── Step 2: Polygon face edges ──
+			// Draw boundary edges where this face does NOT own the tab.
+			// Truncoct dedup: face with lower index owns the tab, so edge
+			// is drawn when info.j < i (neighbor owns it) or no neighbor.
+			for (let i = 0; i < 14; i++) {
+				if (!placed[i]) continue;
+				const fx = data[i * 4], fy = data[i * 4 + 1], rot = data[i * 4 + 2];
+				const n = nSides(i), cr = circumR(i) / scale;
+				for (let k = 0; k < n; k++) {
+					const info = edgeNeighbor[i][k];
+					if (info && info.isInternal) continue; // skip fold lines
+					// Skip if this face owns the tab (neighbor has higher index)
+					if (info && placed[info.j] && !(info.j < i)) continue;
+					const a1 = rot + (2 * k + 1) * Math.PI / n;
+					const a2 = rot + (2 * (k + 1) + 1) * Math.PI / n;
+					const v1x = fx + cr * Math.cos(a1), v1y = fy + cr * Math.sin(a1);
+					const v2x = fx + cr * Math.cos(a2), v2y = fy + cr * Math.sin(a2);
+					clCtx.beginPath();
+					clCtx.moveTo(ovX(v1x), ovY(v1y));
+					clCtx.lineTo(ovX(v2x), ovY(v2y));
+					clCtx.stroke();
+				}
+			}
+			// Upload cut line canvas to TEXTURE3 (premultiplied alpha for clean compositing)
+			const cutLineTex = gl.createTexture();
+			gl.activeTexture(gl.TEXTURE3);
+			gl.bindTexture(gl.TEXTURE_2D, cutLineTex);
+			gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, clCanvas);
+			gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+			gl.generateMipmap(gl.TEXTURE_2D);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+			gl.uniform1i(uCutLineOverlay, 3);
+			window._truncOct14CutLineTex = cutLineTex;
 		})();
 
 		// ── Upload the correct net layout data based on current projection mode ──
@@ -3568,6 +4032,11 @@ void main() {
 			gl.uniform4f(uBuckyBBox, bb[0], bb[1], bb[2], bb[3]);
 			gl.activeTexture(gl.TEXTURE1);
 			gl.bindTexture(gl.TEXTURE_2D, tex);
+			const clTex = isTruncOct ? window._truncOct14CutLineTex : isRhombic ? window._rhombic30CutLineTex : window._bucky32CutLineTex;
+			if (clTex) {
+				gl.activeTexture(gl.TEXTURE3);
+				gl.bindTexture(gl.TEXTURE_2D, clTex);
+			}
 			window.buckyBBox = { x0: bb[0], y0: bb[1], x1: bb[2], y1: bb[3] };
 			const pr = isRhombic ? window._rhombic30PaperRect : window._bucky32PaperRect;
 			if (pr) gl.uniform4f(uBuckyPaperRect, pr.x0, pr.y0, pr.x1, pr.y1);
@@ -3604,6 +4073,13 @@ void main() {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 		gl.uniform1i(uEquirectNearest, 2);
+
+		// Placeholder cut line overlay (1×1 transparent)
+		const cutLinePlaceholder = gl.createTexture();
+		gl.activeTexture(gl.TEXTURE3);
+		gl.bindTexture(gl.TEXTURE_2D, cutLinePlaceholder);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
+		gl.uniform1i(uCutLineOverlay, 3);
 
 		let hasTexture = 0;
 		let texWidth = 0, texHeight = 0;
@@ -3718,8 +4194,8 @@ void main() {
 		const azimuthalMaskToggle = document.getElementById('azimuthal-mask');
 		const azimuthalZoomSlider = document.getElementById('azimuthal-zoom');
 		const azimuthalZoomVal = document.getElementById('azimuthal-zoom-val');
-		const minecraftSlider = document.getElementById('minecraft-slider');
-		const minecraftVal = document.getElementById('minecraft-val');
+		const pixelateSlider = document.getElementById('pixelate-slider');
+		const pixelateVal = document.getElementById('pixelate-val');
 		const stereoDSlider = document.getElementById('stereo-d');
 		const stereoDVal = document.getElementById('stereo-d-val');
 		const stereoA0Slider = document.getElementById('stereo-a0');
@@ -3745,6 +4221,7 @@ void main() {
 		let globeReflect = 0.75;
 		let showGrid = false;
 		let buckyOverlayAlpha = 0.33;
+		let cutLineMode = 0; // 0 = off, 1 = overlay, 2 = cut only
 		let levelMode = false;
 		let isLeveled = false;
 		let levelQuat = [0, 0, 0, 1];
@@ -3784,7 +4261,7 @@ void main() {
 		let azimuthalZoom = 1.0;
 
 		// Pixelate (nearest-neighbor interpolation)
-		let minecraft = 1.0;
+		let pixelate = 1.0;
 
 		// Stereographic parameters
 		let stereoD = 2.0;
@@ -3805,13 +4282,17 @@ void main() {
 			fovVal.textContent = fovDeg + '°';
 			saveProjectionConfig();
 		});
-		minecraftSlider.addEventListener('input', () => {
-			minecraft = +minecraftSlider.value / 100;
-			minecraftVal.textContent = minecraftSlider.value + '%';
+		fovSlider.addEventListener('dblclick', () => {
+			fovDeg = 135; fovSlider.value = 135; fovVal.textContent = '135°';
 			saveProjectionConfig();
 		});
-		minecraftSlider.addEventListener('dblclick', () => {
-			minecraft = 1.0; minecraftSlider.value = 100; minecraftVal.textContent = '100%';
+		pixelateSlider.addEventListener('input', () => {
+			pixelate = +pixelateSlider.value / 100;
+			pixelateVal.textContent = pixelateSlider.value + '%';
+			saveProjectionConfig();
+		});
+		pixelateSlider.addEventListener('dblclick', () => {
+			pixelate = 1.0; pixelateSlider.value = 100; pixelateVal.textContent = '100%';
 			saveProjectionConfig();
 		});
 		collageRotationSlider.addEventListener('input', () => {
@@ -4094,16 +4575,18 @@ void main() {
 		});
 
 		const fovRow = document.getElementById('fov-row');
-		const minecraftRow = document.getElementById('minecraft-row');
+		const pixelateRow = document.getElementById('pixelate-row');
 		const collageRow = document.getElementById('collage-row');
 		const azimuthalRow = document.getElementById('azimuthal-row');
 		const azimuthalZoomRow = document.getElementById('azimuthal-zoom-row');
 		const collageRotationRow = document.getElementById('collage-rotation-row');
 		const stereographicRow = document.getElementById('stereographic-row');
 		const netRow = document.getElementById('net-row');
+		const cutlineRow = document.getElementById('cutline-row');
+		const cutlineToggle = document.getElementById('cutline-toggle');
 		const facesRow = document.getElementById('faces-row');
 		const globeRow = document.getElementById('globe-row');
-		const screenshotRow = document.getElementById('screenshot-row');
+		const exportRow = document.getElementById('export-wrap');
 		const magnifierGroup = document.getElementById('magnifier-group');
 		const buckyLayoutRow = document.getElementById('bucky-layout-row');
 		const rhombicLayoutRow = document.getElementById('rhombic-layout-row');
@@ -4121,19 +4604,20 @@ void main() {
 			const isFoldable = isBucky || isRhombic || isTruncOct;
 			const isAnyPreview = isBuckyPreview || isRhombicPreview || isTruncOctPreview;
 			fovRow.style.display = (isPerspective || isAnyPreview) ? 'contents' : 'none';
-			minecraftRow.style.display = (isStereo || isPerspective || isAzimuthal || isCollage) ? 'contents' : 'none';
+			pixelateRow.style.display = (isStereo || isPerspective || isAzimuthal || isCollage) ? 'contents' : 'none';
 			azimuthalRow.style.display = (isAzimuthal || isCollage) ? 'contents' : 'none';
 			azimuthalZoomRow.style.display = (isAzimuthal || isCollage || isStereo) ? 'contents' : 'none';
 			collageRow.style.display = isCollage ? 'contents' : 'none';
 			collageRotationRow.style.display = isCollage ? 'contents' : 'none';
 			stereographicRow.style.display = isStereo ? 'contents' : 'none';
 			netRow.style.display = (isFoldable || isAnyPreview) ? 'contents' : 'none';
+			cutlineRow.style.display = isFoldable ? 'contents' : 'none';
 			buckyLayoutRow.style.display = isBucky ? 'contents' : 'none';
 			rhombicLayoutRow.style.display = isRhombic ? 'contents' : 'none';
 			facesRow.style.display = isAnyPreview ? 'contents' : 'none';
 			globeRow.style.display = (isFoldable || isAnyPreview || isAzimuthal || isCollage || isStereo) ? 'none' : '';
 			magnifierGroup.style.display = (isFoldable || isAnyPreview) ? 'none' : '';
-			if (screenshotRow) screenshotRow.style.display = hasTexture ? '' : 'none';
+			if (exportRow) exportRow.style.display = hasTexture ? '' : 'none';
 			// Swap net overlay data when switching between foldable modes
 			if (isFoldable || isAnyPreview) uploadActiveNetData();
 		}
@@ -4213,6 +4697,14 @@ void main() {
 			buckyOverlayAlpha = +netAlphaSlider.value / 100;
 			netAlphaVal.textContent = netAlphaSlider.value + '%';
 			saveProjectionConfig();
+		});
+
+		// Cut line toggle: cycles Off → Overlay (on top of net) → Only (white bg + lines)
+		const cutLineLabels = ['Off', 'Overlay', 'Only'];
+		cutlineToggle.addEventListener('click', () => {
+			cutLineMode = (cutLineMode + 1) % 3;
+			cutlineToggle.textContent = cutLineLabels[cutLineMode];
+			needsRedraw = true;
 		});
 
 		function viewMatrix() {
@@ -5259,7 +5751,7 @@ void main() {
 						stereoA1,
 						stereoA2,
 						stereoA3,
-						minecraft
+						pixelate
 					}, configKey());
 				});
 			} catch (e) { console.warn('Failed to save projection config:', e); }
@@ -5362,10 +5854,10 @@ void main() {
 				stereoA3Slider.value = stereoA3;
 				stereoA3Val.textContent = stereoA3.toFixed(2);
 			}
-			if (typeof cfg.minecraft === 'number') {
-				minecraft = cfg.minecraft;
-				minecraftSlider.value = Math.round(minecraft * 100);
-				minecraftVal.textContent = Math.round(minecraft * 100) + '%';
+			if (typeof cfg.pixelate === 'number') {
+				pixelate = cfg.pixelate;
+				pixelateSlider.value = Math.round(pixelate * 100);
+				pixelateVal.textContent = Math.round(pixelate * 100) + '%';
 			}
 			// Update Euler angle sliders to reflect restored quaternion
 			updateCamSliders();
@@ -5388,7 +5880,212 @@ void main() {
 			needsRedraw = true;
 		});
 
-		const screenshotBtn = document.getElementById('screenshot-btn');
+		const exportBtn = document.getElementById('export-btn');
+		const exportFmt = document.getElementById('export-fmt');
+		const iccSection = document.getElementById('icc-section');
+		const iccSelect = document.getElementById('icc-select');
+		const iccLoadBtn = document.getElementById('icc-load-btn');
+		const iccFileInput = document.getElementById('icc-file');
+		let iccProfileData = null; // ArrayBuffer of the currently selected profile
+
+		// Show/hide ICC section based on format selection
+		exportFmt.addEventListener('change', () => {
+			iccSection.classList.toggle('visible', exportFmt.value === 'tiff');
+		});
+
+		// ── ICC profile caching in IndexedDB (prefix 'icc:') ──
+		async function iccCacheStore(name, arrayBuffer) {
+			const db = await openDB();
+			const tx = db.transaction(DB_STORE, 'readwrite');
+			tx.objectStore(DB_STORE).put({ name, buf: arrayBuffer, ts: Date.now() }, 'icc:' + name);
+			return new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); });
+		}
+		async function iccCacheLoad(name) {
+			const db = await openDB();
+			const tx = db.transaction(DB_STORE, 'readonly');
+			const req = tx.objectStore(DB_STORE).get('icc:' + name);
+			return new Promise((resolve, reject) => { req.onsuccess = () => resolve(req.result || null); req.onerror = () => reject(req.error); });
+		}
+		async function iccCacheListNames() {
+			const db = await openDB();
+			const tx = db.transaction(DB_STORE, 'readonly');
+			const req = tx.objectStore(DB_STORE).getAllKeys();
+			return new Promise((resolve, reject) => {
+				req.onsuccess = () => resolve(req.result.filter(k => typeof k === 'string' && k.startsWith('icc:')).map(k => k.slice(4)));
+				req.onerror = () => reject(req.error);
+			});
+		}
+
+		async function updateIccSelect(restoreLast) {
+			const names = await iccCacheListNames();
+			const prev = iccSelect.value;
+			iccSelect.innerHTML = '<option value="">(no ICC profile)</option>';
+			for (const n of names) {
+				const opt = document.createElement('option');
+				opt.value = n;
+				opt.textContent = n;
+				iccSelect.appendChild(opt);
+			}
+			if (restoreLast) {
+				const db = await openDB();
+				const tx = db.transaction(DB_STORE, 'readonly');
+				const req = tx.objectStore(DB_STORE).get('lastIcc');
+				const last = await new Promise(r => { req.onsuccess = () => r(req.result); req.onerror = () => r(''); });
+				if (last && names.includes(last)) {
+					iccSelect.value = last;
+					const entry = await iccCacheLoad(last);
+					iccProfileData = entry ? entry.buf : null;
+				}
+			} else if (names.includes(prev)) {
+				iccSelect.value = prev;
+			}
+		}
+
+		iccSelect.addEventListener('change', async () => {
+			// Persist selection
+			const db = await openDB();
+			const tx = db.transaction(DB_STORE, 'readwrite');
+			tx.objectStore(DB_STORE).put(iccSelect.value, 'lastIcc');
+			if (!iccSelect.value) { iccProfileData = null; return; }
+			const entry = await iccCacheLoad(iccSelect.value);
+			iccProfileData = entry ? entry.buf : null;
+		});
+
+		iccLoadBtn.addEventListener('click', () => iccFileInput.click());
+		iccFileInput.addEventListener('change', async () => {
+			const f = iccFileInput.files[0];
+			if (!f) return;
+			const buf = await f.arrayBuffer();
+			await iccCacheStore(f.name, buf);
+			await updateIccSelect();
+			iccSelect.value = f.name;
+			iccProfileData = buf;
+			iccFileInput.value = '';
+		});
+
+		updateIccSelect(true);
+
+		// ── RGB→CMYK conversion (naive formula) ──
+		// Takes RGBA Uint8Array (bottom-to-top from WebGL), returns CMYK Uint8Array (top-to-bottom)
+		function rgbaToCmyk(pixels, w, h) {
+			const cmyk = new Uint8Array(w * h * 4);
+			for (let y = 0; y < h; y++) {
+				const srcRow = (h - 1 - y) * w * 4; // flip Y
+				const dstRow = y * w * 4;
+				for (let x = 0; x < w; x++) {
+					const si = srcRow + x * 4;
+					const di = dstRow + x * 4;
+					const r = pixels[si] / 255;
+					const g = pixels[si + 1] / 255;
+					const b = pixels[si + 2] / 255;
+					const k = 1 - Math.max(r, g, b);
+					if (k >= 1) {
+						cmyk[di] = 0; cmyk[di + 1] = 0; cmyk[di + 2] = 0; cmyk[di + 3] = 255;
+					} else {
+						const invK = 1 / (1 - k);
+						cmyk[di]     = ((1 - r - k) * invK * 255 + 0.5) | 0;
+						cmyk[di + 1] = ((1 - g - k) * invK * 255 + 0.5) | 0;
+						cmyk[di + 2] = ((1 - b - k) * invK * 255 + 0.5) | 0;
+						cmyk[di + 3] = (k * 255 + 0.5) | 0;
+					}
+				}
+			}
+			return cmyk;
+		}
+
+		// ── Minimal CMYK TIFF encoder (uncompressed, little-endian) ──
+		function encodeCmykTiff(w, h, cmykData, dpi, iccProfile) {
+			// IFD tag count depends on whether ICC profile is included
+			const hasICC = iccProfile && iccProfile.byteLength > 0;
+			const numTags = hasICC ? 13 : 12;
+
+			// Layout:
+			// [0..7]     TIFF header (8 bytes)
+			// [8..N]     IFD: 2 byte count + numTags*12 + 4 byte next-IFD
+
+			const ifdSize = 2 + numTags * 12 + 4;
+			const extraOffset = 8 + ifdSize; // where extra tag data starts
+
+			// Extra data: BitsPerSample (8 bytes) + XRes (8) + YRes (8) = 24 bytes
+			const bpsOffset = extraOffset;
+			const xResOffset = bpsOffset + 8;
+			const yResOffset = xResOffset + 8;
+			let iccOffset = 0;
+			let pixelDataOffset = yResOffset + 8;
+
+			if (hasICC) {
+				iccOffset = pixelDataOffset;
+				pixelDataOffset = iccOffset + iccProfile.byteLength;
+				// align pixel data to even boundary
+				if (pixelDataOffset & 1) pixelDataOffset++;
+			}
+
+			const imageBytes = w * h * 4;
+			const totalSize = pixelDataOffset + imageBytes;
+			const buf = new ArrayBuffer(totalSize);
+			const view = new DataView(buf);
+			const u8 = new Uint8Array(buf);
+
+			// TIFF header: little-endian, magic 42, IFD at offset 8
+			view.setUint16(0, 0x4949, false); // 'II'
+			view.setUint16(2, 42, true);
+			view.setUint32(4, 8, true);
+
+			// IFD entry count
+			let pos = 8;
+			view.setUint16(pos, numTags, true); pos += 2;
+
+			function writeTag(tag, type, count, value) {
+				view.setUint16(pos, tag, true); pos += 2;
+				view.setUint16(pos, type, true); pos += 2;
+				view.setUint32(pos, count, true); pos += 4;
+				view.setUint32(pos, value, true); pos += 4;
+			}
+
+			// Tags must be in ascending order
+			writeTag(256, 3, 1, w);                           // ImageWidth (SHORT)
+			writeTag(257, 3, 1, h);                           // ImageLength (SHORT)
+			writeTag(258, 3, 4, bpsOffset);                   // BitsPerSample → offset
+			writeTag(259, 3, 1, 1);                           // Compression = None
+			writeTag(262, 3, 1, 5);                           // PhotometricInterpretation = CMYK
+			writeTag(273, 4, 1, pixelDataOffset);             // StripOffsets
+			writeTag(277, 3, 1, 4);                           // SamplesPerPixel
+			writeTag(278, 3, 1, h);                           // RowsPerStrip = all
+			writeTag(279, 4, 1, imageBytes);                  // StripByteCounts
+			writeTag(282, 5, 1, xResOffset);                  // XResolution → offset
+			writeTag(283, 5, 1, yResOffset);                  // YResolution → offset
+			writeTag(296, 3, 1, 2);                           // ResolutionUnit = inch
+			if (hasICC) {
+				writeTag(34675, 7, iccProfile.byteLength, iccOffset); // ICCProfile (UNDEFINED)
+			}
+
+			// Next IFD = 0 (no more IFDs)
+			view.setUint32(pos, 0, true);
+
+			// Extra data: BitsPerSample [8, 8, 8, 8]
+			view.setUint16(bpsOffset, 8, true);
+			view.setUint16(bpsOffset + 2, 8, true);
+			view.setUint16(bpsOffset + 4, 8, true);
+			view.setUint16(bpsOffset + 6, 8, true);
+
+			// XResolution rational: dpi / 1
+			view.setUint32(xResOffset, dpi, true);
+			view.setUint32(xResOffset + 4, 1, true);
+			// YResolution rational: dpi / 1
+			view.setUint32(yResOffset, dpi, true);
+			view.setUint32(yResOffset + 4, 1, true);
+
+			// ICC profile data
+			if (hasICC) {
+				u8.set(new Uint8Array(iccProfile), iccOffset);
+			}
+
+			// Pixel data (CMYK interleaved)
+			u8.set(cmykData, pixelDataOffset);
+
+			return buf;
+		}
+
 		const cachedFilesEl = document.getElementById('cached-files');
 
 		function formatSize(bytes) {
@@ -5483,7 +6180,7 @@ void main() {
 							timelineEl.style.display = 'none';
 							gl.bindTexture(gl.TEXTURE_2D, tex);
 							gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
-							if (screenshotRow) screenshotRow.style.display = 'none';
+							if (exportRow) exportRow.style.display = 'none';
 							// test pattern has a leveled horizon at identity
 							camQuat = [0, 0, 0, 1];
 							levelQuat = [0, 0, 0, 1];
@@ -5550,14 +6247,15 @@ void main() {
 			tx.objectStore(DB_STORE).put(name, 'lastFile');
 		}
 
-		// ── Screenshot export ──
+		// ── Image export ──
 		// Resizes the canvas to export resolution, renders, reads pixels, then restores.
 		// For buckyball projection: clips to the net bounding box with 1:1 aspect,
 		// resolution slightly larger than the source equirect texture.
 		// For other projections: keeps viewport aspect ratio at source texture height.
-		screenshotBtn.addEventListener('click', () => {
+		exportBtn.addEventListener('click', () => {
 			if (!texWidth || !texHeight) return;
 
+			const isEquirect = projectionModeIndex === M_EQUIRECT;
 			const isAzimuthal = projectionModeIndex === M_AZIMUTHAL;
 			const isCollage = projectionModeIndex === M_COLLAGE;
 			const isStereo = projectionModeIndex === M_STEREO;
@@ -5565,7 +6263,12 @@ void main() {
 			const isBucky = projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_TRUNCOCT_FOLDABLE;
 			let w, h;
 
-			if (isAzimuthal) {
+			if (isEquirect) {
+				// Equirectangular: export at original texture dimensions
+				w = texWidth;
+				h = texHeight;
+				gl.uniform4f(uExportClip, -1, -1, 1, 1);
+			} else if (isAzimuthal) {
 				// Azimuthal: square export at source texture width
 				w = texWidth;
 				h = texWidth;
@@ -5642,12 +6345,13 @@ void main() {
 			gl.uniformMatrix3fv(uViewMatrix, false, viewMatrix());
 			gl.uniformMatrix3fv(uPreviewMatrix, false, previewMatrix());
 			gl.uniform1f(uHasTexture, hasTexture);
-			gl.uniform1f(uMinecraft, minecraft);
+			gl.uniform1f(uPixelate, pixelate);
 			gl.uniform1f(uGlobeRadius, 0.0); // no globe in export
 			gl.uniform1f(uRefractivity, 1.0); // no magnifier in export
 			gl.uniform1f(uProjection, projectionModeIndex);
 			gl.uniform1f(uShowGrid, showGrid ? 1.0 : 0.0);
 			gl.uniform1f(uBuckyOverlayAlpha, buckyOverlayAlpha);
+			gl.uniform1f(uCutLineMode, cutLineMode);
 			gl.uniform1f(uCollageRotation, collageRotationDeg * Math.PI / 180);
 			gl.uniform1f(uCollageFlip, collageFlip ? -1.0 : 1.0);
 			gl.uniform1f(uAzimuthalMask, azimuthalMask ? 1.0 : 0.0);
@@ -5670,24 +6374,56 @@ void main() {
 			resize();
 
 			// Flip Y and write to 2D canvas for PNG export
-			const out = document.createElement('canvas');
-			out.width = w; out.height = h;
-			const ctx2 = out.getContext('2d');
-			const imgData = ctx2.createImageData(w, h);
-			for (let y = 0; y < h; y++) {
-				const srcRow = (h - 1 - y) * w * 4;
-				const dstRow = y * w * 4;
-				imgData.data.set(pixels.subarray(srcRow, srcRow + w * 4), dstRow);
-			}
-			ctx2.putImageData(imgData, 0, 0);
-
-			// Trigger download
 			const a = document.createElement('a');
-			const baseName = sourceFileName ? sourceFileName.replace(/\.[^.]+$/, '') : 'dome-mapper';
+			const baseName = cutLineMode === 2 ? 'cutline' : (sourceFileName ? sourceFileName.replace(/\.[^.]+$/, '') : 'dome-mapper');
+			const cutTag = (cutLineMode === 1) ? '-cutline' : '';
 			const projName = projectionModes[projectionModeIndex].replace(/\s+/g, '-');
-			a.download = baseName + '-' + projName + '-' + w + 'x' + h + '.png';
-			a.href = out.toDataURL('image/png');
-			a.click();
+
+			if (exportFmt.value === 'tiff') {
+				// CMYK TIFF export (rotated to portrait if landscape)
+				let cmyk = rgbaToCmyk(pixels, w, h);
+				let tw = w, th = h;
+				if (w > h) {
+					// Rotate 90° clockwise: (x, y) → (h-1-y, x), swap dimensions
+					const rotated = new Uint8Array(w * h * 4);
+					for (let y = 0; y < h; y++) {
+						for (let x = 0; x < w; x++) {
+							const si = (y * w + x) * 4;
+							const dx = h - 1 - y;
+							const dy = x;
+							const di = (dy * h + dx) * 4;
+							rotated[di]     = cmyk[si];
+							rotated[di + 1] = cmyk[si + 1];
+							rotated[di + 2] = cmyk[si + 2];
+							rotated[di + 3] = cmyk[si + 3];
+						}
+					}
+					cmyk = rotated;
+					tw = h; th = w;
+				}
+				const tiffBuf = encodeCmykTiff(tw, th, cmyk, 300, iccProfileData);
+				const blob = new Blob([tiffBuf], { type: 'image/tiff' });
+				a.href = URL.createObjectURL(blob);
+				const iccTag = iccSelect.value ? '-' + iccSelect.value.replace(/\.icc$/i, '').replace(/\s+/g, '_') : '';
+				a.download = baseName + '-' + projName + '-' + tw + 'x' + th + cutTag + '-cmyk' + iccTag + '.tif';
+				a.click();
+				URL.revokeObjectURL(a.href);
+			} else {
+				// PNG export (default)
+				const out = document.createElement('canvas');
+				out.width = w; out.height = h;
+				const ctx2 = out.getContext('2d');
+				const imgData = ctx2.createImageData(w, h);
+				for (let y = 0; y < h; y++) {
+					const srcRow = (h - 1 - y) * w * 4;
+					const dstRow = y * w * 4;
+					imgData.data.set(pixels.subarray(srcRow, srcRow + w * 4), dstRow);
+				}
+				ctx2.putImageData(imgData, 0, 0);
+				a.download = baseName + '-' + projName + '-' + w + 'x' + h + cutTag + '.png';
+				a.href = out.toDataURL('image/png');
+				a.click();
+			}
 		});
 
 		// ══════════════════════════════════════════════════════════
@@ -5716,12 +6452,8 @@ void main() {
 
 			const w = src.width || src.naturalWidth;
 			const h = src.height || src.naturalHeight;
-			if (isPowerOf2(w) && isPowerOf2(h)) {
-				gl.generateMipmap(gl.TEXTURE_2D);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-			} else {
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-			}
+			gl.generateMipmap(gl.TEXTURE_2D);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -5944,6 +6676,11 @@ void main() {
 			const files = Array.from(e.target.files);
 			if (files.length) handleFiles(files);
 		});
+		document.querySelector('#open-file-btn input').addEventListener('change', e => {
+			const files = Array.from(e.target.files);
+			if (files.length) handleFiles(files);
+			e.target.value = '';
+		});
 
 		// Drag & drop
 		const dropZone = document.getElementById('drop-zone');
@@ -6008,13 +6745,14 @@ void main() {
 			gl.uniformMatrix3fv(uPreviewMatrix, false, previewMatrix());
 			gl.uniformMatrix3fv(uLevelMatrix, false, levelMatrix());
 			gl.uniform1f(uHasTexture, hasTexture);
-			gl.uniform1f(uMinecraft, minecraft);
+			gl.uniform1f(uPixelate, pixelate);
 			gl.uniform1f(uGlobeRadius, globeVisible ? globeSize / 100.0 : 0.0);
 			gl.uniform1f(uGlobeOpacity, globeOpacity);
 			gl.uniform1f(uGlobeReflect, globeReflect);
 			gl.uniform1f(uProjection, projectionModeIndex);
 			gl.uniform1f(uShowGrid, showGrid ? 1.0 : 0.0);
 			gl.uniform1f(uBuckyOverlayAlpha, buckyOverlayAlpha);
+			gl.uniform1f(uCutLineMode, cutLineMode);
 			gl.uniform4f(uExportClip, -1, -1, 1, 1);
 			gl.uniform2f(uPointer, pointerX, pointerY);
 			gl.uniform1f(uMagnifierRadius, magnifierEnabled ? magnifierRadius : 0.0);

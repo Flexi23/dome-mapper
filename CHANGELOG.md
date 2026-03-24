@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **CMYK TIFF export** — new format dropdown next to the Save button offers `CMYK TIFF` alongside the existing `PNG` export; produces an uncompressed TIFF with `PhotometricInterpretation = CMYK`, `SamplesPerPixel = 4`, and `300 DPI` resolution metadata (XResolution / YResolution tags), suitable for professional print workflows (ISO 12647-2:2013)
+- **ICC profile management** — when `CMYK TIFF` is selected, an ICC profile section appears with a dropdown of cached profiles and a `Load .icc` button; loaded profiles are persisted in IndexedDB (key prefix `icc:`) and survive page reloads; the selected profile is embedded via TIFF tag 34675 (ICCProfile), enabling tagged output for Fogra51 (PSOcoated_v3) or other print profiles
+- **Cut line overlay** — 3-state toggle (Off → Overlay → Only) available in all three foldable modes (buckyball-32, rhombic-30, truncoct-14); renders the physical cutting outline on a separate canvas (TEXTURE3), computed once per net build; tab trapezoid outlines are drawn as open paths (diagonals + outer edge, no base) and clipped to polygon interiors via even-odd winding; polygon boundary edges use tab-ownership logic (`tabsMap` or index-based dedup) so each shared edge is drawn exactly once; mode 1 composites cut lines on top of the normal view, mode 2 shows white background with cut lines only (for print)
+- **Cut line in export filenames** — mode 1 (Overlay) appends `-cutline` to the filename; mode 2 (Only) replaces the texture name with `cutline` since no panorama content is visible
+
 ### Removed
 - **Gamepad / joystick navigation** — removed the entire Three.js-based 3D joystick overlay, gamepad polling, button HUD, hat-switch projection cycling, rocker-to-globe-size mapping, and throttle-to-playback-speed control; keyboard and mouse navigation are unaffected
 - **Three.js dependency** — the ES module importmap and joystick overlay script (~540 lines) have been removed; the viewer is now fully dependency-free
