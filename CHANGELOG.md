@@ -17,7 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Gamepad / joystick navigation** — removed the entire Three.js-based 3D joystick overlay, gamepad polling, button HUD, hat-switch projection cycling, rocker-to-globe-size mapping, and throttle-to-playback-speed control; keyboard and mouse navigation are unaffected
 - **Three.js dependency** — the ES module importmap and joystick overlay script (~540 lines) have been removed; the viewer is now fully dependency-free
 
-## [0.15.0] - 2026-03-22
+## [0.16.0] - 2026-03-25
+
+### Added
+- **Collapsible controls panel** — ✕/☰ toggle button in the top row next to the Fullscreen button; collapses the entire settings panel to a single hamburger icon to maximize viewport space
+- **Collapsible file list** — same ✕/☰ toggle pattern on the cached files panel (top-left); hides the file table and open-file button when collapsed
+- **Arrow key navigation** — Left/Right arrows cycle through cached files; Up/Down arrows cycle through projection methods; keys are ignored when an input or select element is focused
+
+### Fixed
+- **Config/texture sync on file switch** — projection config is now loaded from IndexedDB *before* the texture is uploaded to GPU, so both apply in the same render frame; previously the `await loadProjectionConfig()` yielded to the event loop after `uploadTexture()` set `needsRedraw`, causing one frame with the new texture but old (default) configuration
+- **Config/texture sync on initial load** — same fix applied to the startup restore path; the saved camera, projection, and level settings are now visible from the very first frame instead of requiring a mouse move to trigger a redraw
 
 ### Added
 - **Touch support** — full multi-touch interaction via Pointer Events; all mouse-based interactions now work on touchscreens

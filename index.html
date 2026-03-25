@@ -126,6 +126,42 @@
 			gap: 5px;
 		}
 
+		#controls.collapsed > *:not(#top-row) {
+			display: none;
+		}
+
+		#controls.collapsed {
+			width: auto;
+		}
+
+		#controls.collapsed #fullscreen-btn {
+			display: none;
+		}
+
+		#top-row {
+			display: flex;
+			gap: 4px;
+			align-items: center;
+		}
+
+		#top-row #fullscreen-btn {
+			flex: 1;
+		}
+
+		#menu-toggle {
+			cursor: pointer;
+			background: none;
+			border: none;
+			color: #ccc;
+			font-size: 16px;
+			padding: 2px 4px;
+			line-height: 1;
+		}
+
+		#menu-toggle:hover {
+			color: #fff;
+		}
+
 		#controls label {
 			display: flex;
 			align-items: center;
@@ -440,6 +476,45 @@
 			border-radius: 6px;
 			font-size: 12px;
 			z-index: 5;
+			display: flex;
+			flex-direction: column;
+			gap: 4px;
+		}
+
+		#info-top-row {
+			display: flex;
+			align-items: center;
+			gap: 4px;
+		}
+
+		#info-top-row #open-file-btn {
+			flex: 1;
+		}
+
+		.info-toggle {
+			cursor: pointer;
+			background: none;
+			border: none;
+			color: #ccc;
+			font-size: 16px;
+			padding: 2px 4px;
+			line-height: 1;
+		}
+
+		.info-toggle:hover {
+			color: #fff;
+		}
+
+		#info.collapsed > *:not(#info-top-row) {
+			display: none !important;
+		}
+
+		#info.collapsed #open-file-btn {
+			display: none !important;
+		}
+
+		#info.collapsed {
+			width: auto;
 		}
 
 		#cached-files {
@@ -500,8 +575,6 @@
 		}
 
 		#open-file-btn {
-			display: block;
-			margin-top: 6px;
 			cursor: pointer;
 			font-size: 12px;
 			color: #4af;
@@ -607,11 +680,17 @@
 		</div>
 	</div>
 	<div id="info">
+		<div id="info-top-row">
+			<label id="open-file-btn" title="Open image or video">📂 Open file<input type="file" accept="image/*,video/*" multiple style="display:none"></label>
+			<button class="info-toggle" title="Toggle file list">✕</button>
+		</div>
 		<table id="cached-files"></table>
-		<label id="open-file-btn" title="Open image or video">📂 Open file<input type="file" accept="image/*,video/*" multiple style="display:none"></label>
 	</div>
 	<div id="controls">
-		<button id="fullscreen-btn" title="Toggle fullscreen">⛶ Fullscreen</button>
+		<div id="top-row">
+			<button id="fullscreen-btn" title="Toggle fullscreen">⛶ Fullscreen</button>
+			<button id="menu-toggle" title="Toggle menu">✕</button>
+		</div>
 		<div id="angles" class="slider-group hide-in-level-off">
 			<div class="group-label">Perspective <button id="level-btn"></button></div>
 			<div class="grid">
@@ -5462,6 +5541,31 @@ void main() {
 				saveProjectionConfig();
 				return;
 			}
+			// Left/Right: switch between cached files
+			if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
+				e.preventDefault();
+				cacheListNames().then(names => {
+					if (names.length < 2) return;
+					const idx = names.indexOf(sourceFileName);
+					const next = e.code === 'ArrowRight'
+						? (idx + 1) % names.length
+						: (idx - 1 + names.length) % names.length;
+					switchCachedFile(names[next]);
+				});
+				return;
+			}
+			// Up/Down: switch between projection methods
+			if (e.code === 'ArrowUp' || e.code === 'ArrowDown') {
+				e.preventDefault();
+				const opts = projectionSelect.options;
+				let idx = projectionSelect.selectedIndex;
+				idx = e.code === 'ArrowDown'
+					? (idx + 1) % opts.length
+					: (idx - 1 + opts.length) % opts.length;
+				projectionSelect.selectedIndex = idx;
+				projectionSelect.dispatchEvent(new Event('change'));
+				return;
+			}
 			keysDown[e.code] = { age: 0, reads: 0 };
 		});
 		document.addEventListener('keyup', e => { delete keysDown[e.code]; saveProjectionConfig(); });
@@ -5867,6 +5971,20 @@ void main() {
 			updateProjectionUI();
 		}
 
+		const menuToggle = document.getElementById('menu-toggle');
+		const controlsPanel = document.getElementById('controls');
+		menuToggle.addEventListener('click', () => {
+			const collapsed = controlsPanel.classList.toggle('collapsed');
+			menuToggle.textContent = collapsed ? '☰' : '✕';
+		});
+
+		const infoPanel = document.getElementById('info');
+		const infoToggle = infoPanel.querySelector('.info-toggle');
+		infoToggle.addEventListener('click', () => {
+			const collapsed = infoPanel.classList.toggle('collapsed');
+			infoToggle.textContent = collapsed ? '☰' : '✕';
+		});
+
 		const fullscreenBtn = document.getElementById('fullscreen-btn');
 		fullscreenBtn.addEventListener('click', () => {
 			if (!document.fullscreenElement) {
@@ -6215,6 +6333,8 @@ void main() {
 				if (_prevLevelQuat) levelQuat = [..._prevLevelQuat];
 				setLevelMode(false);
 			}
+			// load config before uploading texture so both apply in the same frame
+			const cfg = await loadProjectionConfig(name);
 			if (isVideoFile(name)) {
 				const url = URL.createObjectURL(cached.blob);
 				activateVideo(url, name);
@@ -6226,7 +6346,6 @@ void main() {
 				uploadTexture(img);
 				sourceFileName = name;
 			}
-			const cfg = await loadProjectionConfig(name);
 			if (cfg) {
 				applyProjectionConfig(cfg);
 			} else {
@@ -6239,6 +6358,7 @@ void main() {
 				updateLevelSliders();
 				updateLevelBtnState();
 			}
+			needsRedraw = true;
 			document.getElementById('drop-zone').style.display = 'none';
 			await updateCachedFilesList();
 			// persist last-viewed file so it restores on reload
@@ -6632,6 +6752,8 @@ void main() {
 				const cached = await cacheLoad();
 				if (cached) {
 					setProgress(0.5, 'restoring from cache…');
+					// load config before texture so both apply in the same frame
+					const cfg = await loadProjectionConfig(cached.name);
 					if (isVideoFile(cached.name)) {
 						const url = URL.createObjectURL(cached.blob);
 						activateVideo(url, cached.name);
@@ -6640,8 +6762,8 @@ void main() {
 						uploadTexture(img);
 						sourceFileName = cached.name;
 					}
-					const cfg = await loadProjectionConfig(cached.name);
 					applyProjectionConfig(cfg);
+					needsRedraw = true;
 					await updateCachedFilesList();
 					hideProgress();
 					return;
