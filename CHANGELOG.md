@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-03-25
+
 ### Added
+- **Collapsible controls panel** — ✕/☰ toggle button in the top row next to the Fullscreen button; collapses the entire settings panel to a single hamburger icon to maximize viewport space
+- **Collapsible file list** — same ✕/☰ toggle pattern on the cached files panel (top-left); hides the file table and open-file button when collapsed
+- **Arrow key navigation** — Left/Right arrows cycle through cached files; Up/Down arrows cycle through projection methods; keys are ignored when an input or select element is focused
 - **CMYK TIFF export** — new format dropdown next to the Save button offers `CMYK TIFF` alongside the existing `PNG` export; produces an uncompressed TIFF with `PhotometricInterpretation = CMYK`, `SamplesPerPixel = 4`, and `300 DPI` resolution metadata (XResolution / YResolution tags), suitable for professional print workflows (ISO 12647-2:2013)
 - **ICC profile management** — when `CMYK TIFF` is selected, an ICC profile section appears with a dropdown of cached profiles and a `Load .icc` button; loaded profiles are persisted in IndexedDB (key prefix `icc:`) and survive page reloads; the selected profile is embedded via TIFF tag 34675 (ICCProfile), enabling tagged output for Fogra51 (PSOcoated_v3) or other print profiles
 - **Cut line overlay** — 3-state toggle (Off → Overlay → Only) available in all three foldable modes (buckyball-32, rhombic-30, truncoct-14); renders the physical cutting outline on a separate canvas (TEXTURE3), computed once per net build; tab trapezoid outlines are drawn as open paths (diagonals + outer edge, no base) and clipped to polygon interiors via even-odd winding; polygon boundary edges use tab-ownership logic (`tabsMap` or index-based dedup) so each shared edge is drawn exactly once; mode 1 composites cut lines on top of the normal view, mode 2 shows white background with cut lines only (for print)
@@ -17,7 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Gamepad / joystick navigation** — removed the entire Three.js-based 3D joystick overlay, gamepad polling, button HUD, hat-switch projection cycling, rocker-to-globe-size mapping, and throttle-to-playback-speed control; keyboard and mouse navigation are unaffected
 - **Three.js dependency** — the ES module importmap and joystick overlay script (~540 lines) have been removed; the viewer is now fully dependency-free
 
-## [0.15.0] - 2026-03-22
+### Fixed
+- **Config/texture sync on file switch** — projection config is now loaded from IndexedDB *before* the texture is uploaded to GPU, so both apply in the same render frame; previously the `await loadProjectionConfig()` yielded to the event loop after `uploadTexture()` set `needsRedraw`, causing one frame with the new texture but old (default) configuration
+- **Config/texture sync on initial load** — same fix applied to the startup restore path; the saved camera, projection, and level settings are now visible from the very first frame instead of requiring a mouse move to trigger a redraw
 
 ### Added
 - **Touch support** — full multi-touch interaction via Pointer Events; all mouse-based interactions now work on touchscreens

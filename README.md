@@ -65,6 +65,8 @@ When served over HTTP the viewer auto-loads a default video (or image as fallbac
 | `A` / `D` (or Numpad `4` / `6`) | Yaw (rotate left/right) |
 | `W` / `S` (or Numpad `8` / `2` / `5`) | Pitch (rotate up/down) |
 | `Q` / `E` (or Numpad `7` / `9`) | Roll |
+| `←` / `→` | Cycle through cached files |
+| `↑` / `↓` | Cycle through projection methods |
 | `X` | Toggle grid overlay |
 | `G` | Toggle globe overlay |
 | `L` | Toggle level / horizon mode |
@@ -72,6 +74,10 @@ When served over HTTP the viewer auto-loads a default video (or image as fallbac
 | `Space` | Play / pause video (when video is loaded) |
 
 Held keys debounce briefly, then accelerate exponentially.
+
+### UI Panels
+
+Both the **controls panel** (top-right) and the **file list** (top-left) can be collapsed to a ☰ icon via their toggle button, maximizing viewport space. Click the icon again to expand.
 
 ### Y / P / R Sliders
 
