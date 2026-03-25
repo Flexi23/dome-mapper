@@ -75,6 +75,10 @@ When served over HTTP the viewer auto-loads a default video (or image as fallbac
 
 Held keys debounce briefly, then accelerate exponentially.
 
+### UI Panels
+
+Both the **controls panel** (top-right) and the **file list** (top-left) can be collapsed to a ☰ icon via their toggle button, maximizing viewport space. Click the icon again to expand.
+
 ### Y / P / R Sliders
 
 | Input | Action |
