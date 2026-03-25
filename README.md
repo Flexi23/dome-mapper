@@ -75,16 +75,89 @@ When served over HTTP the viewer auto-loads a default video (or image as fallbac
 
 Held keys debounce briefly, then accelerate exponentially.
 
-### UI Panels
-
-Both the **controls panel** (top-right) and the **file list** (top-left) can be collapsed to a ☰ icon via their toggle button, maximizing viewport space. Click the icon again to expand.
-
 ### Y / P / R Sliders
 
 | Input | Action |
 |---|---|
 | Drag slider | Set yaw, pitch, or roll directly (Euler degrees) |
 | Double-click slider | Reset that axis to 0° |
+
+## Animation Editor
+
+The animation panel (collapsible, bottom-right) lets you create keyframe-driven camera animations that interpolate between saved projection states.
+
+### Data Model
+
+Each source file can have multiple **animations**, persisted in IndexedDB alongside the projection config:
+
+```
+Animation
+├── name (string)
+├── duration (seconds)
+├── loop (boolean)
+├── projectionModeIndex (integer)
+└── keyframes[]
+    ├── time (seconds)
+    ├── quat [x, y, z, w]          ← camera orientation (SLERP)
+    ├── fovDeg, pixelate, ...       ← numeric params (linear lerp)
+    └── globeVisible, collageFlip,  ← boolean params (snap)
+        azimuthalMask
+```
+
+Each keyframe stores a **full projection state snapshot** — all parameters from the camera quaternion to the stereographic Scaramuzza coefficients to the globe overlay settings.
+
+### Keyframe Attributes
+
+| Category | Properties | Interpolation |
+|---|---|---|
+| Camera orientation | `quat` [x, y, z, w] | Spherical linear (SLERP) |
+| Numeric | `fovDeg`, `pixelate`, `collageRotationDeg`, `azimuthalZoom`, `stereoD`, `stereoA0`–`stereoA3`, `globeSize`, `globeOpacity`, `globeReflect`, `buckyOverlayAlpha` | Linear lerp |
+| Boolean | `globeVisible`, `collageFlip`, `azimuthalMask` | Snap to keyframe A |
+
+### Timeline Interactions
+
+| Input | Action |
+|---|---|
+| Single click on pin | Jump to keyframe time, apply stored projection state |
+| Drag pin (not first) | Reposition keyframe in time; slider follows |
+| Double-click on pin (not first) | Delete keyframe (with confirm dialog) |
+| Double-click on empty space | Add new keyframe at that position |
+| Hover over pin | Show `<Y°, P°, R°>` tooltip with stored camera orientation |
+| Scrub slider | Interpolate all attributes between surrounding keyframes |
+
+### Pin Visual States
+
+| State | Fill | Stroke | Condition |
+|---|---|---|---|
+| Default | Gold `#fb0` | `#a70` | Inactive, not hovered |
+| Active | Blue `#4cf` | `#28a` | Slider is on this keyframe (±0.5% tolerance) |
+| Hovered | Blue `#4cf` | `#28a` | Mouse is over this pin (enlarged radius) |
+| Ghost (loop) | 50% opacity | — | Mirrors first keyframe at t=duration when loop is enabled |
+
+### Playback
+
+- **Play/Pause** button starts real-time playback from the current slider position
+- During playback, `stepAnimPlayback()` advances the slider each frame, calls `interpolateKeyframes()` to SLERP/lerp all attributes, and updates all UI sliders
+- **Loop mode**: at the end, time wraps to 0 and the last keyframe interpolates seamlessly back to the first
+- **Auto-stop**: without loop, playback stops at the last frame
+
+### Duration Scaling
+
+Changing the animation duration proportionally rescales all keyframe times, preserving their relative positions.
+
+### Architecture
+
+```
+captureKeyframeState()    → snapshot all KF_PROPS + camQuat into plain object
+applyKeyframeState(s)     → restore all variables + update sliders
+interpolateKeyframes()    → find A/B keyframes around current time, SLERP/lerp
+KF_PROPS                  → getter/setter proxy bridging property names to
+                             function-scoped variables (avoids eval)
+stepAnimPlayback()        → advance slider from wall-clock time, call interpolate
+updateProjectionSliders() → sync all slider DOM elements with current state
+```
+
+---
 
 ## Projection Modes
 

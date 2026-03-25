@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Animation editor** — collapsible panel for creating, naming, and managing multiple animations per source file; each animation has its own projection mode, duration, and loop setting; animations are persisted per source file in IndexedDB alongside the projection config
+- **Keyframe timeline** — visual timeline with draggable keyframe pins rendered on a `<canvas>` overlay; reuses the video player's range slider; pins show three states: default (gold), active (blue, when slider is on a keyframe ±0.5% tolerance), and hovered (blue, enlarged); a ghost pin at t=duration mirrors the first keyframe when loop is enabled
+- **Full projection state per keyframe** — each keyframe stores a complete snapshot: camera quaternion, FOV, pixelate, collage rotation/flip, azimuthal zoom/mask, stereographic D and Scaramuzza coefficients (a¹–a⁴), globe size/opacity/reflect/visible, and net overlay alpha; all attributes are captured on creation and updated live when the slider sits on an active keyframe
+- **Keyframe interpolation** — during playback and interactive slider scrubbing, all projection attributes interpolate between adjacent keyframes: SLERP for camera orientation, linear lerp for numeric parameters, snap-to-A for booleans; in loop mode, the last keyframe seamlessly interpolates back to the first
+- **Keyframe management** — double-click on empty timeline adds a new keyframe; double-click on an existing pin (except the first) deletes it with a confirmation dialog; single-click jumps to a keyframe and instantly applies its stored projection state; drag a pin to reposition it in time (first pin is locked at t=0)
+- **Duration scaling** — changing the animation duration proportionally rescales all keyframe times to preserve their relative positions
+- **Hover tooltip** — hovering a keyframe pin shows the stored camera orientation as `<Y°, P°, R°>` below the pin
+
+### Changed
+- **Stereographic a¹ default** — `stereoA0` default value changed from 1.0 to 50.0 (slider range 0–100); reset button updated accordingly
+
 ## [0.16.0] - 2026-03-25
 
 ### Added

@@ -148,7 +148,7 @@
 			flex: 1;
 		}
 
-		#menu-toggle {
+		.panel-toggle {
 			cursor: pointer;
 			background: none;
 			border: none;
@@ -158,7 +158,7 @@
 			line-height: 1;
 		}
 
-		#menu-toggle:hover {
+		.panel-toggle:hover {
 			color: #fff;
 		}
 
@@ -299,7 +299,7 @@
 		}
 
 		/* ── Buttons ── */
-		#controls button:not(#level-btn) {
+		#controls button:not(#level-btn):not(.panel-toggle) {
 			cursor: pointer;
 			border: 1px solid #555;
 			border-radius: 3px;
@@ -311,7 +311,7 @@
 			transition: all 0.12s;
 		}
 
-		#controls button:not(#level-btn):hover {
+		#controls button:not(#level-btn):not(.panel-toggle):hover {
 			background: #383838;
 			color: #eee;
 			border-color: #888;
@@ -430,7 +430,8 @@
 		}
 
 		/* ── Custom checkbox toggle ── */
-		#controls input[type=checkbox] {
+		#controls input[type=checkbox],
+		#anim-panel input[type=checkbox] {
 			-webkit-appearance: none;
 			appearance: none;
 			width: 32px;
@@ -446,7 +447,8 @@
 			vertical-align: middle;
 		}
 
-		#controls input[type=checkbox]::after {
+		#controls input[type=checkbox]::after,
+		#anim-panel input[type=checkbox]::after {
 			content: '';
 			position: absolute;
 			top: 2px;
@@ -458,24 +460,22 @@
 			transition: all 0.15s;
 		}
 
-		#controls input[type=checkbox]:checked {
+		#controls input[type=checkbox]:checked,
+		#anim-panel input[type=checkbox]:checked {
 			background: #285830;
 		}
 
-		#controls input[type=checkbox]:checked::after {
+		#controls input[type=checkbox]:checked::after,
+		#anim-panel input[type=checkbox]:checked::after {
 			left: 18px;
 			background: #6d6;
 		}
 
 		#info {
-			position: absolute;
-			top: 12px;
-			left: 12px;
 			background: rgba(0, 0, 0, 0.7);
 			padding: 8px 14px;
 			border-radius: 6px;
 			font-size: 12px;
-			z-index: 5;
 			display: flex;
 			flex-direction: column;
 			gap: 4px;
@@ -491,20 +491,6 @@
 			flex: 1;
 		}
 
-		.info-toggle {
-			cursor: pointer;
-			background: none;
-			border: none;
-			color: #ccc;
-			font-size: 16px;
-			padding: 2px 4px;
-			line-height: 1;
-		}
-
-		.info-toggle:hover {
-			color: #fff;
-		}
-
 		#info.collapsed > *:not(#info-top-row) {
 			display: none !important;
 		}
@@ -515,6 +501,127 @@
 
 		#info.collapsed {
 			width: auto;
+		}
+
+		/* ── Animation panel ── */
+		#left-panels {
+			position: absolute;
+			top: 12px;
+			left: 12px;
+			z-index: 5;
+			display: flex;
+			flex-direction: column;
+			gap: 6px;
+			pointer-events: none;
+		}
+
+		#left-panels > * {
+			pointer-events: auto;
+		}
+
+		#anim-panel {
+			background: rgba(0, 0, 0, 0.7);
+			padding: 8px 14px;
+			border-radius: 6px;
+			font-size: 12px;
+			display: flex;
+			flex-direction: column;
+			gap: 5px;
+		}
+
+		#anim-panel.collapsed > *:not(#anim-top-row) {
+			display: none !important;
+		}
+
+		#anim-panel.collapsed {
+			width: auto;
+			min-width: 0;
+		}
+
+		#anim-top-row {
+			display: flex;
+			align-items: center;
+			gap: 4px;
+		}
+
+		#anim-top-row .anim-title {
+			flex: 1;
+			font-size: 11px;
+			color: #aaa;
+			text-transform: uppercase;
+			letter-spacing: 0.5px;
+		}
+
+		#anim-create-btn {
+			cursor: pointer;
+			border: 1px solid #4a4;
+			border-radius: 3px;
+			font-family: monospace;
+			font-size: 11px;
+			padding: 3px 8px;
+			background: #1a3a1a;
+			color: #6d6;
+			transition: all 0.12s;
+		}
+
+		#anim-create-btn:hover {
+			background: #2a5a2a;
+			color: #8f8;
+		}
+
+		#anim-select {
+			width: 100%;
+			background: #2a2a2a;
+			color: #ccc;
+			border: 1px solid #555;
+			border-radius: 3px;
+			font-family: monospace;
+			font-size: 12px;
+			padding: 2px 6px;
+			cursor: pointer;
+		}
+
+		#anim-details {
+			flex-direction: column;
+		}
+
+		#anim-details .grid input[type=text],
+		#anim-details .grid input[type=number],
+		#anim-details .grid select {
+			background: #2a2a2a;
+			color: #ccc;
+			border: 1px solid #555;
+			border-radius: 3px;
+			font-family: monospace;
+			font-size: 12px;
+			padding: 2px 6px;
+		}
+
+		#anim-details .grid input:focus {
+			outline: none;
+			border-color: #888;
+		}
+
+		#anim-delete-btn {
+			cursor: pointer;
+			border: 1px solid #a44;
+			border-radius: 3px;
+			font-size: 13px;
+			padding: 2px 5px;
+			background: #3a1a1a;
+			color: #d66;
+			transition: all 0.12s;
+			line-height: 1;
+			display: none;
+		}
+
+		#anim-delete-btn.visible {
+			display: inline-flex;
+		}
+
+		#anim-delete-btn:hover {
+			background: #5a2a2a;
+			color: #f88;
 		}
 
 		#cached-files {
@@ -628,7 +735,7 @@
 		#timeline input[type=range] {
 			-webkit-appearance: none;
 			appearance: none;
-			flex: 1;
+			width: 100%;
 			height: 6px;
 			border-radius: 3px;
 			background: rgba(255, 255, 255, 0.15);
@@ -656,6 +763,24 @@
 			box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
 		}
 
+		#tl-track {
+			flex: 1;
+			position: relative;
+			display: flex;
+			align-items: center;
+			overflow: visible;
+		}
+
+		#tl-keyframes {
+			position: absolute;
+			bottom: 0;
+			left: -14px;
+			width: calc(100% + 28px);
+			height: 80px;
+			z-index: -1;
+		}
+
+
 		#controls {
 			touch-action: pan-y;
 			-webkit-overflow-scrolling: touch;
@@ -679,17 +804,37 @@
 			</label>
 		</div>
 	</div>
+	<div id="left-panels">
 	<div id="info">
 		<div id="info-top-row">
 			<label id="open-file-btn" title="Open image or video">📂 Open file<input type="file" accept="image/*,video/*" multiple style="display:none"></label>
-			<button class="info-toggle" title="Toggle file list">✕</button>
+			<button class="panel-toggle" title="Toggle file list">✕</button>
 		</div>
 		<table id="cached-files"></table>
+	</div>
+	<div id="anim-panel">
+		<div id="anim-top-row">
+			<span class="anim-title">Animations</span>
+			<button id="anim-delete-btn" title="Delete animation">🗑</button>
+			<button id="anim-create-btn" title="Create new animation">+ New</button>
+			<button class="panel-toggle" title="Toggle animation panel">✕</button>
+		</div>
+		<select id="anim-select" style="display:none"></select>
+		<div id="anim-details" class="slider-group" style="display:none">
+			<div class="group-label">Settings</div>
+			<div class="grid">
+				<span>Name</span> <input type="text" id="anim-name" style="grid-column:2/-1" placeholder="Animation name">
+				<span>Projection</span> <select id="anim-projection" style="grid-column:2/-1"></select>
+				<span>Duration</span> <input type="number" id="anim-duration" min="0.1" step="0.1" value="5"> <span class="val">s</span>
+				<span>Loop</span> <label style="display:flex;align-items:center"><input type="checkbox" id="anim-loop"></label> <span></span>
+			</div>
+		</div>
+	</div>
 	</div>
 	<div id="controls">
 		<div id="top-row">
 			<button id="fullscreen-btn" title="Toggle fullscreen">⛶ Fullscreen</button>
-			<button id="menu-toggle" title="Toggle menu">✕</button>
+			<button id="menu-toggle" class="panel-toggle" title="Toggle menu">✕</button>
 		</div>
 		<div id="angles" class="slider-group hide-in-level-off">
 			<div class="group-label">Perspective <button id="level-btn"></button></div>
@@ -761,7 +906,7 @@
 				</span>
 				<span id="stereographic-row" class="span hide-in-level-off" style="display:none">
 					<span>D</span> <input type="range" id="stereo-d" min="0.1" max="3" value="2" step="0.01"> <span class="val" id="stereo-d-val">2.00</span>
-					<span>a¹</span> <input type="range" id="stereo-a0" min="0" max="100" value="1" step="0.1"> <span class="val" id="stereo-a0-val">1.0</span>
+					<span>a¹</span> <input type="range" id="stereo-a0" min="0" max="100" value="50" step="0.1"> <span class="val" id="stereo-a0-val">50.0</span>
 					<span>a²</span> <input type="range" id="stereo-a1" min="0" max="16" value="0" step="0.1"> <span class="val" id="stereo-a1-val">0.0</span>
 					<span>a³</span> <input type="range" id="stereo-a2" min="0" max="16" value="0" step="0.1"> <span class="val" id="stereo-a2-val">0.0</span>
 					<span>a⁴</span> <input type="range" id="stereo-a3" min="0" max="1" value="0" step="0.01"> <span class="val" id="stereo-a3-val">0.00</span>
@@ -850,7 +995,10 @@
 	<div id="timeline">
 		<button id="tl-play" title="Play / Pause">&#9654;</button>
 		<span class="time" id="tl-time">0:00 / 0:00</span>
-		<input type="range" id="tl-seek" min="0" max="1000" value="0" step="1">
+		<div id="tl-track">
+			<input type="range" id="tl-seek" min="0" max="1000" value="0" step="1">
+			<canvas id="tl-keyframes"></canvas>
+		</div>
 	</div>
 	<div id="progress" style="display:none">
 		<div style="color:#556;font-size:15px;">loading panorama…</div>
@@ -4179,6 +4327,7 @@ void main() {
 		}
 
 		tlPlay.addEventListener('click', () => {
+			if (animEditorActive) { toggleAnimPlayback(); return; }
 			if (videoEl.paused) videoEl.play(); else videoEl.pause();
 		});
 		videoEl.addEventListener('play', () => { tlPlay.innerHTML = '&#9646;&#9646;'; });
@@ -4188,11 +4337,17 @@ void main() {
 		tlSeek.addEventListener('pointerdown', () => { seeking = true; });
 		tlSeek.addEventListener('pointerup', () => { seeking = false; });
 		tlSeek.addEventListener('input', () => {
+			if (animEditorActive) {
+				if (animPlaying) { animPlaying = false; tlPlay.innerHTML = '&#9654;'; }
+				interpolateKeyframes();
+				updateAnimTimeline(); return;
+			}
 			if (videoEl.duration) videoEl.currentTime = (tlSeek.value / 1000) * videoEl.duration;
 		});
 		videoEl.addEventListener('seeked', () => { needsVideoUpdate = true; });
 
 		function updateTimeline() {
+			if (animEditorActive) { stepAnimPlayback(); updateAnimTimeline(); return; }
 			if (!videoActive) return;
 			if (!seeking) tlSeek.value = videoEl.duration ? (videoEl.currentTime / videoEl.duration) * 1000 : 0;
 			tlTime.textContent = fmtTime(videoEl.currentTime) + ' / ' + fmtTime(videoEl.duration);
@@ -4344,7 +4499,7 @@ void main() {
 
 		// Stereographic parameters
 		let stereoD = 2.0;
-		let stereoA0 = 1.0;
+		let stereoA0 = 50.0;
 		let stereoA1 = 0.0;
 		let stereoA2 = 0.0;
 		let stereoA3 = 0.0;
@@ -4436,7 +4591,7 @@ void main() {
 		});
 		stereoResetBtn.addEventListener('click', () => {
 			stereoD = 2.0; stereoDSlider.value = 2; stereoDVal.textContent = '2.00';
-			stereoA0 = 1.0; stereoA0Slider.value = 1; stereoA0Val.textContent = '1.0';
+			stereoA0 = 50.0; stereoA0Slider.value = 50; stereoA0Val.textContent = '50.0';
 			stereoA1 = 0.0; stereoA1Slider.value = 0; stereoA1Val.textContent = '0.0';
 			stereoA2 = 0.0; stereoA2Slider.value = 0; stereoA2Val.textContent = '0.0';
 			stereoA3 = 0.0; stereoA3Slider.value = 0; stereoA3Val.textContent = '0.00';
@@ -5827,6 +5982,23 @@ void main() {
 
 		function saveProjectionConfig() {
 			needsRedraw = true;
+			// Sync all projection state into the active keyframe
+			if (animEditorActive && selectedAnimIndex >= 0) {
+				const kfs = getKeyframes();
+				const dur = animations[selectedAnimIndex].duration;
+				if (dur && kfs.length > 0) {
+					const curTime = (tlSeek.value / 1000) * dur;
+					const eps = dur * 0.005;
+					for (let i = 0; i < kfs.length; i++) {
+						if (Math.abs(kfs[i].time - curTime) <= eps) {
+							const snap = captureKeyframeState();
+							snap.time = kfs[i].time;
+							kfs[i] = snap;
+							break;
+						}
+					}
+				}
+			}
 			if (!sourceFileName) return;
 			try {
 				const savedGlobeVisible = (_prevLevelState ? _prevLevelState.globeVisible : globeVisible);
@@ -5855,7 +6027,8 @@ void main() {
 						stereoA1,
 						stereoA2,
 						stereoA3,
-						pixelate
+						pixelate,
+						animations: animations.map(a => ({ name: a.name, duration: a.duration, loop: !!a.loop, projectionModeIndex: a.projectionModeIndex, keyframes: a.keyframes || [] }))
 					}, configKey());
 				});
 			} catch (e) { console.warn('Failed to save projection config:', e); }
@@ -5969,6 +6142,14 @@ void main() {
 			updateLevelSliders();
 			updateLevelBtnState();
 			updateProjectionUI();
+			// Restore animations
+			if (Array.isArray(cfg.animations)) {
+				animations = cfg.animations.map(a => ({ name: a.name, duration: a.duration, loop: !!a.loop, projectionModeIndex: a.projectionModeIndex != null ? a.projectionModeIndex : projectionModeIndex, keyframes: Array.isArray(a.keyframes) ? a.keyframes : [] }));
+			} else {
+				animations = [];
+			}
+			selectedAnimIndex = -1;
+			updateAnimUI();
 		}
 
 		const menuToggle = document.getElementById('menu-toggle');
@@ -5979,11 +6160,729 @@ void main() {
 		});
 
 		const infoPanel = document.getElementById('info');
-		const infoToggle = infoPanel.querySelector('.info-toggle');
+		const infoToggle = infoPanel.querySelector('.panel-toggle');
 		infoToggle.addEventListener('click', () => {
 			const collapsed = infoPanel.classList.toggle('collapsed');
 			infoToggle.textContent = collapsed ? '☰' : '✕';
 		});
+
+		// ══════════════════════════════════════════════════════════
+		// Animation Editor
+		// ══════════════════════════════════════════════════════════
+		//
+		// Data model:
+		//   animations[] — array of animation objects, each containing:
+		//     { name, duration (sec), loop (bool), projectionModeIndex (int),
+		//       keyframes: [ { time, quat, fovDeg, pixelate, ... }, ... ] }
+		//
+		// Each keyframe stores a full projection state snapshot (camera
+		// quaternion + all numeric/boolean projection parameters). During
+		// playback or interactive scrubbing, the viewer interpolates between
+		// adjacent keyframes: SLERP for camera orientation, linear lerp for
+		// numeric attributes, and snap (nearest-A) for booleans.
+		//
+		// The timeline reuses the video player's <input type="range"> (#tl-seek)
+		// and overlays a <canvas> (#tl-keyframes) for keyframe pin rendering.
+		// Animations are persisted per source file in IndexedDB alongside
+		// the projection config.
+		//
+		// Interactions on the keyframe canvas:
+		//   - Single click on pin   → jump to that keyframe time + apply state
+		//   - Drag pin (idx > 0)    → reposition keyframe in time
+		//   - Double-click on pin   → delete keyframe (with confirm dialog)
+		//   - Double-click on empty → add new keyframe at that time
+		//   - Hover                 → highlight pin + show <Y°, P°, R°> tooltip
+		// ══════════════════════════════════════════════════════════
+
+		const animPanel = document.getElementById('anim-panel');
+		const animToggle = animPanel.querySelector('.panel-toggle');
+		const animCreateBtn = document.getElementById('anim-create-btn');
+		const animSelect = document.getElementById('anim-select');
+		const animDetails = document.getElementById('anim-details');
+		const animNameInput = document.getElementById('anim-name');
+		const animDurationInput = document.getElementById('anim-duration');
+		const animDeleteBtn = document.getElementById('anim-delete-btn');
+		const animProjectionSelect = document.getElementById('anim-projection');
+		const animLoopInput = document.getElementById('anim-loop');
+		let animations = [];
+		let selectedAnimIndex = -1;
+		let animEditorActive = false;
+
+		// Populate anim projection dropdown from main projection options
+		for (const opt of projectionSelect.options) {
+			const o = document.createElement('option');
+			o.value = opt.value;
+			o.textContent = opt.textContent;
+			animProjectionSelect.appendChild(o);
+		}
+
+		animToggle.addEventListener('click', () => {
+			const collapsed = animPanel.classList.toggle('collapsed');
+			animToggle.textContent = collapsed ? '☰' : '✕';
+			if (collapsed) hideAnimTimeline();
+			else if (selectedAnimIndex >= 0) showAnimTimeline(animations[selectedAnimIndex].duration);
+		});
+
+		function updateAnimUI() {
+			animDeleteBtn.classList.toggle('visible', animations.length > 0);
+			if (animations.length === 0) {
+				animSelect.style.display = 'none';
+				animDetails.style.display = 'none';
+				selectedAnimIndex = -1;
+				hideAnimTimeline();
+				return;
+			}
+			animSelect.style.display = '';
+			animSelect.innerHTML = '';
+			for (let i = 0; i < animations.length; i++) {
+				const opt = document.createElement('option');
+				opt.value = i;
+				opt.textContent = animations[i].name;
+				animSelect.appendChild(opt);
+			}
+			if (selectedAnimIndex < 0 || selectedAnimIndex >= animations.length)
+				selectedAnimIndex = 0;
+			animSelect.value = selectedAnimIndex;
+			showAnimDetails();
+		}
+
+		function showAnimDetails() {
+			if (selectedAnimIndex < 0 || selectedAnimIndex >= animations.length) {
+				animDetails.style.display = 'none';
+				hideAnimTimeline();
+				return;
+			}
+			const anim = animations[selectedAnimIndex];
+			animDetails.style.display = '';
+			animNameInput.value = anim.name;
+			const idx = anim.projectionModeIndex != null ? anim.projectionModeIndex : projectionModeIndex;
+			animProjectionSelect.value = projectionModes[idx] || projectionModes[0];
+			projectionModeIndex = idx;
+			projectionSelect.value = animProjectionSelect.value;
+			updateProjectionUI();
+			updateCamSliders();
+			updateFacesSliders();
+			animDurationInput.value = anim.duration;
+			animLoopInput.checked = !!anim.loop;
+			projectionSelect.disabled = true;
+			showAnimTimeline(anim.duration);
+		}
+
+		// ── Playback state ──
+		// animStartTime: wall-clock second when playback started (performance.now() / 1000)
+		// animStartOffset: animation-local time (sec) where playback was resumed from
+		// Elapsed animation time = (now - animStartTime) + animStartOffset
+		let animPlaying = false;
+		let animStartTime = 0;
+		let animStartOffset = 0;
+
+		// Toggle play/pause. Resumes from current slider position.
+		function toggleAnimPlayback() {
+			if (!animEditorActive || selectedAnimIndex < 0) return;
+			if (animPlaying) {
+				animPlaying = false;
+				tlPlay.innerHTML = '&#9654;';
+			} else {
+				const dur = animations[selectedAnimIndex].duration;
+				animStartOffset = (tlSeek.value / 1000) * dur;
+				if (animStartOffset >= dur) { tlSeek.value = 0; animStartOffset = 0; }
+				animStartTime = performance.now() / 1000;
+				animPlaying = true;
+				tlPlay.innerHTML = '&#10074;&#10074;';
+			}
+		}
+
+		// Called every frame from updateTimeline(). Advances the slider,
+		// interpolates all projection attributes between keyframes, and
+		// handles loop wrap-around or auto-stop at the end.
+		function stepAnimPlayback() {
+			if (!animPlaying || selectedAnimIndex < 0) return;
+			const dur = animations[selectedAnimIndex].duration;
+			const elapsed = (performance.now() / 1000) - animStartTime + animStartOffset;
+			if (elapsed >= dur) {
+				if (animations[selectedAnimIndex].loop) {
+					animStartTime = performance.now() / 1000;
+					animStartOffset = 0;
+					tlSeek.value = 0;
+				} else {
+					tlSeek.value = 1000;
+					animPlaying = false;
+					tlPlay.innerHTML = '&#9654;';
+				}
+			} else {
+				tlSeek.value = (elapsed / dur) * 1000;
+			}
+			interpolateKeyframes();
+			updateAnimTimeline();
+		}
+
+		// ── Keyframe state capture & interpolation ──
+		//
+		// KF_PROPS is a getter/setter proxy that bridges named property keys
+		// to the actual JS variables (which live in function scope, not on
+		// globalThis). This lets captureKeyframeState() and applyKeyframeState()
+		// iterate over property names without eval().
+		//
+		// KF_NUMERIC — linearly interpolated between keyframes
+		// KF_BOOL    — snapped to keyframe A's value (no interpolation)
+		//
+		// Each keyframe object looks like:
+		//   { time: 0.0,              // seconds into the animation
+		//     quat: [x, y, z, w],     // camera orientation (SLERP interpolated)
+		//     fovDeg: 135,             // field of view in degrees
+		//     pixelate: 1.0,           // texture sharpness (0 = blurry, 1 = crisp)
+		//     collageRotationDeg: 0,   // azimuthal collage rotation angle
+		//     azimuthalZoom: 1.0,      // azimuthal equidistant zoom factor
+		//     stereoD: 2.0,            // generalised stereographic D parameter
+		//     stereoA0..A3: ...,       // Scaramuzza polynomial coefficients
+		//     globeSize: 10,           // globe overlay size (%)
+		//     globeOpacity: 0.7,       // globe overlay opacity
+		//     globeReflect: 0.5,       // globe reflection strength
+		//     buckyOverlayAlpha: 0.5,  // net/wireframe overlay alpha
+		//     globeVisible: true,      // globe on/off
+		//     collageFlip: false,      // collage horizontal flip
+		//     azimuthalMask: false }   // circular mask on/off
+
+		const KF_PROPS = {
+			get fovDeg() { return fovDeg; }, set fovDeg(v) { fovDeg = v; },
+			get pixelate() { return pixelate; }, set pixelate(v) { pixelate = v; },
+			get collageRotationDeg() { return collageRotationDeg; }, set collageRotationDeg(v) { collageRotationDeg = v; },
+			get azimuthalZoom() { return azimuthalZoom; }, set azimuthalZoom(v) { azimuthalZoom = v; },
+			get stereoD() { return stereoD; }, set stereoD(v) { stereoD = v; },
+			get stereoA0() { return stereoA0; }, set stereoA0(v) { stereoA0 = v; },
+			get stereoA1() { return stereoA1; }, set stereoA1(v) { stereoA1 = v; },
+			get stereoA2() { return stereoA2; }, set stereoA2(v) { stereoA2 = v; },
+			get stereoA3() { return stereoA3; }, set stereoA3(v) { stereoA3 = v; },
+			get globeSize() { return globeSize; }, set globeSize(v) { globeSize = v; },
+			get globeOpacity() { return globeOpacity; }, set globeOpacity(v) { globeOpacity = v; },
+			get globeReflect() { return globeReflect; }, set globeReflect(v) { globeReflect = v; },
+			get buckyOverlayAlpha() { return buckyOverlayAlpha; }, set buckyOverlayAlpha(v) { buckyOverlayAlpha = v; },
+			get globeVisible() { return globeVisible; }, set globeVisible(v) { globeVisible = v; },
+			get collageFlip() { return collageFlip; }, set collageFlip(v) { collageFlip = v; },
+			get azimuthalMask() { return azimuthalMask; }, set azimuthalMask(v) { azimuthalMask = v; }
+		};
+		const KF_NUMERIC = ['fovDeg','pixelate','collageRotationDeg','azimuthalZoom','stereoD','stereoA0','stereoA1','stereoA2','stereoA3','globeSize','globeOpacity','globeReflect','buckyOverlayAlpha'];
+		const KF_BOOL = ['globeVisible','collageFlip','azimuthalMask'];
+
+		// Snapshot the current projection state into a plain object suitable
+		// for storage as a keyframe. Caller must add .time before inserting.
+		function captureKeyframeState() {
+			const s = { quat: Array.from(camQuat) };
+			KF_NUMERIC.forEach(k => s[k] = KF_PROPS[k]);
+			KF_BOOL.forEach(k => s[k] = KF_PROPS[k]);
+			return s;
+		}
+
+		// Restore all projection state variables from a keyframe snapshot
+		// and update the UI sliders to reflect the new values.
+		function applyKeyframeState(s) {
+			if (s.quat) camQuat = Array.from(s.quat);
+			KF_NUMERIC.forEach(k => { if (typeof s[k] === 'number') KF_PROPS[k] = s[k]; });
+			KF_BOOL.forEach(k => { if (typeof s[k] === 'boolean') KF_PROPS[k] = s[k]; });
+			updateProjectionSliders();
+			needsRedraw = true;
+		}
+
+		// Synchronise all projection-related UI sliders and value labels
+		// with the current JS state variables. Called after interpolation
+		// or after jumping to a keyframe.
+		function updateProjectionSliders() {
+			updateCamSliders();
+			fovSlider.value = fovDeg; fovVal.textContent = fovDeg + '°';
+			pixelateSlider.value = Math.round(pixelate * 100); pixelateVal.textContent = Math.round(pixelate * 100) + '%';
+			collageRotationSlider.value = collageRotationDeg; collageRotationVal.textContent = collageRotationDeg + '°';
+			collageFlipToggle.checked = collageFlip;
+			azimuthalZoomSlider.value = Math.round(azimuthalZoom * 100); azimuthalZoomVal.textContent = azimuthalZoom.toFixed(2) + '×';
+			azimuthalMaskToggle.checked = azimuthalMask;
+			stereoDSlider.value = stereoD; stereoDVal.textContent = stereoD.toFixed(2);
+			stereoA0Slider.value = stereoA0; stereoA0Val.textContent = stereoA0.toFixed(1);
+			stereoA1Slider.value = stereoA1; stereoA1Val.textContent = stereoA1.toFixed(1);
+			stereoA2Slider.value = stereoA2; stereoA2Val.textContent = stereoA2.toFixed(1);
+			stereoA3Slider.value = stereoA3; stereoA3Val.textContent = stereoA3.toFixed(2);
+			globeSizeSlider.value = globeSize; globeSizeVal.textContent = globeSize + '%';
+			globeOpacitySlider.value = Math.round(globeOpacity * 100); globeOpacityVal.textContent = Math.round(globeOpacity * 100) + '%';
+			globeReflectSlider.value = Math.round(globeReflect * 100); globeReflectVal.textContent = Math.round(globeReflect * 100) + '%';
+			globeToggle.checked = globeVisible;
+			netAlphaSlider.value = Math.round(buckyOverlayAlpha * 100); netAlphaVal.textContent = Math.round(buckyOverlayAlpha * 100) + '%';
+		}
+
+		// Interpolate all projection attributes between the two keyframes
+		// surrounding the current timeline position.
+		//
+		// Interpolation strategy:
+		//   - Camera quaternion: spherical linear interpolation (SLERP)
+		//   - Numeric attributes (FOV, zoom, stereo params, ...): linear lerp
+		//   - Boolean attributes (globe visible, flip, mask): snap to keyframe A
+		//
+		// In loop mode, after the last keyframe the function synthesises a
+		// virtual target at t=duration with the first keyframe's state,
+		// creating a seamless wrap-around.
+		function interpolateKeyframes() {
+			if (selectedAnimIndex < 0) return;
+			const kfs = getKeyframes();
+			if (kfs.length === 0) return;
+			const dur = animations[selectedAnimIndex].duration;
+			const t = (tlSeek.value / 1000) * dur;
+			const isLoop = animations[selectedAnimIndex].loop;
+
+			// Walk backwards to find the last keyframe at or before time t (= A),
+			// and the next one after it (= B). Falls back to kfs[0] if t is
+			// before all keyframes.
+			let a = kfs[0], b = null;
+			for (let i = kfs.length - 1; i >= 0; i--) {
+				if (kfs[i].time <= t + 0.001) { a = kfs[i]; b = kfs[i + 1] || null; break; }
+			}
+			// Loop: after last keyframe, interpolate back to first
+			if (!b && isLoop && kfs.length > 1) {
+				const loopTarget = Object.assign({}, kfs[0], { time: dur });
+				b = loopTarget;
+			}
+			if (!a.quat) return;
+			if (!b || !b.quat || Math.abs(a.time - b.time) < 0.001) {
+				// Exactly on a keyframe or only one exists — snap
+				applyKeyframeState(a);
+			} else {
+				// Between two keyframes — interpolate
+				const frac = Math.max(0, Math.min(1, (t - a.time) / (b.time - a.time)));
+				camQuat = quatSlerp(a.quat, b.quat, frac);
+				KF_NUMERIC.forEach(k => {
+					if (typeof a[k] === 'number' && typeof b[k] === 'number') {
+						KF_PROPS[k] = a[k] + (b[k] - a[k]) * frac;
+					} else if (typeof a[k] === 'number') {
+						KF_PROPS[k] = a[k];
+					}
+				});
+				KF_BOOL.forEach(k => { if (typeof a[k] === 'boolean') KF_PROPS[k] = a[k]; });
+				updateProjectionSliders();
+				needsRedraw = true;
+			}
+		}
+
+		function showAnimTimeline(duration) {
+			animPlaying = false;
+			animEditorActive = true;
+			timelineEl.style.display = 'flex';
+			tlPlay.innerHTML = '&#9654;';
+			tlSeek.value = 0;
+			tlTime.textContent = '0:00 / ' + fmtTime(duration);
+		}
+
+		function hideAnimTimeline() {
+			if (!animEditorActive) return;
+			animPlaying = false;
+			animEditorActive = false;
+			projectionSelect.disabled = false;
+			if (!videoActive) timelineEl.style.display = 'none';
+		}
+
+		function updateAnimTimeline() {
+			if (!animEditorActive || selectedAnimIndex < 0) return;
+			const dur = animations[selectedAnimIndex].duration;
+			const t = (tlSeek.value / 1000) * dur;
+			tlTime.textContent = fmtTime(t) + ' / ' + fmtTime(dur);
+			drawKeyframes(kfHoverIdx);
+		}
+
+		// Create a new animation with the current projection state as the
+		// initial keyframe at t=0.
+		animCreateBtn.addEventListener('click', () => {
+			const name = 'Animation ' + (animations.length + 1);
+			const initSnap = captureKeyframeState();
+			initSnap.time = 0;
+			animations.push({ name, duration: 5, loop: false, projectionModeIndex, keyframes: [initSnap] });
+			selectedAnimIndex = animations.length - 1;
+			updateAnimUI();
+			saveProjectionConfig();
+		});
+
+		animSelect.addEventListener('change', () => {
+			selectedAnimIndex = parseInt(animSelect.value, 10);
+			showAnimDetails();
+		});
+
+		animNameInput.addEventListener('input', () => {
+			if (selectedAnimIndex < 0) return;
+			animations[selectedAnimIndex].name = animNameInput.value;
+			animSelect.options[selectedAnimIndex].textContent = animNameInput.value;
+			saveProjectionConfig();
+		});
+
+		// When duration changes, scale all keyframe times proportionally
+		// so they maintain their relative positions in the animation.
+		animDurationInput.addEventListener('change', () => {
+			if (selectedAnimIndex < 0) return;
+			const d = Math.max(0.1, parseFloat(animDurationInput.value) || 0.1);
+			const oldDur = animations[selectedAnimIndex].duration;
+			if (oldDur > 0) {
+				const scale = d / oldDur;
+				const kfs = getKeyframes();
+				for (let i = 0; i < kfs.length; i++) {
+					kfs[i].time = Math.round(kfs[i].time * scale * 100) / 100;
+				}
+			}
+			animations[selectedAnimIndex].duration = d;
+			animDurationInput.value = d;
+			showAnimTimeline(d);
+			saveProjectionConfig();
+		});
+
+		animLoopInput.addEventListener('change', () => {
+			if (selectedAnimIndex < 0) return;
+			animations[selectedAnimIndex].loop = animLoopInput.checked;
+			saveProjectionConfig();
+		});
+
+		animProjectionSelect.addEventListener('change', () => {
+			if (selectedAnimIndex < 0) return;
+			const idx = projectionModes.indexOf(animProjectionSelect.value);
+			animations[selectedAnimIndex].projectionModeIndex = idx;
+			projectionModeIndex = idx;
+			projectionSelect.value = animProjectionSelect.value;
+			updateProjectionUI();
+			updateCamSliders();
+			updateFacesSliders();
+			saveProjectionConfig();
+		});
+
+		animDeleteBtn.addEventListener('click', () => {
+			if (selectedAnimIndex < 0) return;
+			if (!confirm('Delete "' + animations[selectedAnimIndex].name + '"?')) return;
+			animations.splice(selectedAnimIndex, 1);
+			if (selectedAnimIndex >= animations.length) selectedAnimIndex = animations.length - 1;
+			updateAnimUI();
+			saveProjectionConfig();
+		});
+		// ── Keyframe timeline canvas ──
+		// The keyframe canvas overlays the timeline slider (#tl-seek) with
+		// z-index:-1 so the range input stays interactive. Pins are drawn
+		// as circles with vertical lines. The canvas extends 14px beyond
+		// each side to accommodate pin circles at 0% and 100%.
+		const kfCanvas = document.getElementById('tl-keyframes');
+		const kfCtx = kfCanvas.getContext('2d');
+
+		function getKeyframes() {
+			if (selectedAnimIndex < 0) return [];
+			return animations[selectedAnimIndex].keyframes || [];
+		}
+
+		function setKeyframes(kfs) {
+			if (selectedAnimIndex < 0) return;
+			animations[selectedAnimIndex].keyframes = kfs;
+		}
+
+		function currentAnimTime() {
+			if (selectedAnimIndex < 0) return 0;
+			const dur = animations[selectedAnimIndex].duration;
+			return (tlSeek.value / 1000) * dur;
+		}
+
+		function hasKeyframeAt(t) {
+			const kfs = getKeyframes();
+			const eps = 0.01;
+			return kfs.some(k => Math.abs(k.time - t) < eps);
+		}
+
+		// Add a new keyframe at time t, capturing the full projection state.
+		// Rejects duplicates (within 0.01s tolerance). Keyframes are kept
+		// sorted by time.
+		function addKeyframe(t) {
+			if (selectedAnimIndex < 0 || hasKeyframeAt(t)) return;
+			const kfs = getKeyframes();
+			const snap = captureKeyframeState();
+			snap.time = Math.round(t * 100) / 100;
+			kfs.push(snap);
+			kfs.sort((a, b) => a.time - b.time);
+			setKeyframes(kfs);
+			drawKeyframes();
+			saveProjectionConfig();
+		}
+
+		// Draw keyframe pins on the timeline canvas.
+		// Each pin: vertical line + circle. Three visual states:
+		//   - Default (gold #fb0): inactive, not hovered
+		//   - Active (blue #4cf): slider is directly on this keyframe (±0.5% tolerance)
+		//   - Hovered (blue #4cf): mouse is over this pin (same color as active, larger radius)
+		// In loop mode, a semi-transparent ghost pin at t=duration mirrors the
+		// first keyframe. Both the first and ghost pin light up when the slider
+		// is at either start or end.
+		// On hover, a tooltip shows the stored camera orientation as <Y°, P°, R°>.
+		function drawKeyframes(hoverIdx) {
+			const rect = kfCanvas.parentElement.getBoundingClientRect();
+			const canvasW = rect.width + 28;
+			const h = 60;
+			const dpr = window.devicePixelRatio || 1;
+			kfCanvas.width = canvasW * dpr;
+			kfCanvas.height = h * dpr;
+			kfCanvas.style.width = canvasW + 'px';
+			kfCanvas.style.height = h + 'px';
+			kfCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+			kfCtx.clearRect(0, 0, canvasW, h);
+
+			if (selectedAnimIndex < 0) return;
+			const kfs = getKeyframes();
+			const dur = animations[selectedAnimIndex].duration;
+			if (!dur || kfs.length === 0) return;
+
+			const pad = 7 + 14; // track pad + canvas offset
+			const trackW = canvasW - pad * 2;
+			const r = 12;
+
+			// Find active keyframe (only if slider is right on it)
+			const curTime = (tlSeek.value / 1000) * dur;
+			let activeIdx = -1;
+			const eps = dur * 0.005;
+			const isLoop = animations[selectedAnimIndex].loop;
+			const atStart = curTime <= eps;
+			const atEnd = curTime >= dur - eps;
+			for (let i = 0; i < kfs.length; i++) {
+				if (Math.abs(kfs[i].time - curTime) <= eps) { activeIdx = i; break; }
+			}
+			// Loop: start and end are the same keyframe
+			if (isLoop && activeIdx < 0 && atEnd && kfs.length > 0) activeIdx = 0;
+
+			for (let i = 0; i < kfs.length; i++) {
+				const kf = kfs[i];
+				const x = pad + (kf.time / dur) * trackW;
+				const hovered = i === hoverIdx;
+				const active = i === activeIdx;
+				const lineTop = r + 1;
+				const lineBot = h;
+
+				// Line
+				kfCtx.beginPath();
+				kfCtx.moveTo(x, lineTop);
+				kfCtx.lineTo(x, lineBot);
+				kfCtx.strokeStyle = hovered ? 'rgba(100, 200, 255, 0.9)' : active ? 'rgba(100, 200, 255, 0.8)' : 'rgba(255, 187, 0, 0.5)';
+				kfCtx.lineWidth = hovered ? 5 : 3;
+				kfCtx.stroke();
+
+				// Circle
+				kfCtx.beginPath();
+				kfCtx.arc(x, r + 1, hovered ? r + 2 : r, 0, Math.PI * 2);
+				kfCtx.fillStyle = hovered ? '#4cf' : active ? '#4cf' : '#fb0';
+				kfCtx.fill();
+				kfCtx.strokeStyle = hovered ? '#28a' : active ? '#28a' : '#a70';
+				kfCtx.lineWidth = hovered ? 2 : 1;
+				kfCtx.stroke();
+			}
+
+			// Ghost loop pin at end (mirrors first keyframe)
+			if (isLoop && kfs.length > 0) {
+				const x = pad + trackW;
+				const lineTop = r + 1;
+				const lineBot = h;
+				const loopHover = hoverIdx === -2;
+				const loopActive = atStart || atEnd;
+				kfCtx.globalAlpha = 0.5;
+				kfCtx.beginPath();
+				kfCtx.moveTo(x, lineTop);
+				kfCtx.lineTo(x, lineBot);
+				kfCtx.strokeStyle = loopHover ? 'rgba(100, 200, 255, 0.9)' : loopActive ? 'rgba(100, 200, 255, 0.8)' : 'rgba(255, 187, 0, 0.5)';
+				kfCtx.lineWidth = loopHover ? 5 : 3;
+				kfCtx.stroke();
+				kfCtx.beginPath();
+				kfCtx.arc(x, r + 1, loopHover ? r + 2 : r, 0, Math.PI * 2);
+				kfCtx.fillStyle = loopHover ? '#4cf' : loopActive ? '#4cf' : '#fb0';
+				kfCtx.fill();
+				kfCtx.strokeStyle = loopHover ? '#28a' : loopActive ? '#28a' : '#a70';
+				kfCtx.lineWidth = loopHover ? 2 : 1;
+				kfCtx.stroke();
+				kfCtx.globalAlpha = 1;
+			}
+
+			// Tooltip on hover: show <Y°, P°, R°>
+			const tipIdx = hoverIdx === -2 ? 0 : hoverIdx;
+			if (tipIdx >= 0 && tipIdx < kfs.length && kfs[tipIdx].quat) {
+				const e = quatToEulerDeg(kfs[tipIdx].quat);
+				const label = '<' + Math.round(e.yaw) + '°, ' + Math.round(e.pitch) + '°, ' + Math.round(e.roll) + '°>';
+				const tipX = hoverIdx === -2 ? pad + trackW : pad + (kfs[tipIdx].time / dur) * trackW;
+				kfCtx.font = '11px monospace';
+				kfCtx.textAlign = 'center';
+				kfCtx.fillStyle = '#eee';
+				kfCtx.fillText(label, tipX, h - 2);
+			}
+		}
+
+		// Hit-test keyframe pins by mouse position.
+		// Returns: index ≥0 for a real pin, -2 for the ghost loop pin, -1 for miss.
+		// Uses circle distance (14px radius) centered on each pin's circle.
+		function hitTestKeyframe(e) {
+			if (selectedAnimIndex < 0) return -1;
+			const kfs = getKeyframes();
+			const dur = animations[selectedAnimIndex].duration;
+			if (!dur || kfs.length === 0) return -1;
+			const rect = kfCanvas.getBoundingClientRect();
+			const mx = e.clientX - rect.left;
+			const my = e.clientY - rect.top;
+			const pad = 7 + 14;
+			const trackW = rect.width - pad * 2;
+			const r = 14;
+			for (let i = 0; i < kfs.length; i++) {
+				const x = pad + (kfs[i].time / dur) * trackW;
+				const cy = 13;
+				if (Math.hypot(mx - x, my - cy) <= r) return i;
+			}
+			// Ghost loop pin
+			if (animations[selectedAnimIndex].loop) {
+				const x = pad + trackW;
+				if (Math.hypot(mx - x, my - 13) <= r) return -2;
+			}
+			return -1;
+		}
+
+		let kfHoverIdx = -1;
+		let kfDragIdx = -1;
+
+		function xToTime(clientX) {
+			const rect = kfCanvas.getBoundingClientRect();
+			const pad = 7 + 14;
+			const trackW = rect.width - pad * 2;
+			const dur = animations[selectedAnimIndex].duration;
+			const t = ((clientX - rect.left - pad) / trackW) * dur;
+			return Math.round(Math.max(0, Math.min(dur, t)) * 100) / 100;
+		}
+
+		// ── Keyframe pin hover and drag ──
+		// mousemove: while dragging (kfDragIdx > 0), reposition the keyframe
+		// in time and sync the timeline slider. Otherwise, update hover state.
+		kfCanvas.addEventListener('mousemove', (e) => {
+			if (kfDragIdx > 0) {
+				const kfs = getKeyframes();
+				const newTime = xToTime(e.clientX);
+				kfs[kfDragIdx].time = newTime;
+				const dur = animations[selectedAnimIndex].duration;
+				tlSeek.value = dur ? (newTime / dur) * 1000 : 0;
+				updateAnimTimeline();
+				drawKeyframes(kfDragIdx);
+				return;
+			}
+			const idx = hitTestKeyframe(e);
+			if (idx !== kfHoverIdx) {
+				kfHoverIdx = idx;
+				kfCanvas.style.cursor = idx > 0 ? 'grab' : (idx >= -2 && idx <= 0 ? 'default' : '');
+				drawKeyframes(kfHoverIdx);
+			}
+		});
+
+		// Combined pointerdown handler for single-click (jump/drag) and
+		// double-click (add/delete keyframe). Manual dblclick detection is
+		// needed because <input type="range"> suppresses native dblclick
+		// events in some browsers.
+		//
+		// Double-click on pin (idx > 0): confirm + delete keyframe
+		// Double-click on first pin (idx === 0): ignored (must always exist)
+		// Double-click on empty space: add keyframe at that time
+		// Single click on pin: jump to keyframe time + apply stored state
+		// Single click + hold on pin (idx > 0): begin drag
+		let kfLastClickTime = 0, kfLastClickX = 0;
+		kfCanvas.addEventListener('pointerdown', (e) => {
+			// Double-click detection
+			const now = performance.now();
+			const isDblClick = now - kfLastClickTime < 400 && Math.abs(e.clientX - kfLastClickX) < 10;
+			kfLastClickTime = isDblClick ? 0 : now;
+			kfLastClickX = e.clientX;
+
+			if (isDblClick && selectedAnimIndex >= 0) {
+				const kfs = getKeyframes();
+				const dur = animations[selectedAnimIndex].duration;
+				if (!dur || kfs.length === 0) { addKeyframe(xToTime(e.clientX)); return; }
+				const rect = kfCanvas.getBoundingClientRect();
+				const mx = e.clientX - rect.left;
+				const pad = 7 + 14;
+				const trackW = rect.width - pad * 2;
+				let hitIdx = -1;
+				for (let i = 0; i < kfs.length; i++) {
+					const x = pad + (kfs[i].time / dur) * trackW;
+					if (Math.abs(mx - x) <= 14) { hitIdx = i; break; }
+				}
+				if (hitIdx > 0) {
+					if (!confirm('Delete this keyframe?')) return;
+					kfs.splice(hitIdx, 1);
+					setKeyframes(kfs);
+					drawKeyframes(-1);
+					saveProjectionConfig();
+					return;
+				}
+				if (hitIdx === 0) return; // first pin – ignore
+				addKeyframe(xToTime(e.clientX));
+				return;
+			}
+
+			const idx = hitTestKeyframe(e);
+			if (idx < -2 || idx === -1) return;
+			// Ghost loop pin → jump to first keyframe (t=0)
+			const kfs = getKeyframes();
+			const dur = animations[selectedAnimIndex].duration;
+			const jumpIdx = idx === -2 ? 0 : idx;
+			tlSeek.value = dur ? (kfs[jumpIdx].time / dur) * 1000 : 0;
+			if (animPlaying) { animPlaying = false; tlPlay.innerHTML = '&#9654;'; }
+			// Apply stored projection state
+			applyKeyframeState(kfs[jumpIdx]);
+			updateAnimTimeline();
+			// Start drag for non-first pins
+			if (idx > 0) {
+				kfDragIdx = idx;
+				kfHoverIdx = idx;
+				kfCanvas.setPointerCapture(e.pointerId);
+				kfCanvas.style.cursor = 'grabbing';
+			}
+			drawKeyframes(idx);
+		});
+
+		// pointerup: finish drag — re-sort keyframes by time (drag may
+		// have moved a keyframe past its neighbours) and persist.
+		kfCanvas.addEventListener('pointerup', (e) => {
+			if (kfDragIdx > 0) {
+				const kfs = getKeyframes();
+				kfs.sort((a, b) => a.time - b.time);
+				setKeyframes(kfs);
+				kfDragIdx = -1;
+				kfHoverIdx = -1;
+				kfCanvas.style.cursor = '';
+				drawKeyframes(-1);
+				saveProjectionConfig();
+			}
+		});
+
+		kfCanvas.addEventListener('mouseleave', () => {
+			if (kfDragIdx > 0) return; // keep dragging
+			if (kfHoverIdx !== -1) {
+				kfHoverIdx = -1;
+				drawKeyframes(-1);
+			}
+		});
+
+		// Dblclick on the range input itself (empty areas not covered by
+		// pin circles on the canvas). The canvas has z-index:-1 so clicks
+		// on empty track space hit tlSeek, not kfCanvas. Manual detection
+		// via two click events within 400ms, same as the canvas handler.
+		let tlLastClickTime = 0, tlLastClickX = 0;
+		tlSeek.addEventListener('click', (e) => {
+			const now = performance.now();
+			if (now - tlLastClickTime < 400 && Math.abs(e.clientX - tlLastClickX) < 10) {
+				tlLastClickTime = 0;
+				if (selectedAnimIndex < 0) return;
+				addKeyframe(xToTime(e.clientX));
+			} else {
+				tlLastClickTime = now;
+				tlLastClickX = e.clientX;
+			}
+		});
+
+
+		const _origShowAnimTl = showAnimTimeline;
+		showAnimTimeline = function(duration) {
+			_origShowAnimTl(duration);
+			requestAnimationFrame(drawKeyframes);
+		};
+		const _origHideAnimTl = hideAnimTimeline;
+		hideAnimTimeline = function() {
+			_origHideAnimTl();
+			kfCtx.clearRect(0, 0, kfCanvas.width, kfCanvas.height);
+		};
+
+		// Redraw on resize
+		window.addEventListener('resize', () => { if (animEditorActive) drawKeyframes(); });
 
 		const fullscreenBtn = document.getElementById('fullscreen-btn');
 		fullscreenBtn.addEventListener('click', () => {
