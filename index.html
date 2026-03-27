@@ -236,6 +236,30 @@
 			padding: 3px 0 !important;
 		}
 
+		#grid-toggle-proj {
+			cursor: pointer;
+			padding: 2px 8px;
+			border: 1px solid #48f;
+			border-radius: 3px;
+			font-family: monospace;
+			font-size: 10px;
+			background: #1a2a3a;
+			color: #6af;
+			text-align: center;
+			transition: all 0.15s;
+			margin-left: auto;
+		}
+
+		#grid-toggle-proj:hover {
+			border-color: #888;
+		}
+
+		#grid-toggle-proj.active {
+			background: #1a2a1a;
+			border-color: #4a4;
+			color: #6d6;
+		}
+
 		#level-btn {
 			cursor: pointer;
 			padding: 2px 8px;
@@ -299,7 +323,7 @@
 		}
 
 		/* ── Buttons ── */
-		#controls button:not(#level-btn):not(.panel-toggle) {
+		#controls button:not(#level-btn):not(.panel-toggle):not(#grid-toggle-proj):not(#level-accept):not(#level-discard) {
 			cursor: pointer;
 			border: 1px solid #555;
 			border-radius: 3px;
@@ -311,7 +335,7 @@
 			transition: all 0.12s;
 		}
 
-		#controls button:not(#level-btn):not(.panel-toggle):hover {
+		#controls button:not(#level-btn):not(.panel-toggle):not(#grid-toggle-proj):not(#level-accept):not(#level-discard):hover {
 			background: #383838;
 			color: #eee;
 			border-color: #888;
@@ -499,8 +523,15 @@
 			display: none !important;
 		}
 
+		#info.collapsed .panel-toggle {
+			font-size: 20px;
+			padding: 2px;
+		}
+
 		#info.collapsed {
 			width: auto;
+			min-width: 0;
+			padding: 4px;
 		}
 
 		/* ── Animation panel ── */
@@ -511,6 +542,7 @@
 			z-index: 5;
 			display: flex;
 			flex-direction: column;
+			align-items: flex-start;
 			gap: 6px;
 			pointer-events: none;
 		}
@@ -529,13 +561,28 @@
 			gap: 5px;
 		}
 
-		#anim-panel.collapsed > *:not(#anim-top-row) {
+		#anim-panel.collapsed > *:not(.anim-open-btn) {
 			display: none !important;
 		}
 
 		#anim-panel.collapsed {
 			width: auto;
 			min-width: 0;
+			padding: 4px;
+		}
+
+		.anim-open-btn {
+			cursor: pointer;
+			background: none;
+			border: none;
+			font-size: 20px;
+			line-height: 1;
+			padding: 2px;
+			display: none;
+		}
+
+		#anim-panel.collapsed .anim-open-btn {
+			display: block;
 		}
 
 		#anim-top-row {
@@ -622,6 +669,50 @@
 		#anim-delete-btn:hover {
 			background: #5a2a2a;
 			color: #f88;
+		}
+
+		.anim-copy-btn, .anim-paste-btn {
+			cursor: pointer;
+			border: 1px solid #666;
+			border-radius: 3px;
+			font-size: 13px;
+			padding: 2px 5px;
+			background: #2a2a2a;
+			color: #aaa;
+			transition: all 0.12s;
+			line-height: 1;
+			display: none;
+		}
+		.anim-copy-btn.visible, .anim-paste-btn.visible {
+			display: inline-flex;
+		}
+		.anim-copy-btn:hover, .anim-paste-btn:hover {
+			background: #3a3a3a;
+			color: #ddd;
+		}
+
+		.anim-transport {
+			display: flex;
+			gap: 2px;
+			margin-left: auto;
+		}
+
+		.anim-transport button {
+			cursor: pointer;
+			background: #2a2a2a;
+			border: 1px solid #555;
+			border-radius: 3px;
+			color: #ccc;
+			font-size: 11px;
+			padding: 3px 7px;
+			line-height: 1;
+			transition: all 0.12s;
+		}
+
+		.anim-transport button:hover {
+			background: #3a3a3a;
+			color: #fff;
+			border-color: #888;
 		}
 
 		#cached-files {
@@ -805,16 +896,19 @@
 		</div>
 	</div>
 	<div id="left-panels">
-	<div id="info">
+	<div id="info" class="collapsed">
 		<div id="info-top-row">
 			<label id="open-file-btn" title="Open image or video">📂 Open file<input type="file" accept="image/*,video/*" multiple style="display:none"></label>
 			<button class="panel-toggle" title="Toggle file list">✕</button>
 		</div>
 		<table id="cached-files"></table>
 	</div>
-	<div id="anim-panel">
+	<div id="anim-panel" class="collapsed">
+		<button class="anim-open-btn" title="Open animation panel">🎬</button>
 		<div id="anim-top-row">
-			<span class="anim-title">Animations</span>
+			<span class="anim-title">🎬 Animations</span>
+			<button class="anim-copy-btn" title="Copy animation JSON to clipboard">📋</button>
+			<button class="anim-paste-btn" title="Paste animation JSON from clipboard">📥</button>
 			<button id="anim-delete-btn" title="Delete animation">🗑</button>
 			<button id="anim-create-btn" title="Create new animation">+ New</button>
 			<button class="panel-toggle" title="Toggle animation panel">✕</button>
@@ -826,7 +920,7 @@
 				<span>Name</span> <input type="text" id="anim-name" style="grid-column:2/-1" placeholder="Animation name">
 				<span>Projection</span> <select id="anim-projection" style="grid-column:2/-1"></select>
 				<span>Duration</span> <input type="number" id="anim-duration" min="0.1" step="0.1" value="5"> <span class="val">s</span>
-				<span>Loop</span> <label style="display:flex;align-items:center"><input type="checkbox" id="anim-loop"></label> <span></span>
+				<span>Loop</span> <div style="grid-column:2/-1;display:flex;align-items:center;gap:4px"><label style="display:flex;align-items:center"><input type="checkbox" id="anim-loop"></label> <div class="anim-transport"><button id="anim-play-btn" title="Play">&#9654;</button><button id="anim-stop-btn" title="Stop">&#9632;</button><button id="anim-reverse-btn" title="Reverse keyframe order">⇄</button></div></div>
 			</div>
 		</div>
 	</div>
@@ -853,7 +947,7 @@
 			</div>
 		</div>
 		<div id="level-angles" class="slider-group" style="display:none">
-			<div class="group-label">Leveling <label>Grid <input type="checkbox" id="grid-toggle"></label></div>
+			<div class="group-label">Leveling</div>
 			<div style="color:#888;font-size:11px;margin-bottom:4px">doubleclick on the horizon or move it manually to
 				the equator of the grid</div>
 			<div class="grid">
@@ -873,7 +967,7 @@
 			</div>
 		</div>
 		<div class="slider-group">
-			<div class="group-label">Projection <label>Grid <input type="checkbox" id="grid-toggle-proj"></label></div>
+			<div class="group-label">Projection <button id="grid-toggle-proj">Grid: Off</button></div>
 			<div id="method-params" class="grid">
 				<span>Method</span>
 				<select id="projection-select" style="grid-column:2/-1">
@@ -1422,7 +1516,7 @@ float borderLine(vec2 domain, vec2 thickness) {
 // Returns:
 //   RGB color with grid lines composited on top
 vec3 applyGrid(vec3 col, vec2 eqUV) {
-	if (showGrid < 0.5) return col;
+	if (showGrid < 0.5 || showGrid > 1.5) return col;
 	// Use screen-space derivatives for uniform line thickness across projections
 	vec2 duvdx = dFdx(eqUV) * vec2(2.0, 1.0);
 	vec2 duvdy = dFdy(eqUV) * vec2(2.0, 1.0);
@@ -1434,6 +1528,24 @@ vec3 applyGrid(vec3 col, vec2 eqUV) {
 	vec2 px = abs(duvdx) + abs(duvdy);
 	vec2 uvGrid  = fract((eqUV - 0.5) * vec2(2.0, 1.0) * 32.0);
 	vec2 uvCross = fract((eqUV - 0.5) * vec2(2.0, 1.0) * 2.0);
+	float grid  = borderLine(uvGrid,  px * 96.0);
+	float cross = borderLine(uvCross, px * 12.0);
+	float g = max(grid, cross);
+	col = mix(col, 1.0 - col, -g);
+	return col;
+}
+
+// View-space grid overlay: regular screen-space grid independent of projection
+vec3 applyViewGrid(vec3 col) {
+	if (showGrid < 1.5) return col;
+	vec2 vuv = gl_FragCoord.xy / resolution;
+	float asp = resolution.x / resolution.y;
+	vuv.x *= asp;
+	vec2 duvdx = dFdx(vuv);
+	vec2 duvdy = dFdy(vuv);
+	vec2 px = abs(duvdx) + abs(duvdy);
+	vec2 uvGrid  = fract(vuv * 32.0);
+	vec2 uvCross = fract(vuv * 2.0);
 	float grid  = borderLine(uvGrid,  px * 96.0);
 	float cross = borderLine(uvCross, px * 12.0);
 	float g = max(grid, cross);
@@ -1510,7 +1622,7 @@ void main() {
 			bgCol = mix(vec3(0.06), bgCol, bgEdgeLine);
 		}
 
-		if (discSph < 0.0) { fragColor = vec4(bgCol, 1.0); return; }
+		if (discSph < 0.0) { bgCol = applyViewGrid(bgCol); fragColor = vec4(bgCol, 1.0); return; }
 		float t = max(0.0, -bSph - sqrt(discSph));
 		float tMax = -bSph + sqrt(discSph);
 
@@ -1527,7 +1639,7 @@ void main() {
 			if (t > tMax) break;
 		}
 
-		if (!hit) { fragColor = vec4(bgCol, 1.0); return; }
+		if (!hit) { bgCol = applyViewGrid(bgCol); fragColor = vec4(bgCol, 1.0); return; }
 
 		vec3 hitPos = eye + t * rdW;
 
@@ -1568,6 +1680,7 @@ void main() {
 		float rim = pow(1.0 - NdotV, 3.5);
 		col += vec3(0.07, 0.09, 0.14) * rim;
 
+		col = applyViewGrid(col);
 		fragColor = vec4(col, 1.0);
 		return;
 	} else if (projection > 8.5) {
@@ -1655,6 +1768,7 @@ void main() {
 			}
 		}
 
+		col = applyViewGrid(col);
 		fragColor = vec4(col, 1.0);
 		return;
 	} else if (projection > 7.5) {
@@ -1709,7 +1823,7 @@ void main() {
 			bgCol = mix(vec3(0.06), bgCol, bgEdgeLine);
 		}
 
-		if (discSph < 0.0) { fragColor = vec4(bgCol, 1.0); return; }
+		if (discSph < 0.0) { bgCol = applyViewGrid(bgCol); fragColor = vec4(bgCol, 1.0); return; }
 		float t = max(0.0, -bSph - sqrt(discSph));
 		float tMax = -bSph + sqrt(discSph);
 
@@ -1726,7 +1840,7 @@ void main() {
 			if (t > tMax) break;
 		}
 
-		if (!hit) { fragColor = vec4(bgCol, 1.0); return; }
+		if (!hit) { bgCol = applyViewGrid(bgCol); fragColor = vec4(bgCol, 1.0); return; }
 
 		vec3 hitPos = eye + t * rdW;
 
@@ -1772,6 +1886,7 @@ void main() {
 		float rim = pow(1.0 - NdotV, 3.5);
 		col += vec3(0.07, 0.09, 0.14) * rim;
 
+		col = applyViewGrid(col);
 		fragColor = vec4(col, 1.0);
 		return;
 	} else if (projection > 6.5) {
@@ -1895,6 +2010,7 @@ void main() {
 			}
 		}
 
+		col = applyViewGrid(col);
 		fragColor = vec4(col, 1.0);
 		return;
 	} else if (projection > 5.5) {
@@ -2049,6 +2165,7 @@ void main() {
 			}
 		}
 
+		col = applyViewGrid(col);
 		fragColor = vec4(col, 1.0);
 		return;
 	} else if (projection > 4.5) {
@@ -2303,6 +2420,7 @@ void main() {
 		}
 
 		if (discSph < 0.0) {
+			bgCol = applyViewGrid(bgCol);
 			fragColor = vec4(bgCol, 1.0);
 			return;
 		}
@@ -2324,6 +2442,7 @@ void main() {
 		}
 
 		if (!hit) {
+			bgCol = applyViewGrid(bgCol);
 			fragColor = vec4(bgCol, 1.0);
 			return;
 		}
@@ -2390,6 +2509,7 @@ void main() {
 		float rim = pow(1.0 - NdotV, 3.5);
 		col += vec3(0.07, 0.09, 0.14) * rim;
 
+		col = applyViewGrid(col);
 		fragColor = vec4(col, 1.0);
 		return;
 	} else if (projection > 0.5) {
@@ -2439,6 +2559,9 @@ void main() {
 
 	// Grid overlay (uses un-leveled tcGrid so grid stays fixed)
 	color = applyGrid(color, tcGrid);
+
+	// View-space grid (screen-aligned, projection-independent)
+	color = applyViewGrid(color);
 
 	// Globe overlay (uses original screenUV) — skip for azimuthal/collage
 	if (projection < 2.5) {
@@ -4453,7 +4576,7 @@ void main() {
 		let globeSize = 10;
 		let globeOpacity = 0.8;
 		let globeReflect = 0.75;
-		let showGrid = false;
+		let showGrid = 0; // 0 = off, 1 = Tex, 2 = View
 		let buckyOverlayAlpha = 0.33;
 		let cutLineMode = 0; // 0 = off, 1 = overlay, 2 = cut only
 		let levelMode = false;
@@ -4505,9 +4628,9 @@ void main() {
 		let stereoA3 = 0.0;
 
 		const projectionSelect = document.getElementById('projection-select');
-		const gridToggle = document.getElementById('grid-toggle');
 		const gridToggleProj = document.getElementById('grid-toggle-proj');
-		function syncGridToggles(v) { showGrid = v; gridToggle.checked = v; gridToggleProj.checked = v; needsRedraw = true; }
+		const gridLabels = ['Grid: Off', 'Grid: Tex', 'Grid: View'];
+		function syncGridToggles(v) { showGrid = v; gridToggleProj.textContent = gridLabels[v]; gridToggleProj.classList.toggle('active', v > 0); needsRedraw = true; }
 		const playbackRow = document.getElementById('playback-row');
 		const playbackVal = document.getElementById('playback-val');
 
@@ -4631,8 +4754,7 @@ void main() {
 			globeReflect = 0.75; globeReflectSlider.value = 75; globeReflectVal.textContent = '75%';
 			saveProjectionConfig();
 		});
-		gridToggle.addEventListener('change', () => syncGridToggles(gridToggle.checked));
-		gridToggleProj.addEventListener('change', () => syncGridToggles(gridToggleProj.checked));
+		gridToggleProj.addEventListener('click', () => syncGridToggles((showGrid + 1) % 3));
 
 		// Magnifier controls
 		const magnifierToggle = document.getElementById('magnifier-toggle');
@@ -4778,7 +4900,7 @@ void main() {
 				camQuat = [0, 0, 0, 1];
 				globeVisible = false;
 				globeToggle.checked = false;
-				syncGridToggles(true);
+				syncGridToggles(2);
 				hideDuringLevel.forEach(el => el.classList.add('hide-in-level'));
 				updateProjectionUI();
 				updateLevelSliders();
@@ -4791,7 +4913,7 @@ void main() {
 					syncGridToggles(_prevLevelState.showGrid);
 					_prevLevelState = null;
 				} else {
-					syncGridToggles(false);
+					syncGridToggles(0);
 				}
 				hideDuringLevel.forEach(el => el.classList.remove('hide-in-level'));
 				updateProjectionUI();
@@ -5295,6 +5417,86 @@ void main() {
 			]);
 		}
 
+		// Quaternion conjugate (= inverse for unit quaternions)
+		function quatConj(q) { return [-q[0], -q[1], -q[2], q[3]]; }
+
+		// Quaternion logarithm: unit quat → pure imaginary 3-vector
+		function quatLog(q) {
+			const sinT = Math.sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2]);
+			if (sinT < 1e-10) return [0, 0, 0];
+			const k = Math.atan2(sinT, q[3]) / sinT;
+			return [q[0] * k, q[1] * k, q[2] * k];
+		}
+
+		// Quaternion exponential: pure imaginary 3-vector → unit quat
+		function quatExp(v) {
+			const theta = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+			if (theta < 1e-10) return [0, 0, 0, 1];
+			const k = Math.sin(theta) / theta;
+			return [v[0] * k, v[1] * k, v[2] * k, Math.cos(theta)];
+		}
+
+		// Squad inner control quaternion for smooth spherical spline
+		function squadInner(qPrev, qCurr, qNext) {
+			// Flip neighbours into qCurr's hemisphere so quatLog always
+			// sees the shortest-path rotation (fixes loop-boundary tangents).
+			const d4 = (u, v) => u[0]*v[0] + u[1]*v[1] + u[2]*v[2] + u[3]*v[3];
+			if (d4(qCurr, qPrev) < 0) qPrev = [-qPrev[0], -qPrev[1], -qPrev[2], -qPrev[3]];
+			if (d4(qCurr, qNext) < 0) qNext = [-qNext[0], -qNext[1], -qNext[2], -qNext[3]];
+			const inv = quatConj(qCurr);
+			const lp = quatLog(quatMul(inv, qPrev));
+			const ln = quatLog(quatMul(inv, qNext));
+			let ex = -(lp[0] + ln[0]) * 0.25;
+			let ey = -(lp[1] + ln[1]) * 0.25;
+			let ez = -(lp[2] + ln[2]) * 0.25;
+			// Clamp log-space tangent to prevent SQUAD overshoot on large rotations
+			const mag = Math.sqrt(ex * ex + ey * ey + ez * ez);
+			if (mag > 0.35) { // max ~20° half-angle control point deviation
+				const s = 0.35 / mag;
+				ex *= s; ey *= s; ez *= s;
+			}
+			return quatNormalize(quatMul(qCurr, quatExp([ex, ey, ez])));
+		}
+
+		// Squad interpolation (C1-smooth spherical spline between q1 → q2)
+		// Uses raw slerp (no shortest-path flip) to prevent sign
+		// inconsistencies between control points that cross hemispheres.
+		function quatSquad(q1, q2, s1, s2, t) {
+			// Flip all into q1's hemisphere so raw slerps stay consistent
+			const d4 = (u, v) => u[0]*v[0] + u[1]*v[1] + u[2]*v[2] + u[3]*v[3];
+			const n4 = q => [-q[0], -q[1], -q[2], -q[3]];
+			if (d4(q1, q2) < 0) q2 = n4(q2);
+			if (d4(q1, s1) < 0) s1 = n4(s1);
+			if (d4(q1, s2) < 0) s2 = n4(s2);
+			return slerpRaw(slerpRaw(q1, q2, t), slerpRaw(s1, s2, t), 2 * t * (1 - t));
+		}
+
+		// Slerp without shortest-path sign flip – for internal SQUAD use
+		function slerpRaw(a, b, t) {
+			let dot = a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3];
+			let s0, s1;
+			if (dot > 0.9995) {
+				s0 = 1 - t; s1 = t;
+			} else if (dot < -0.9995) {
+				s0 = 1 - t; s1 = t;
+			} else {
+				const theta = Math.acos(Math.max(-1, Math.min(1, dot)));
+				const sinT = Math.sin(theta);
+				s0 = Math.sin((1 - t) * theta) / sinT;
+				s1 = Math.sin(t * theta) / sinT;
+			}
+			return quatNormalize([
+				s0 * a[0] + s1 * b[0], s0 * a[1] + s1 * b[1],
+				s0 * a[2] + s1 * b[2], s0 * a[3] + s1 * b[3],
+			]);
+		}
+
+		// Catmull-Rom scalar spline through p1 → p2 (using neighbours p0, p3)
+		function catmullRom(p0, p1, p2, p3, t) {
+			const t2 = t * t, t3 = t2 * t;
+			return 0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
+		}
+
 		// ── Fly-to animation state ──
 		let flyAnim = null; // { startQuat, endQuat, startTime, duration, isLevel }
 
@@ -5370,7 +5572,9 @@ void main() {
 			const ci = [-camQuat[0], -camQuat[1], -camQuat[2], camQuat[3]];
 			return quatNormalize(quatMul(camQuat, quatMul(q, ci)));
 		}
+		let _animPausedByDrag = false;
 		canvas.addEventListener('pointerdown', e => {
+			_animPausedByDrag = false;
 			// Clear stale pointers: if no interaction is active, this is a fresh gesture
 			if (!dragging && !_pinchActive) {
 				_activePointers.clear();
@@ -5418,6 +5622,23 @@ void main() {
 			dragging = true; lastX = e.clientX; lastY = e.clientY;
 			_clickStartX = e.clientX; _clickStartY = e.clientY;
 			flyAnim = null;
+			// Show pending keyframe ghost immediately when drag starts
+			if (animEditorActive && selectedAnimIndex >= 0 && !levelMode) {
+				const kfs = getKeyframes();
+				const dur = animations[selectedAnimIndex].duration;
+				if (dur && kfs.length > 1) {
+					const curTime = (tlSeek.value / 1000) * dur;
+					const eps = dur * 0.005;
+					let onKeyframe = false;
+					for (let i = 0; i < kfs.length; i++) {
+						if (Math.abs(kfs[i].time - curTime) <= eps) { onKeyframe = true; break; }
+					}
+					if (!onKeyframe) {
+						pendingKfTime = Math.round(curTime * 100) / 100;
+						drawKeyframes(kfHoverIdx);
+					}
+				}
+			}
 			dragStartDir = screenToLocalDir(e.clientX, e.clientY);
 			dragStartWorldDir = screenToWorldDir(e.clientX, e.clientY);
 			dragStartQuat = levelMode ? Array.from(levelQuat) : Array.from(activeQuat());
@@ -5438,6 +5659,12 @@ void main() {
 			pointerX = e.clientX / canvas.clientWidth;
 			pointerY = 1.0 - e.clientY / canvas.clientHeight;
 			if (magnifierEnabled || dragging) needsRedraw = true;
+
+			// Pause animation on first actual drag movement
+			if (dragging && animPlaying && !_animPausedByDrag) {
+				_animPausedByDrag = true;
+				toggleAnimPlayback();
+			}
 
 			_activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -5723,7 +5950,11 @@ void main() {
 			}
 			keysDown[e.code] = { age: 0, reads: 0 };
 		});
-		document.addEventListener('keyup', e => { delete keysDown[e.code]; saveProjectionConfig(); });
+		document.addEventListener('keyup', e => {
+			const hadKey = e.code in keysDown;
+			delete keysDown[e.code];
+			if (hadKey) saveProjectionConfig();
+		});
 		// Tick age every 20ms (50 Hz) independent of frame rate
 		setInterval(() => {
 			for (const k in keysDown) keysDown[k].age++;
@@ -5869,7 +6100,7 @@ void main() {
 					case 'KeyQ': case 'Numpad7': rotateRoll(-step); break;
 					case 'KeyE': case 'Numpad9': rotateRoll(step); break;
 					case 'KeyX':
-						if (isNew) syncGridToggles(!showGrid);
+						if (isNew) syncGridToggles((showGrid + 1) % 3);
 						break;
 					case 'KeyL':
 						if (isNew) setLevelMode(!levelMode);
@@ -5982,6 +6213,8 @@ void main() {
 
 		function saveProjectionConfig() {
 			needsRedraw = true;
+			// Pause animation when user changes projection parameters
+			if (animPlaying) toggleAnimPlayback();
 			// Sync all projection state into the active keyframe
 			if (animEditorActive && selectedAnimIndex >= 0) {
 				const kfs = getKeyframes();
@@ -5989,13 +6222,21 @@ void main() {
 				if (dur && kfs.length > 0) {
 					const curTime = (tlSeek.value / 1000) * dur;
 					const eps = dur * 0.005;
+					let onKeyframe = false;
 					for (let i = 0; i < kfs.length; i++) {
 						if (Math.abs(kfs[i].time - curTime) <= eps) {
 							const snap = captureKeyframeState();
 							snap.time = kfs[i].time;
 							kfs[i] = snap;
+							onKeyframe = true;
 							break;
 						}
+					}
+					if (!onKeyframe && kfs.length > 1) {
+						pendingKfTime = Math.round(curTime * 100) / 100;
+						drawKeyframes(kfHoverIdx);
+					} else {
+						if (pendingKfTime >= 0) { pendingKfTime = -1; drawKeyframes(kfHoverIdx); }
 					}
 				}
 			}
@@ -6058,7 +6299,7 @@ void main() {
 			if (typeof cfg.fovDeg === 'number') {
 				fovDeg = cfg.fovDeg;
 				fovSlider.value = fovDeg;
-				fovVal.textContent = fovDeg + '°';
+				fovVal.textContent = Math.round(fovDeg) + '°';
 			}
 			if (typeof cfg.projectionModeIndex === 'number') {
 				projectionModeIndex = cfg.projectionModeIndex;
@@ -6150,6 +6391,10 @@ void main() {
 			}
 			selectedAnimIndex = -1;
 			updateAnimUI();
+			if (animations.length > 0) {
+				animPanel.classList.remove('collapsed');
+				toggleAnimPlayback();
+			}
 		}
 
 		const menuToggle = document.getElementById('menu-toggle');
@@ -6161,9 +6406,10 @@ void main() {
 
 		const infoPanel = document.getElementById('info');
 		const infoToggle = infoPanel.querySelector('.panel-toggle');
+		infoToggle.textContent = '📂';
 		infoToggle.addEventListener('click', () => {
 			const collapsed = infoPanel.classList.toggle('collapsed');
-			infoToggle.textContent = collapsed ? '☰' : '✕';
+			infoToggle.textContent = collapsed ? '📂' : '✕';
 		});
 
 		// ══════════════════════════════════════════════════════════
@@ -6202,6 +6448,8 @@ void main() {
 		const animNameInput = document.getElementById('anim-name');
 		const animDurationInput = document.getElementById('anim-duration');
 		const animDeleteBtn = document.getElementById('anim-delete-btn');
+		const animCopyBtn = animPanel.querySelector('.anim-copy-btn');
+		const animPasteBtn = animPanel.querySelector('.anim-paste-btn');
 		const animProjectionSelect = document.getElementById('anim-projection');
 		const animLoopInput = document.getElementById('anim-loop');
 		let animations = [];
@@ -6216,19 +6464,28 @@ void main() {
 			animProjectionSelect.appendChild(o);
 		}
 
+		const animOpenBtn = animPanel.querySelector('.anim-open-btn');
+		animOpenBtn.addEventListener('click', () => {
+			animPanel.classList.remove('collapsed');
+			if (selectedAnimIndex >= 0) {
+				showAnimTimeline(animations[selectedAnimIndex].duration);
+				if (!animPlaying) toggleAnimPlayback();
+			}
+		});
 		animToggle.addEventListener('click', () => {
 			const collapsed = animPanel.classList.toggle('collapsed');
-			animToggle.textContent = collapsed ? '☰' : '✕';
 			if (collapsed) hideAnimTimeline();
 			else if (selectedAnimIndex >= 0) showAnimTimeline(animations[selectedAnimIndex].duration);
 		});
 
 		function updateAnimUI() {
 			animDeleteBtn.classList.toggle('visible', animations.length > 0);
+			animPasteBtn.classList.add('visible');
 			if (animations.length === 0) {
 				animSelect.style.display = 'none';
 				animDetails.style.display = 'none';
 				selectedAnimIndex = -1;
+				animCopyBtn.classList.remove('visible');
 				hideAnimTimeline();
 				return;
 			}
@@ -6242,6 +6499,7 @@ void main() {
 			}
 			if (selectedAnimIndex < 0 || selectedAnimIndex >= animations.length)
 				selectedAnimIndex = 0;
+			animCopyBtn.classList.add('visible');
 			animSelect.value = selectedAnimIndex;
 			showAnimDetails();
 		}
@@ -6276,6 +6534,19 @@ void main() {
 		let animStartTime = 0;
 		let animStartOffset = 0;
 
+		// Pause animation clock while tab is hidden so it resumes seamlessly
+		document.addEventListener('visibilitychange', () => {
+			if (!animPlaying) return;
+			if (document.hidden) {
+				// Freeze: store current animation-local time in offset, stop the clock
+				animStartOffset += (performance.now() / 1000) - animStartTime;
+				animStartTime = 0;
+			} else {
+				// Resume: restart clock from now
+				animStartTime = performance.now() / 1000;
+			}
+		});
+
 		// Toggle play/pause. Resumes from current slider position.
 		function toggleAnimPlayback() {
 			if (!animEditorActive || selectedAnimIndex < 0) return;
@@ -6288,8 +6559,10 @@ void main() {
 				if (animStartOffset >= dur) { tlSeek.value = 0; animStartOffset = 0; }
 				animStartTime = performance.now() / 1000;
 				animPlaying = true;
+				pendingKfTime = -1;
 				tlPlay.innerHTML = '&#10074;&#10074;';
 			}
+			if (animPlayBtn) updateAnimPlayBtn();
 		}
 
 		// Called every frame from updateTimeline(). Advances the slider,
@@ -6297,17 +6570,21 @@ void main() {
 		// handles loop wrap-around or auto-stop at the end.
 		function stepAnimPlayback() {
 			if (!animPlaying || selectedAnimIndex < 0) return;
+			// Clock is frozen while tab is hidden — skip until resumed
+			if (document.hidden || animStartTime === 0) return;
 			const dur = animations[selectedAnimIndex].duration;
 			const elapsed = (performance.now() / 1000) - animStartTime + animStartOffset;
 			if (elapsed >= dur) {
 				if (animations[selectedAnimIndex].loop) {
+					const overshoot = elapsed % dur;
 					animStartTime = performance.now() / 1000;
-					animStartOffset = 0;
-					tlSeek.value = 0;
+					animStartOffset = overshoot;
+					tlSeek.value = (overshoot / dur) * 1000;
 				} else {
 					tlSeek.value = 1000;
 					animPlaying = false;
 					tlPlay.innerHTML = '&#9654;';
+					if (animPlayBtn) updateAnimPlayBtn();
 				}
 			} else {
 				tlSeek.value = (elapsed / dur) * 1000;
@@ -6367,7 +6644,27 @@ void main() {
 		// Snapshot the current projection state into a plain object suitable
 		// for storage as a keyframe. Caller must add .time before inserting.
 		function captureKeyframeState() {
-			const s = { quat: Array.from(camQuat) };
+			const q = Array.from(camQuat);
+			// Ensure consistent quaternion hemisphere with existing keyframes
+			if (selectedAnimIndex >= 0) {
+				const kfs = getKeyframes();
+				if (kfs.length > 0) {
+					// Find nearest existing keyframe by time to use as reference
+					const dur = animations[selectedAnimIndex].duration;
+					const curTime = (tlSeek.value / 1000) * dur;
+					let ref = kfs[0];
+					let minDist = Math.abs(kfs[0].time - curTime);
+					for (let i = 1; i < kfs.length; i++) {
+						const d = Math.abs(kfs[i].time - curTime);
+						if (d < minDist) { minDist = d; ref = kfs[i]; }
+					}
+					if (ref.quat) {
+						const dot = q[0]*ref.quat[0] + q[1]*ref.quat[1] + q[2]*ref.quat[2] + q[3]*ref.quat[3];
+						if (dot < 0) { q[0] = -q[0]; q[1] = -q[1]; q[2] = -q[2]; q[3] = -q[3]; }
+					}
+				}
+			}
+			const s = { quat: q };
 			KF_NUMERIC.forEach(k => s[k] = KF_PROPS[k]);
 			KF_BOOL.forEach(k => s[k] = KF_PROPS[k]);
 			return s;
@@ -6388,7 +6685,7 @@ void main() {
 		// or after jumping to a keyframe.
 		function updateProjectionSliders() {
 			updateCamSliders();
-			fovSlider.value = fovDeg; fovVal.textContent = fovDeg + '°';
+			fovSlider.value = fovDeg; fovVal.textContent = Math.round(fovDeg) + '°';
 			pixelateSlider.value = Math.round(pixelate * 100); pixelateVal.textContent = Math.round(pixelate * 100) + '%';
 			collageRotationSlider.value = collageRotationDeg; collageRotationVal.textContent = collageRotationDeg + '°';
 			collageFlipToggle.checked = collageFlip;
@@ -6425,31 +6722,93 @@ void main() {
 			const t = (tlSeek.value / 1000) * dur;
 			const isLoop = animations[selectedAnimIndex].loop;
 
-			// Walk backwards to find the last keyframe at or before time t (= A),
-			// and the next one after it (= B). Falls back to kfs[0] if t is
-			// before all keyframes.
-			let a = kfs[0], b = null;
+			// ── Global hemisphere-consistency pass for quaternions ──
+			// Chain-flip so every consecutive pair has dot > 0.
+			// This guarantees SQUAD inner control points match at segment
+			// joins → C1 continuity across the entire spline.
+			const dot4 = (u, v) => u[0]*v[0] + u[1]*v[1] + u[2]*v[2] + u[3]*v[3];
+			const neg4 = q => [-q[0], -q[1], -q[2], -q[3]];
+			const cQ = kfs.map(kf => kf.quat ? Array.from(kf.quat) : null);
+			for (let i = 1; i < cQ.length; i++) {
+				if (cQ[i] && cQ[i-1] && dot4(cQ[i-1], cQ[i]) < 0)
+					cQ[i] = neg4(cQ[i]);
+			}
+			// Loop: ensure wrap-around (last → first) is also consistent.
+			// If not, negate cQ[0] and re-chain forward.
+			if (isLoop && cQ.length > 1 && cQ[0] && cQ[cQ.length-1]
+				&& dot4(cQ[cQ.length-1], cQ[0]) < 0) {
+				cQ[0] = neg4(cQ[0]);
+				for (let i = 1; i < cQ.length; i++) {
+					if (cQ[i] && cQ[i-1] && dot4(cQ[i-1], cQ[i]) < 0)
+						cQ[i] = neg4(cQ[i]);
+				}
+			}
+
+			// Find index of keyframe A (last kf at or before t)
+			let ai = 0;
 			for (let i = kfs.length - 1; i >= 0; i--) {
-				if (kfs[i].time <= t + 0.001) { a = kfs[i]; b = kfs[i + 1] || null; break; }
+				if (kfs[i].time <= t + 0.001) { ai = i; break; }
 			}
-			// Loop: after last keyframe, interpolate back to first
-			if (!b && isLoop && kfs.length > 1) {
-				const loopTarget = Object.assign({}, kfs[0], { time: dur });
-				b = loopTarget;
+
+			// Build 4-point neighbourhood [p0, A, B, p3] for spline.
+			// In loop mode the sequence wraps around; otherwise endpoints
+			// are mirrored (natural boundary) so the spline passes through
+			// the first/last keyframe without overshooting.
+			let a, b, p0, p3;
+			if (isLoop && kfs.length > 1) {
+				const n = kfs.length;
+				// Helper: wrap index into kfs and offset time by full periods
+				const wrapKf = (i) => {
+					const periods = Math.floor(i / n);
+					const wi = ((i % n) + n) % n;
+					return Object.assign({}, kfs[wi], { time: kfs[wi].time + periods * dur });
+				};
+				a  = wrapKf(ai);
+				b  = wrapKf(ai + 1);
+				p0 = wrapKf(ai - 1);
+				p3 = wrapKf(ai + 2);
+			} else {
+				a = kfs[ai];
+				b = kfs[ai + 1] || null;
+				p0 = kfs[ai - 1] || null;
+				p3 = b ? (kfs[ai + 2] || null) : null;
 			}
+
 			if (!a.quat) return;
 			if (!b || !b.quat || Math.abs(a.time - b.time) < 0.001) {
-				// Exactly on a keyframe or only one exists — snap
 				applyKeyframeState(a);
 			} else {
-				// Between two keyframes — interpolate
 				const frac = Math.max(0, Math.min(1, (t - a.time) / (b.time - a.time)));
-				camQuat = quatSlerp(a.quat, b.quat, frac);
+
+				// Quaternion: Squad spherical spline (C1-smooth)
+				// Use globally consistent cQ array — no per-segment flipping needed.
+				const n = cQ.length;
+				const wrapCQ = (i) => cQ[((i % n) + n) % n];
+				let qA, qB, q0, q3;
+				if (isLoop && n > 1) {
+					qA = cQ[ai];
+					qB = wrapCQ(ai + 1);
+					q0 = wrapCQ(ai - 1);
+					q3 = wrapCQ(ai + 2);
+				} else {
+					qA = cQ[ai];
+					qB = (ai + 1 < n && cQ[ai + 1]) ? cQ[ai + 1] : Array.from(qA);
+					q0 = (ai > 0 && cQ[ai - 1]) ? cQ[ai - 1] : Array.from(qA);
+					q3 = (ai + 1 < n) && (ai + 2 < n && cQ[ai + 2]) ? cQ[ai + 2] : Array.from(qB);
+				}
+				const sA = squadInner(q0, qA, qB);
+				const sB = squadInner(qA, qB, q3);
+				camQuat = quatSquad(qA, qB, sA, sB, frac);
+
+				// Numeric: Catmull-Rom spline (C1-smooth)
 				KF_NUMERIC.forEach(k => {
-					if (typeof a[k] === 'number' && typeof b[k] === 'number') {
-						KF_PROPS[k] = a[k] + (b[k] - a[k]) * frac;
-					} else if (typeof a[k] === 'number') {
-						KF_PROPS[k] = a[k];
+					const vA = a[k], vB = b[k];
+					if (typeof vA === 'number' && typeof vB === 'number') {
+						const v0 = p0 && typeof p0[k] === 'number' ? p0[k] : 2 * vA - vB;
+						const v3 = p3 && typeof p3[k] === 'number' ? p3[k] : 2 * vB - vA;
+						KF_PROPS[k] = catmullRom(v0, vA, vB, v3, frac);
+					} else if (typeof vA === 'number') {
+						KF_PROPS[k] = vA;
 					}
 				});
 				KF_BOOL.forEach(k => { if (typeof a[k] === 'boolean') KF_PROPS[k] = a[k]; });
@@ -6484,15 +6843,26 @@ void main() {
 		}
 
 		// Create a new animation with the current projection state as the
-		// initial keyframe at t=0.
+		// initial keyframe at t=0, plus three additional keyframes rotating
+		// +90° in yaw each at 25%, 50%, 75% of the duration. Loop enabled.
 		animCreateBtn.addEventListener('click', () => {
-			const name = 'Animation ' + (animations.length + 1);
-			const initSnap = captureKeyframeState();
-			initSnap.time = 0;
-			animations.push({ name, duration: 5, loop: false, projectionModeIndex, keyframes: [initSnap] });
+			const name = 'horizontal scroll';
+			const dur = 20;
+			const base = captureKeyframeState();
+			const baseEuler = quatToEulerDeg(base.quat);
+			const kfs = [];
+			for (let i = 0; i < 4; i++) {
+				const snap = Object.assign({}, base);
+				snap.quat = Array.from(quatFromEulerDeg(baseEuler.yaw + i * 90, baseEuler.pitch, baseEuler.roll));
+				snap.time = Math.round((i / 4) * dur * 100) / 100;
+				kfs.push(snap);
+			}
+			animations.push({ name, duration: dur, loop: true, projectionModeIndex, keyframes: kfs });
 			selectedAnimIndex = animations.length - 1;
 			updateAnimUI();
 			saveProjectionConfig();
+			// Autoplay
+			if (!animPlaying) toggleAnimPlayback();
 		});
 
 		animSelect.addEventListener('change', () => {
@@ -6511,6 +6881,7 @@ void main() {
 		// so they maintain their relative positions in the animation.
 		animDurationInput.addEventListener('change', () => {
 			if (selectedAnimIndex < 0) return;
+			const wasPlaying = animPlaying;
 			const d = Math.max(0.1, parseFloat(animDurationInput.value) || 0.1);
 			const oldDur = animations[selectedAnimIndex].duration;
 			if (oldDur > 0) {
@@ -6523,7 +6894,9 @@ void main() {
 			animations[selectedAnimIndex].duration = d;
 			animDurationInput.value = d;
 			showAnimTimeline(d);
+			interpolateKeyframes();
 			saveProjectionConfig();
+			if (wasPlaying && !animPlaying) toggleAnimPlayback();
 		});
 
 		animLoopInput.addEventListener('change', () => {
@@ -6532,8 +6905,65 @@ void main() {
 			saveProjectionConfig();
 		});
 
+		const animPlayBtn = document.getElementById('anim-play-btn');
+		const animStopBtn = document.getElementById('anim-stop-btn');
+
+		function updateAnimPlayBtn() {
+			animPlayBtn.innerHTML = animPlaying ? '&#10074;&#10074;' : '&#9654;';
+			animPlayBtn.title = animPlaying ? 'Pause' : 'Play';
+		}
+
+		animPlayBtn.addEventListener('click', () => {
+			if (!animEditorActive || selectedAnimIndex < 0) return;
+			toggleAnimPlayback();
+			updateAnimPlayBtn();
+		});
+
+		animStopBtn.addEventListener('click', () => {
+			if (!animEditorActive || selectedAnimIndex < 0) return;
+			if (animPlaying) toggleAnimPlayback();
+			tlSeek.value = 0;
+			interpolateKeyframes();
+			updateAnimTimeline();
+			updateAnimPlayBtn();
+		});
+
+		document.getElementById('anim-reverse-btn').addEventListener('click', () => {
+			if (selectedAnimIndex < 0) return;
+			const kfs = getKeyframes();
+			if (kfs.length < 3) return;
+			const dur = animations[selectedAnimIndex].duration;
+			const wasPlaying = animPlaying;
+			let currentTime = 0;
+			if (wasPlaying) {
+				currentTime = (performance.now() / 1000) - animStartTime + animStartOffset;
+				currentTime = Math.max(0, Math.min(currentTime, dur));
+			} else {
+				currentTime = (tlSeek.value / 1000) * dur;
+			}
+			// Mirror keyframe times around dur/2 (keep first at t=0)
+			const tail = kfs.slice(1);
+			for (let i = 0; i < tail.length; i++) {
+				tail[i].time = Math.max(0, Math.round((dur - tail[i].time) * 100) / 100);
+			}
+			tail.sort((a, b) => a.time - b.time);
+			setKeyframes([kfs[0], ...tail]);
+			// Mirror playback position
+			const mirroredTime = dur - currentTime;
+			if (wasPlaying) {
+				animStartOffset = mirroredTime;
+				animStartTime = performance.now() / 1000;
+			} else {
+				tlSeek.value = (mirroredTime / dur) * 1000;
+			}
+			drawKeyframes();
+			saveProjectionConfig();
+			if (wasPlaying && !animPlaying) toggleAnimPlayback();
+		});
+
 		animProjectionSelect.addEventListener('change', () => {
 			if (selectedAnimIndex < 0) return;
+			const wasPlaying = animPlaying;
 			const idx = projectionModes.indexOf(animProjectionSelect.value);
 			animations[selectedAnimIndex].projectionModeIndex = idx;
 			projectionModeIndex = idx;
@@ -6542,6 +6972,7 @@ void main() {
 			updateCamSliders();
 			updateFacesSliders();
 			saveProjectionConfig();
+			if (wasPlaying && !animPlaying) toggleAnimPlayback();
 		});
 
 		animDeleteBtn.addEventListener('click', () => {
@@ -6551,6 +6982,37 @@ void main() {
 			if (selectedAnimIndex >= animations.length) selectedAnimIndex = animations.length - 1;
 			updateAnimUI();
 			saveProjectionConfig();
+		});
+
+		animCopyBtn.addEventListener('click', () => {
+			if (selectedAnimIndex < 0) return;
+			const a = animations[selectedAnimIndex];
+			const json = JSON.stringify({ name: a.name, duration: a.duration, loop: !!a.loop, projectionModeIndex: a.projectionModeIndex, keyframes: a.keyframes || [] }, null, 2);
+			navigator.clipboard.writeText(json).then(() => {
+				animCopyBtn.textContent = '✓';
+				setTimeout(() => { animCopyBtn.textContent = '📋'; }, 1200);
+			});
+		});
+
+		animPasteBtn.addEventListener('click', async () => {
+			try {
+				const text = await navigator.clipboard.readText();
+				const data = JSON.parse(text);
+				if (!data.keyframes || !Array.isArray(data.keyframes)) throw new Error('No keyframes array');
+				const anim = {
+					name: data.name || 'Pasted Animation',
+					duration: data.duration || 20,
+					loop: !!data.loop,
+					projectionModeIndex: typeof data.projectionModeIndex === 'number' ? data.projectionModeIndex : projectionModeIndex,
+					keyframes: data.keyframes
+				};
+				animations.push(anim);
+				selectedAnimIndex = animations.length - 1;
+				updateAnimUI();
+				saveProjectionConfig();
+			} catch (e) {
+				alert('Paste failed: ' + e.message);
+			}
 		});
 		// ── Keyframe timeline canvas ──
 		// The keyframe canvas overlays the timeline slider (#tl-seek) with
@@ -6587,6 +7049,7 @@ void main() {
 		// sorted by time.
 		function addKeyframe(t) {
 			if (selectedAnimIndex < 0 || hasKeyframeAt(t)) return;
+			pendingKfTime = -1;
 			const kfs = getKeyframes();
 			const snap = captureKeyframeState();
 			snap.time = Math.round(t * 100) / 100;
@@ -6690,16 +7153,54 @@ void main() {
 				kfCtx.globalAlpha = 1;
 			}
 
-			// Tooltip on hover: show <Y°, P°, R°>
-			const tipIdx = hoverIdx === -2 ? 0 : hoverIdx;
-			if (tipIdx >= 0 && tipIdx < kfs.length && kfs[tipIdx].quat) {
-				const e = quatToEulerDeg(kfs[tipIdx].quat);
-				const label = '<' + Math.round(e.yaw) + '°, ' + Math.round(e.pitch) + '°, ' + Math.round(e.roll) + '°>';
-				const tipX = hoverIdx === -2 ? pad + trackW : pad + (kfs[tipIdx].time / dur) * trackW;
+			// Tooltip on hover: "dblclick to remove" (skip first pin and ghost)
+			if (hoverIdx > 0) {
+				const canvasRect = kfCanvas.getBoundingClientRect();
+				const mx = kfMouseX - canvasRect.left;
+				const my = kfMouseY - canvasRect.top;
 				kfCtx.font = '11px monospace';
-				kfCtx.textAlign = 'center';
+				kfCtx.textAlign = 'right';
 				kfCtx.fillStyle = '#eee';
-				kfCtx.fillText(label, tipX, h - 2);
+				kfCtx.fillText('dblclick to remove', mx - 6, my);
+			}
+
+			// Pending keyframe ghost pin (unsaved changes between keyframes)
+			if (pendingKfTime >= 0 && dur > 0) {
+				const px = pad + (pendingKfTime / dur) * trackW;
+				const pr = 10;
+				kfCtx.globalAlpha = 0.5;
+				kfCtx.setLineDash([4, 3]);
+				kfCtx.beginPath();
+				kfCtx.moveTo(px, r + 1);
+				kfCtx.lineTo(px, h);
+				kfCtx.strokeStyle = 'rgba(100, 255, 100, 0.7)';
+				kfCtx.lineWidth = 2;
+				kfCtx.stroke();
+				kfCtx.beginPath();
+				kfCtx.arc(px, r + 1, pr, 0, Math.PI * 2);
+				kfCtx.fillStyle = '#4a4';
+				kfCtx.fill();
+				kfCtx.strokeStyle = '#2a2';
+				kfCtx.lineWidth = 1.5;
+				kfCtx.stroke();
+				kfCtx.setLineDash([]);
+				kfCtx.globalAlpha = 1;
+				// "+" label
+				kfCtx.font = 'bold 14px monospace';
+				kfCtx.textAlign = 'center';
+				kfCtx.fillStyle = '#fff';
+				kfCtx.fillText('+', px, r + 6);
+				// Tooltip
+				const isPendingHover = hoverIdx === -3;
+				if (isPendingHover) {
+					const canvasRect = kfCanvas.getBoundingClientRect();
+					const mx = kfMouseX - canvasRect.left;
+					const my = kfMouseY - canvasRect.top;
+					kfCtx.font = '11px monospace';
+					kfCtx.textAlign = 'right';
+					kfCtx.fillStyle = '#cfc';
+					kfCtx.fillText('click to add keyframe', mx - 6, my);
+				}
 			}
 		}
 
@@ -6727,11 +7228,17 @@ void main() {
 				const x = pad + trackW;
 				if (Math.hypot(mx - x, my - 13) <= r) return -2;
 			}
+			// Pending keyframe ghost pin
+			if (pendingKfTime >= 0 && dur > 0) {
+				const px = pad + (pendingKfTime / dur) * trackW;
+				if (Math.hypot(mx - px, my - 13) <= r) return -3;
+			}
 			return -1;
 		}
 
 		let kfHoverIdx = -1;
 		let kfDragIdx = -1;
+		let pendingKfTime = -1; // ghost pin for unsaved changes between keyframes
 
 		function xToTime(clientX) {
 			const rect = kfCanvas.getBoundingClientRect();
@@ -6745,7 +7252,10 @@ void main() {
 		// ── Keyframe pin hover and drag ──
 		// mousemove: while dragging (kfDragIdx > 0), reposition the keyframe
 		// in time and sync the timeline slider. Otherwise, update hover state.
+		let kfMouseX = 0, kfMouseY = 0;
 		kfCanvas.addEventListener('mousemove', (e) => {
+			kfMouseX = e.clientX;
+			kfMouseY = e.clientY;
 			if (kfDragIdx > 0) {
 				const kfs = getKeyframes();
 				const newTime = xToTime(e.clientX);
@@ -6759,7 +7269,7 @@ void main() {
 			const idx = hitTestKeyframe(e);
 			if (idx !== kfHoverIdx) {
 				kfHoverIdx = idx;
-				kfCanvas.style.cursor = idx > 0 ? 'grab' : (idx >= -2 && idx <= 0 ? 'default' : '');
+				kfCanvas.style.cursor = idx === -3 ? 'pointer' : idx > 0 ? 'grab' : (idx >= -2 && idx <= 0 ? 'default' : '');
 				drawKeyframes(kfHoverIdx);
 			}
 		});
@@ -6796,7 +7306,6 @@ void main() {
 					if (Math.abs(mx - x) <= 14) { hitIdx = i; break; }
 				}
 				if (hitIdx > 0) {
-					if (!confirm('Delete this keyframe?')) return;
 					kfs.splice(hitIdx, 1);
 					setKeyframes(kfs);
 					drawKeyframes(-1);
@@ -6809,7 +7318,13 @@ void main() {
 			}
 
 			const idx = hitTestKeyframe(e);
-			if (idx < -2 || idx === -1) return;
+			if (idx < -3 || idx === -1) return;
+			// Pending keyframe ghost pin → add keyframe
+			if (idx === -3 && pendingKfTime >= 0) {
+				addKeyframe(pendingKfTime);
+				pendingKfTime = -1;
+				return;
+			}
 			// Ghost loop pin → jump to first keyframe (t=0)
 			const kfs = getKeyframes();
 			const dur = animations[selectedAnimIndex].duration;
@@ -7195,6 +7710,13 @@ void main() {
 							videoActive = false;
 							videoEl.pause(); videoEl.removeAttribute('src');
 							timelineEl.style.display = 'none';
+							// Stop and clear animation state
+							if (animPlaying) toggleAnimPlayback();
+							hideAnimTimeline();
+							animations.length = 0;
+							selectedAnimIndex = -1;
+							pendingKfTime = -1;
+							updateAnimUI();
 							gl.bindTexture(gl.TEXTURE_2D, tex);
 							gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
 							if (exportRow) exportRow.style.display = 'none';
@@ -7253,7 +7775,7 @@ void main() {
 				isLeveled = false;
 				levelMode = false;
 				levelAnglesDiv.style.display = 'none';
-				syncGridToggles(false);
+				syncGridToggles(0);
 				updateLevelSliders();
 				updateLevelBtnState();
 			}
@@ -7368,7 +7890,7 @@ void main() {
 			gl.uniform1f(uGlobeRadius, 0.0); // no globe in export
 			gl.uniform1f(uRefractivity, 1.0); // no magnifier in export
 			gl.uniform1f(uProjection, projectionModeIndex);
-			gl.uniform1f(uShowGrid, showGrid ? 1.0 : 0.0);
+			gl.uniform1f(uShowGrid, showGrid);
 			gl.uniform1f(uBuckyOverlayAlpha, buckyOverlayAlpha);
 			gl.uniform1f(uCutLineMode, cutLineMode);
 			gl.uniform1f(uCollageRotation, collageRotationDeg * Math.PI / 180);
@@ -7567,7 +8089,7 @@ void main() {
 					isLeveled = false;
 					levelMode = false;
 					levelAnglesDiv.style.display = 'none';
-					syncGridToggles(false);
+					syncGridToggles(0);
 					updateLevelSliders();
 					updateLevelBtnState();
 					saveProjectionConfig();
@@ -7594,7 +8116,7 @@ void main() {
 				isLeveled = false;
 				levelMode = false;
 				levelAnglesDiv.style.display = 'none';
-				syncGridToggles(false);
+				syncGridToggles(0);
 				updateLevelSliders();
 				updateLevelBtnState();
 				saveProjectionConfig();
@@ -7602,7 +8124,7 @@ void main() {
 			await updateCachedFilesList();
 		}
 
-		const DEFAULT_IMAGE = '2025-09-26 Hohe D\u00fcne.jpg';
+		const DEFAULT_IMAGES = ['2025-09-26 Hohe D\u00fcne.jpg', '2025-10-18 Warnem\u00fcnde.jpg'];
 
 		const progressEl = document.getElementById('progress');
 		const progressFill = document.getElementById('progress-fill');
@@ -7645,13 +8167,13 @@ void main() {
 			return new Blob(chunks);
 		}
 
-		// Restore from cache on startup, or fetch default image
+		// Restore from cache on startup, or fetch default images
 		(async () => {
 			try {
 				const cached = await cacheLoad();
+				let hasTexture = false;
 				if (cached) {
 					setProgress(0.5, 'restoring from cache…');
-					// load config before texture so both apply in the same frame
 					const cfg = await loadProjectionConfig(cached.name);
 					if (isVideoFile(cached.name)) {
 						const url = URL.createObjectURL(cached.blob);
@@ -7663,27 +8185,32 @@ void main() {
 					}
 					applyProjectionConfig(cfg);
 					needsRedraw = true;
-					await updateCachedFilesList();
-					hideProgress();
-					return;
+					hasTexture = true;
+				} else {
+					// No cache — test pattern gets a leveled horizon at identity
+					levelQuat = [0, 0, 0, 1];
+					isLeveled = true;
+					updateLevelSliders();
+					updateLevelBtnState();
 				}
-				// No cache — test pattern gets a leveled horizon at identity
-				levelQuat = [0, 0, 0, 1];
-				isLeveled = true;
-				updateLevelSliders();
-				updateLevelBtnState();
-				// try fetching default image (only works via HTTP, not file://)
-				if (location.protocol === 'file:') { progressEl.style.display = 'none'; return; }
-				setProgress(0, 'fetching ' + DEFAULT_IMAGE + '…');
-				const blob = await fetchWithProgress(encodeURI(DEFAULT_IMAGE));
-				const img = await loadImageFromBlob(blob);
-				uploadTexture(img);
-				await cacheStore(blob, DEFAULT_IMAGE, img.width, img.height);
-				sourceFileName = DEFAULT_IMAGE;
-				// Default image has no saved level config → reset the flag
-				// set earlier for the test pattern fallback
-				isLeveled = false;
-				updateLevelBtnState();
+				// Ensure all default images are cached (fetch missing ones)
+				if (location.protocol !== 'file:') {
+					const existing = await cacheListNames();
+					for (const name of DEFAULT_IMAGES) {
+						if (existing.includes(name)) continue;
+						setProgress(0, 'fetching ' + name + '…');
+						const blob = await fetchWithProgress(encodeURI(name));
+						const img = await loadImageFromBlob(blob);
+						if (!hasTexture) {
+							uploadTexture(img);
+							sourceFileName = name;
+							isLeveled = false;
+							updateLevelBtnState();
+							hasTexture = true;
+						}
+						await cacheStore(blob, name, img.width, img.height);
+					}
+				}
 				await updateCachedFilesList();
 				hideProgress();
 			} catch (e) {
@@ -7771,7 +8298,7 @@ void main() {
 			gl.uniform1f(uGlobeOpacity, globeOpacity);
 			gl.uniform1f(uGlobeReflect, globeReflect);
 			gl.uniform1f(uProjection, projectionModeIndex);
-			gl.uniform1f(uShowGrid, showGrid ? 1.0 : 0.0);
+			gl.uniform1f(uShowGrid, showGrid);
 			gl.uniform1f(uBuckyOverlayAlpha, buckyOverlayAlpha);
 			gl.uniform1f(uCutLineMode, cutLineMode);
 			gl.uniform4f(uExportClip, -1, -1, 1, 1);

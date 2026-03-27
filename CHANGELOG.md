@@ -7,17 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-03-27
+
 ### Added
 - **Animation editor** — collapsible panel for creating, naming, and managing multiple animations per source file; each animation has its own projection mode, duration, and loop setting; animations are persisted per source file in IndexedDB alongside the projection config
 - **Keyframe timeline** — visual timeline with draggable keyframe pins rendered on a `<canvas>` overlay; reuses the video player's range slider; pins show three states: default (gold), active (blue, when slider is on a keyframe ±0.5% tolerance), and hovered (blue, enlarged); a ghost pin at t=duration mirrors the first keyframe when loop is enabled
 - **Full projection state per keyframe** — each keyframe stores a complete snapshot: camera quaternion, FOV, pixelate, collage rotation/flip, azimuthal zoom/mask, stereographic D and Scaramuzza coefficients (a¹–a⁴), globe size/opacity/reflect/visible, and net overlay alpha; all attributes are captured on creation and updated live when the slider sits on an active keyframe
-- **Keyframe interpolation** — during playback and interactive slider scrubbing, all projection attributes interpolate between adjacent keyframes: SLERP for camera orientation, linear lerp for numeric parameters, snap-to-A for booleans; in loop mode, the last keyframe seamlessly interpolates back to the first
+- **Keyframe interpolation** — during playback and interactive slider scrubbing, all projection attributes interpolate between adjacent keyframes: **SQUAD** (Spherical and Quadrangle) C¹-smooth quaternion spline for camera orientation, linear lerp for numeric parameters, snap-to-A for booleans; in loop mode, the last keyframe seamlessly interpolates back to the first via Catmull-Rom–style tangent vectors
 - **Keyframe management** — double-click on empty timeline adds a new keyframe; double-click on an existing pin (except the first) deletes it with a confirmation dialog; single-click jumps to a keyframe and instantly applies its stored projection state; drag a pin to reposition it in time (first pin is locked at t=0)
 - **Duration scaling** — changing the animation duration proportionally rescales all keyframe times to preserve their relative positions
 - **Hover tooltip** — hovering a keyframe pin shows the stored camera orientation as `<Y°, P°, R°>` below the pin
+- **Pending keyframe ghost on drag** — the ghost pin indicating where a new keyframe will be created now appears immediately when starting a drag gesture between existing keyframes, providing visual feedback before pointer release
+- **Three-state grid overlay (Off → Tex → View)** — replaces the boolean grid checkbox with a cycling button in the Projection section; **Tex** mode draws the 32×16 grid in texture (equirectangular) coordinates, **View** mode draws the grid in viewport (screen) coordinates using `gl_FragCoord`; keyboard shortcut `X` cycles through all three states; the grid button uses a dedicated color scheme: blue when off (`#1a2a3a` bg, `#48f` border), green when active (`#1a2a1a` bg, `#4a4` border)
+- **View grid in leveling mode** — entering level/horizon mode now automatically activates the View grid (screen coordinates), providing a pixel-aligned reference for horizon alignment; the grid resets to its previous state on accept/discard
 
 ### Changed
 - **Stereographic a¹ default** — `stereoA0` default value changed from 1.0 to 50.0 (slider range 0–100); reset button updated accordingly
+- **Default animation** — the auto-generated "horizontal scroll" animation rotates in the positive yaw direction (was negative); animation is named "horizontal scroll"
+- **Collapsed file panel sizing** — collapsed file menu (`#info`) now matches the collapsed animation menu size with `min-width: 0`, `padding: 4px`, and enlarged toggle icon (20px font-size)
+- **Left panel width independence** — `#left-panels` flex container now uses `align-items: flex-start` so collapsed and expanded panels size independently instead of stretching to match each other's width
+
+### Fixed
+- **SQUAD hemisphere consistency** — `squadInner()` now applies per-segment hemisphere flipping (dot-product sign check + quaternion negation for `qPrev` and `qNext`) before computing tangent vectors; fixes temporal unevenness at loop boundaries where the inner product construction inadvertently computed a ~270° long-path rotation instead of the correct ~90° short-path, causing visible deceleration before keyframes and jerky acceleration at transitions
+- **Animation loop continuity** — `stepAnimPlayback()` now preserves fractional time overshoot on loop wrap via `elapsed % duration` instead of resetting to zero; eliminates micro-stutter at loop restart that occurred when the frame crossing the loop boundary discarded its sub-frame time
+- **Animation cleanup on last file delete** — deleting the last cached file now properly stops playback, hides the animation timeline, and clears all animation state (`animations`, `selectedAnimIndex`, `pendingKfTime`); previously the animation panel persisted with stale data after the source file was removed
+- **CSS specificity cascade** — generic `#controls button` selector now excludes `#grid-toggle-proj`, `#level-accept`, and `#level-discard` via `:not()` pseudo-classes, preventing their dedicated color schemes from being overridden by the generic dark style
 
 ## [0.16.0] - 2026-03-25
 

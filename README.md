@@ -67,7 +67,7 @@ When served over HTTP the viewer auto-loads a default video (or image as fallbac
 | `Q` / `E` (or Numpad `7` / `9`) | Roll |
 | `←` / `→` | Cycle through cached files |
 | `↑` / `↓` | Cycle through projection methods |
-| `X` | Toggle grid overlay |
+| `X` | Cycle grid overlay (Off → Tex → View) |
 | `G` | Toggle globe overlay |
 | `L` | Toggle level / horizon mode |
 | `M` | Toggle magnifier |
@@ -88,7 +88,7 @@ Both the **controls panel** (top-right) and the **file list** (top-left) can be 
 
 ## Animation Editor
 
-The animation panel (collapsible, bottom-right) lets you create keyframe-driven camera animations that interpolate between saved projection states.
+The animation panel lets you create keyframe-driven camera animations that interpolate between saved projection states.
 
 ### Data Model
 
@@ -102,7 +102,7 @@ Animation
 ├── projectionModeIndex (integer)
 └── keyframes[]
     ├── time (seconds)
-    ├── quat [x, y, z, w]          ← camera orientation (SLERP)
+    ├── quat [x, y, z, w]          ← camera orientation (SQUAD spline)
     ├── fovDeg, pixelate, ...       ← numeric params (linear lerp)
     └── globeVisible, collageFlip,  ← boolean params (snap)
         azimuthalMask
@@ -114,8 +114,8 @@ Each keyframe stores a **full projection state snapshot** — all parameters fro
 
 | Category | Properties | Interpolation |
 |---|---|---|
-| Camera orientation | `quat` [x, y, z, w] | Spherical linear (SLERP) |
-| Numeric | `fovDeg`, `pixelate`, `collageRotationDeg`, `azimuthalZoom`, `stereoD`, `stereoA0`–`stereoA3`, `globeSize`, `globeOpacity`, `globeReflect`, `buckyOverlayAlpha` | Linear lerp |
+| Camera orientation | `quat` [x, y, z, w] | **SQUAD** — C¹-smooth spherical spline (Catmull-Rom tangents via `squadInner`, hemisphere-consistent) |
+| Numeric | `fovDeg`, `pixelate`, `collageRotationDeg`, `azimuthalZoom`, `stereoD`, `stereoA0`–`stereoA3`, `globeSize`, `globeOpacity`, `globeReflect`, `buckyOverlayAlpha` | Catmull-Rom spline |
 | Boolean | `globeVisible`, `collageFlip`, `azimuthalMask` | Snap to keyframe A |
 
 ### Timeline Interactions
@@ -127,6 +127,7 @@ Each keyframe stores a **full projection state snapshot** — all parameters fro
 | Double-click on pin (not first) | Delete keyframe (with confirm dialog) |
 | Double-click on empty space | Add new keyframe at that position |
 | Hover over pin | Show `<Y°, P°, R°>` tooltip with stored camera orientation |
+| Drag on empty space | Ghost pin appears immediately, showing where a new keyframe will be created |
 | Scrub slider | Interpolate all attributes between surrounding keyframes |
 
 ### Pin Visual States
@@ -137,12 +138,13 @@ Each keyframe stores a **full projection state snapshot** — all parameters fro
 | Active | Blue `#4cf` | `#28a` | Slider is on this keyframe (±0.5% tolerance) |
 | Hovered | Blue `#4cf` | `#28a` | Mouse is over this pin (enlarged radius) |
 | Ghost (loop) | 50% opacity | — | Mirrors first keyframe at t=duration when loop is enabled |
+| Ghost (pending) | 50% opacity | — | Preview of where a new keyframe will be added (appears on drag start) |
 
 ### Playback
 
 - **Play/Pause** button starts real-time playback from the current slider position
-- During playback, `stepAnimPlayback()` advances the slider each frame, calls `interpolateKeyframes()` to SLERP/lerp all attributes, and updates all UI sliders
-- **Loop mode**: at the end, time wraps to 0 and the last keyframe interpolates seamlessly back to the first
+- During playback, `stepAnimPlayback()` advances the slider each frame, calls `interpolateKeyframes()` to SQUAD-spline/Catmull-Rom all attributes, and updates all UI sliders
+- **Loop mode**: at the end, time wraps seamlessly — fractional overshoot is preserved via `elapsed % duration` to eliminate micro-stutter at the loop boundary; the SQUAD spline uses hemisphere-consistent tangent vectors at the wrap point for C¹ continuity
 - **Auto-stop**: without loop, playback stops at the last frame
 
 ### Duration Scaling
@@ -154,12 +156,40 @@ Changing the animation duration proportionally rescales all keyframe times, pres
 ```
 captureKeyframeState()    → snapshot all KF_PROPS + camQuat into plain object
 applyKeyframeState(s)     → restore all variables + update sliders
-interpolateKeyframes()    → find A/B keyframes around current time, SLERP/lerp
+interpolateKeyframes()    → find A/B keyframes, SQUAD for quats, Catmull-Rom for numerics
+quatSquad(q0,q1,q2,q3,t)  → C¹ spherical spline between q1 and q2 using tangents from q0,q3
+squadInner(qPrev,qCurr,qNext) → hemisphere-consistent tangent quaternion for SQUAD
 KF_PROPS                  → getter/setter proxy bridging property names to
                              function-scoped variables (avoids eval)
 stepAnimPlayback()        → advance slider from wall-clock time, call interpolate
 updateProjectionSliders() → sync all slider DOM elements with current state
 ```
+
+### SQUAD Quaternion Spline — Technical Deep Dive
+
+Camera orientation between keyframes is interpolated using **SQUAD** (Spherical and Quadrangle), a C¹-smooth spherical spline that is the quaternion analogue of Catmull-Rom splines. Unlike plain SLERP (which only guarantees C⁰ continuity, creating visible speed changes at keyframes), SQUAD produces smooth acceleration through keyframes with no abrupt velocity transitions.
+
+#### Algorithm
+
+Given four consecutive keyframe quaternions $(q_{i-1}, q_i, q_{i+1}, q_{i+2})$ and a local parameter $t \in [0,1]$ between $q_i$ and $q_{i+1}$:
+
+$$\text{SQUAD}(q_i, q_{i+1}, s_i, s_{i+1}, t) = \text{SLERP}\!\Big(\text{SLERP}(q_i, q_{i+1}, t),\;\text{SLERP}(s_i, s_{i+1}, t),\;2t(1-t)\Big)$$
+
+where $s_i$ and $s_{i+1}$ are **inner quadrangle points** (tangent quaternions) computed by `squadInner()`:
+
+$$s_i = q_i \cdot \exp\!\left(-\frac{\log(q_i^{-1} q_{i-1}) + \log(q_i^{-1} q_{i+1})}{4}\right)$$
+
+#### Hemisphere Consistency
+
+A critical subtlety: quaternions $q$ and $-q$ represent the same rotation, but SLERP can take the long path (~270°) instead of the short path (~90°) if the dot product is negative. The `squadInner()` implementation flips $q_{i-1}$ and $q_{i+1}$ into $q_i$'s hemisphere before computing tangent vectors, ensuring short-path interpolation at every segment boundary — including the loop wrap point where $q_{\text{last}} \to q_0$.
+
+#### Loop Wrap
+
+In loop mode, the spline is closed: the segment from the last keyframe back to the first uses the second-to-last keyframe as $q_{i-1}$ and the second keyframe as $q_{i+2}$, providing smooth tangent continuity across the loop boundary.
+
+#### Numeric Attributes
+
+Non-quaternion attributes (FOV, zoom, stereographic coefficients, etc.) use a standard **Catmull-Rom spline** with the same four-keyframe window, providing matching C¹ smoothness for all animated parameters.
 
 ---
 
@@ -561,10 +591,11 @@ Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png` (or `
 |---|---|
 | 🖼️ **Image & Video support** | Drop equirectangular JPEG/PNG or MP4/WebM video files |
 | 📽️ **Video playback** | Timeline with seek bar, time display; click to play/pause |
+| 🎬 **Animation editor** | Keyframe-driven camera animations with SQUAD quaternion spline interpolation, Catmull-Rom for numeric parameters, visual timeline with draggable pins, loop mode with seamless wrap |
 | 🔎 **Magnifier** | Cursor-following lens with adjustable radius and refractivity (half-sphere refraction shader); toggle via `M` key |
 | 📐 **Pixelate** | Slider blending between linear (smooth) and nearest-neighbor (pixelated) texture filtering |
 | 🌐 **Globe overlay** | 3D sphere with lat/lon grid, equator (orange) and prime meridian (blue) rings; environment reflection from panorama; adjustable size, opacity, and reflectivity; toggle via `G` key |
-| 📏 **Grid overlay** | 32×16 grid with crosshairs for orientation (toggle via `X` key) |
+| 📏 **Grid overlay** | 3-state grid (Off → Tex → View): **Tex** draws a 32×16 grid in equirectangular texture coordinates, **View** draws the grid in screen/viewport coordinates using `gl_FragCoord`; cycle via `X` key or button |
 | 🎯 **Fly-to** | Double-click to smoothly animate camera toward any point; works in both camera and leveling mode |
 | ⚖️ **Horizon leveling** | Dedicated leveling mode with accept/discard; yaw/pitch/roll sliders; double-click horizon to auto-level; per-file persistence |
 | 📸 **PNG / CMYK TIFF export** | Export current view at source texture resolution; PNG or CMYK TIFF (300 DPI, optional ICC profile); projection-specific dimensions and clipping |
