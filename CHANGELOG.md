@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-03-28
+
+### Added
+- **SVG cutline export** — new `SVG Cutline` option in the export format dropdown (available only in foldable projection modes); generates a vector SVG with face boundary edges, glue tab outlines (3 open trapezoid edges per tab), and an evenodd clip path that prevents tab strokes from bleeding into face interiors; supports all three net types (buckyball-32, rhombic-30, truncoct-14); physical dimensions in inches at the configured DPI match the raster export's print size; landscape nets are rotated 90° CW to portrait, matching the TIFF export convention
+- **Configurable DPI** — numeric input field (default 300) in the export section; used by both CMYK TIFF and SVG cutline exports for resolution metadata (TIFF XResolution/YResolution tags) and physical dimension calculation (SVG width/height in inches)
+- **Clear cache** — "clear cache" link below the cached files table; deletes all cached panoramas, ICC profiles, and config entries from IndexedDB; resets the viewer to its initial state (no texture, default camera, empty animations); automatically hidden when no files are cached
+- **Grid:View magnifier warping** — the grid overlay in View mode (screen coordinates) now follows the magnifier lens distortion; `applyViewGrid()` accepts lens-distorted UV coordinates, and a `lensNorm` computation maps distorted coords into the export clip rectangle for correct grid alignment under magnification
+
+### Changed
+- **DPI input visibility** — the DPI input is shown for both CMYK TIFF and SVG Cutline formats; ICC-specific controls (profile dropdown, load button, registry link) are hidden when SVG is selected
+- **SVG option auto-reset** — switching away from a foldable projection mode automatically resets the export format from SVG to PNG and fires a change event to update the ICC section visibility
+
+### Fixed
+- **Per-type tight bounding box** — each foldable net IIFE (bucky-32, rhombic-30) now stores its own tight bbox (`_bucky32TightBBox`, `_rhombic30TightBBox`); `uploadActiveNetData()` syncs the correct per-type bbox to the shared `buckyTightBBox` global when switching modes; fixes bottom clipping in TIFF export that occurred when the rhombic-30 IIFE's bbox (which runs after bucky-32 at init) overwrote the shared global with different dimensions
+- **SVG viewBox stroke clipping** — the SVG viewBox is padded by `2×strokeWidth` on each side, and the clip rect includes the same padding, preventing hairline strokes at net boundaries from being clipped
+
 ## [0.17.0] - 2026-03-27
 
 ### Added

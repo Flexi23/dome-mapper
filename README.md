@@ -555,14 +555,33 @@ The paper rect is computed from the **tight bounding box** (`buckyTightBBox`) �
 
 ## Export
 
-The export button renders the current view at high resolution and downloads the result. A **format dropdown** next to the Save button offers two output formats:
+The export button renders the current view at high resolution and downloads the result. A **format dropdown** next to the Save button offers three output formats:
 
 | Format | Description |
 |---|---|
 | **PNG** | Standard lossless image; default for all projections |
-| **CMYK TIFF** | Uncompressed TIFF with `PhotometricInterpretation = CMYK`, `SamplesPerPixel = 4`, and `300 DPI` resolution metadata; suitable for professional print workflows (ISO 12647-2:2013) |
+| **CMYK TIFF** | Uncompressed TIFF with `PhotometricInterpretation = CMYK`, `SamplesPerPixel = 4`, and configurable DPI resolution metadata; suitable for professional print workflows (ISO 12647-2:2013) |
+| **SVG Cutline** | Vector SVG of the foldable net's physical cut lines; available only in foldable projection modes (buckyball-32, rhombic-30, truncoct-14); includes face boundary edges, glue tab outlines, and an evenodd clip path |
+
+### DPI Setting
+
+A **DPI input** (default: 300) is shown when CMYK TIFF or SVG Cutline is selected. For TIFF exports, DPI is embedded as XResolution/YResolution TIFF tags. For SVG exports, the DPI determines the physical `width` and `height` attributes (in inches), ensuring the print dimensions match the raster export at the same DPI.
+
+### ICC Profiles
 
 When **CMYK TIFF** is selected, an **ICC profile section** appears with a dropdown of cached profiles and a "Load .icc" button. Loaded profiles are persisted in IndexedDB (key prefix `icc:`) and survive page reloads. The selected profile is embedded via TIFF tag 34675 (ICCProfile), enabling tagged output for Fogra51 (PSOcoated_v3) or other print profiles.
+
+### SVG Cutline Export
+
+The SVG Cutline format generates a vector file with:
+
+1. **Face boundary edges** — each polygon edge is drawn exactly once using tab-ownership deduplication logic
+2. **Glue tab outlines** — open 3-edge trapezoids (two diagonals + outer edge; the base polygon edge is omitted to avoid double lines), clipped to face polygon interiors via an evenodd clip path
+3. **Physical dimensions** — `width` and `height` attributes in inches (`pixels ÷ DPI`) matching the raster export's print size at the configured DPI
+
+The SVG uses its own inline tight bounding box computation (iterating all polygon vertices and tab outer corners) rather than relying on the shared global, avoiding stale values after mode switches. Landscape nets are rotated 90° clockwise to portrait orientation, matching the TIFF export convention. The stroke width is 0.5pt (physical), and the viewBox is padded to prevent boundary clipping.
+
+The SVG option is **disabled and hidden** when not in a foldable projection mode. Switching away from foldable while SVG is selected automatically resets the format to PNG.
 
 Each projection uses optimised dimensions:
 
@@ -581,7 +600,7 @@ Each projection uses optimised dimensions:
 
 The implementation resizes the WebGL canvas to export resolution, sets the `exportClip` uniform to remap `screenUV` from the default `(−1,−1)→(1,1)` range to the net's bounding box coordinates (with aspect-ratio compensation), renders a single frame, and reads pixels via `gl.readPixels()` within the same JS task. After export, the canvas and uniform are restored to viewport defaults.
 
-Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png` (or `.tif` for CMYK TIFF).
+Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png` (or `.tif` for CMYK TIFF, `-cutline.svg` for SVG Cutline).
 
 ---
 
@@ -598,9 +617,9 @@ Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png` (or `
 | 📏 **Grid overlay** | 3-state grid (Off → Tex → View): **Tex** draws a 32×16 grid in equirectangular texture coordinates, **View** draws the grid in screen/viewport coordinates using `gl_FragCoord`; cycle via `X` key or button |
 | 🎯 **Fly-to** | Double-click to smoothly animate camera toward any point; works in both camera and leveling mode |
 | ⚖️ **Horizon leveling** | Dedicated leveling mode with accept/discard; yaw/pitch/roll sliders; double-click horizon to auto-level; per-file persistence |
-| 📸 **PNG / CMYK TIFF export** | Export current view at source texture resolution; PNG or CMYK TIFF (300 DPI, optional ICC profile); projection-specific dimensions and clipping |
+| 📸 **PNG / CMYK TIFF / SVG export** | Export current view at source texture resolution; PNG, CMYK TIFF (configurable DPI, optional ICC profile), or SVG Cutline (vector cut lines for foldable nets); projection-specific dimensions and clipping |
 | 🔢 **Y / P / R sliders** | Live Euler-angle readout; drag to set orientation, double-click to reset; copy/paste quaternion |
-| 💾 **Multi-file cache** | Multiple panoramas cached in IndexedDB; switch between cached files via file list; last-viewed file restored on reload |
+| 💾 **Multi-file cache** | Multiple panoramas cached in IndexedDB; switch between cached files via file list; last-viewed file restored on reload; "clear cache" link to delete all cached data and reset viewer state |
 | ⚙️ **Per-file config** | Camera orientation, FOV, projection mode, grid, globe, leveling, and all projection parameters persisted per file |
 | ✂️ **Cut line overlay** | 3-state toggle (Off / Overlay / Only) rendering physical cut outlines for all three foldable nets; tab edges, polygon edges, and ownership-aware boundary logic |
 | 🎨 **Test pattern** | Built-in checkerboard fallback with meridian/equator markers |
@@ -690,9 +709,10 @@ The cache stores multiple entries with prefixed keys:
 |---|---|
 | `tex:<filename>` | Image/video Blob, dimensions, timestamp |
 | `cfg:<filename>` | Projection config (camera, level, FOV, mode, projection parameters) |
+| `icc:<profilename>` | ICC profile ArrayBuffer for CMYK TIFF export |
 | `lastFile` | Name of the last-viewed file (restored on reload) |
 
-A file list in the UI shows all cached panoramas with dimensions and size; clicking switches between them. Deleting a cached file removes both its `tex:` and `cfg:` entries.
+A file list in the UI shows all cached panoramas with dimensions and size; clicking switches between them. Deleting a cached file removes both its `tex:` and `cfg:` entries. A **"clear cache"** link below the file table deletes all entries (textures, configs, ICC profiles), resets the viewer to its initial state, and is automatically hidden when no files are cached.
 
 ---
 

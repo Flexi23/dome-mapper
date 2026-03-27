@@ -405,6 +405,24 @@
 			gap: 4px;
 			align-items: center;
 		}
+		#dpi-label {
+			font-size: 11px;
+			color: #6d6;
+			white-space: nowrap;
+		}
+		#dpi-input {
+			width: 48px;
+			padding: 2px 4px;
+			font-size: 11px;
+			border-radius: 4px;
+			color: #6d6;
+			border: 1px solid #4a4;
+			background: #1a3a1a;
+			outline: none;
+			-moz-appearance: textfield;
+		}
+		#dpi-input::-webkit-inner-spin-button,
+		#dpi-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 		#icc-select {
 			flex: 1;
 			padding: 2px 4px;
@@ -772,6 +790,15 @@
 			opacity: 1;
 		}
 
+		#clear-cache {
+			display: none;
+			font-size: 10px;
+			color: #865;
+			text-align: center;
+			margin-top: 2px;
+		}
+		#clear-cache:hover { color: #b88; }
+
 		#open-file-btn {
 			cursor: pointer;
 			font-size: 12px;
@@ -902,6 +929,7 @@
 			<button class="panel-toggle" title="Toggle file list">✕</button>
 		</div>
 		<table id="cached-files"></table>
+		<a id="clear-cache" href="#">clear cache</a>
 	</div>
 	<div id="anim-panel" class="collapsed">
 		<button class="anim-open-btn" title="Open animation panel">🎬</button>
@@ -1073,10 +1101,12 @@
 			<select id="export-fmt">
 				<option value="png">PNG</option>
 				<option value="tiff">CMYK TIFF</option>
+				<option value="svg">SVG Cutline</option>
 			</select>
 		</div>
 		<div id="icc-section" class="hide-in-level-off">
 			<div id="icc-row">
+				<label id="dpi-label">DPI <input type="number" id="dpi-input" value="300" min="1" max="9999" step="1"></label>
 				<select id="icc-select"><option value="">(no ICC profile)</option></select>
 				<button id="icc-load-btn">Load .icc</button>
 			</div>
@@ -1536,9 +1566,10 @@ vec3 applyGrid(vec3 col, vec2 eqUV) {
 }
 
 // View-space grid overlay: regular screen-space grid independent of projection
-vec3 applyViewGrid(vec3 col) {
+// vuv0: lens-distorted normalised screen coordinate (0→1 range)
+vec3 applyViewGrid(vec3 col, vec2 vuv0) {
 	if (showGrid < 1.5) return col;
-	vec2 vuv = gl_FragCoord.xy / resolution;
+	vec2 vuv = vuv0;
 	float asp = resolution.x / resolution.y;
 	vuv.x *= asp;
 	vec2 duvdx = dFdx(vuv);
@@ -1565,6 +1596,9 @@ void main() {
 		vec2 screenAsp = screenUV * aspCorr;
 		lensUV = uv_lens_half_sphere(screenAsp, ptrAsp, magnifierRadius, refractivity) / aspCorr;
 	}
+
+	// Normalised lens-distorted screen coordinate (0→1) for view grid
+	vec2 lensNorm = (lensUV - exportClip.xy) / (exportClip.zw - exportClip.xy);
 
 	vec3 rd;
 	vec2 tcGrid;
@@ -1622,7 +1656,7 @@ void main() {
 			bgCol = mix(vec3(0.06), bgCol, bgEdgeLine);
 		}
 
-		if (discSph < 0.0) { bgCol = applyViewGrid(bgCol); fragColor = vec4(bgCol, 1.0); return; }
+		if (discSph < 0.0) { bgCol = applyViewGrid(bgCol, lensNorm); fragColor = vec4(bgCol, 1.0); return; }
 		float t = max(0.0, -bSph - sqrt(discSph));
 		float tMax = -bSph + sqrt(discSph);
 
@@ -1639,7 +1673,7 @@ void main() {
 			if (t > tMax) break;
 		}
 
-		if (!hit) { bgCol = applyViewGrid(bgCol); fragColor = vec4(bgCol, 1.0); return; }
+		if (!hit) { bgCol = applyViewGrid(bgCol, lensNorm); fragColor = vec4(bgCol, 1.0); return; }
 
 		vec3 hitPos = eye + t * rdW;
 
@@ -1680,7 +1714,7 @@ void main() {
 		float rim = pow(1.0 - NdotV, 3.5);
 		col += vec3(0.07, 0.09, 0.14) * rim;
 
-		col = applyViewGrid(col);
+		col = applyViewGrid(col, lensNorm);
 		fragColor = vec4(col, 1.0);
 		return;
 	} else if (projection > 8.5) {
@@ -1768,7 +1802,7 @@ void main() {
 			}
 		}
 
-		col = applyViewGrid(col);
+		col = applyViewGrid(col, lensNorm);
 		fragColor = vec4(col, 1.0);
 		return;
 	} else if (projection > 7.5) {
@@ -1823,7 +1857,7 @@ void main() {
 			bgCol = mix(vec3(0.06), bgCol, bgEdgeLine);
 		}
 
-		if (discSph < 0.0) { bgCol = applyViewGrid(bgCol); fragColor = vec4(bgCol, 1.0); return; }
+		if (discSph < 0.0) { bgCol = applyViewGrid(bgCol, lensNorm); fragColor = vec4(bgCol, 1.0); return; }
 		float t = max(0.0, -bSph - sqrt(discSph));
 		float tMax = -bSph + sqrt(discSph);
 
@@ -1840,7 +1874,7 @@ void main() {
 			if (t > tMax) break;
 		}
 
-		if (!hit) { bgCol = applyViewGrid(bgCol); fragColor = vec4(bgCol, 1.0); return; }
+		if (!hit) { bgCol = applyViewGrid(bgCol, lensNorm); fragColor = vec4(bgCol, 1.0); return; }
 
 		vec3 hitPos = eye + t * rdW;
 
@@ -1886,7 +1920,7 @@ void main() {
 		float rim = pow(1.0 - NdotV, 3.5);
 		col += vec3(0.07, 0.09, 0.14) * rim;
 
-		col = applyViewGrid(col);
+		col = applyViewGrid(col, lensNorm);
 		fragColor = vec4(col, 1.0);
 		return;
 	} else if (projection > 6.5) {
@@ -2010,7 +2044,7 @@ void main() {
 			}
 		}
 
-		col = applyViewGrid(col);
+		col = applyViewGrid(col, lensNorm);
 		fragColor = vec4(col, 1.0);
 		return;
 	} else if (projection > 5.5) {
@@ -2165,7 +2199,7 @@ void main() {
 			}
 		}
 
-		col = applyViewGrid(col);
+		col = applyViewGrid(col, lensNorm);
 		fragColor = vec4(col, 1.0);
 		return;
 	} else if (projection > 4.5) {
@@ -2420,7 +2454,7 @@ void main() {
 		}
 
 		if (discSph < 0.0) {
-			bgCol = applyViewGrid(bgCol);
+			bgCol = applyViewGrid(bgCol, lensNorm);
 			fragColor = vec4(bgCol, 1.0);
 			return;
 		}
@@ -2442,7 +2476,7 @@ void main() {
 		}
 
 		if (!hit) {
-			bgCol = applyViewGrid(bgCol);
+			bgCol = applyViewGrid(bgCol, lensNorm);
 			fragColor = vec4(bgCol, 1.0);
 			return;
 		}
@@ -2509,7 +2543,7 @@ void main() {
 		float rim = pow(1.0 - NdotV, 3.5);
 		col += vec3(0.07, 0.09, 0.14) * rim;
 
-		col = applyViewGrid(col);
+		col = applyViewGrid(col, lensNorm);
 		fragColor = vec4(col, 1.0);
 		return;
 	} else if (projection > 0.5) {
@@ -2561,7 +2595,7 @@ void main() {
 	color = applyGrid(color, tcGrid);
 
 	// View-space grid (screen-aligned, projection-independent)
-	color = applyViewGrid(color);
+	color = applyViewGrid(color, lensNorm);
 
 	// Globe overlay (uses original screenUV) — skip for azimuthal/collage
 	if (projection < 2.5) {
@@ -3113,6 +3147,9 @@ void main() {
 					}
 				}
 				window.buckyTightBBox = { x0: netX0, y0: netY0, x1: netX1, y1: netY1 };
+				// Store per-type tight bbox so mode switches don't use stale values.
+				// The shared `buckyTightBBox` global is synced by uploadActiveNetData().
+				window._bucky32TightBBox = window.buckyTightBBox;
 
 				// Compute paper format rectangle (for shader outline)
 				let paperX0 = 0, paperY0 = 0, paperX1 = 0, paperY1 = 0;
@@ -3263,7 +3300,9 @@ void main() {
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 				gl.uniform1i(uCutLineOverlay, 3);
 
-				// Store layout data on window for mode-switching re-upload
+				// Store layout data on window for mode-switching re-upload and SVG export.
+				// Each net type stores its own copy so uploadActiveNetData() can
+				// route to the correct data when the user switches projections.
 				window.buckyBBox = { x0: bbX0, y0: bbY0, x1: bbX1, y1: bbY1 };
 				window._bucky32PaperRect = { x0: paperX0, y0: paperY0, x1: paperX1, y1: paperY1 };
 				window._bucky32Data = data;
@@ -3271,6 +3310,11 @@ void main() {
 				window._bucky32BBox = [bbX0, bbY0, bbX1, bbY1];
 				window._bucky32OverlayTex = overlayTex;
 				window._bucky32CutLineTex = cutLineTex;
+				window._bucky32Placed = lPlaced.slice();       // placed[] snapshot for SVG generator
+				window._bucky32EdgeNeighbor = edgeNeighbor;    // adjacency info for tab dedup
+				window._bucky32TabH = tabH;                    // tab height (outward offset)
+				window._bucky32TabInset = tabInset;            // tab diagonal inset fraction
+				window._bucky32TabsMap = tabsMap || null;      // explicit tab ownership overrides
 
 				return { seed: layoutSeed, rootRot: lRes[layoutSeed].r };
 			}
@@ -3690,6 +3734,8 @@ void main() {
 					}
 				}
 				window.buckyTightBBox = { x0: netX0, y0: netY0, x1: netX1, y1: netY1 };
+				// Store per-type tight bbox (same pattern as bucky-32 above)
+				window._rhombic30TightBBox = window.buckyTightBBox;
 
 				// Compute paper format rectangle (for shader outline)
 				let paperX0 = 0, paperY0 = 0, paperX1 = 0, paperY1 = 0;
@@ -3837,13 +3883,19 @@ void main() {
 
 				window.buckyBBox = { x0: bbX0, y0: bbY0, x1: bbX1, y1: bbY1 };
 
-				// Store layout data on window for mode-switching re-upload
+				// Store rhombic-30 layout data for mode-switching and SVG export
 				window._rhombic30PaperRect = { x0: paperX0, y0: paperY0, x1: paperX1, y1: paperY1 };
 				window._rhombic30Data = data;
 				window._rhombic30Scale = scale;
 				window._rhombic30BBox = [bbX0, bbY0, bbX1, bbY1];
 				window._rhombic30OverlayTex = overlayTex;
 				window._rhombic30CutLineTex = cutLineTex;
+				window._rhombic30Placed = lPlaced.slice();
+				window._rhombic30EdgeNeighbor = edgeNeighbor;
+				window._rhombic30TabH = tabH;
+				window._rhombic30TabInsetAcute = tabInsetAcute;   // wider inset at acute vertex
+				window._rhombic30TabInsetObtuse = tabInsetObtuse; // narrower inset at obtuse vertex
+				window._rhombic30TabsMap = tabsMap || null;
 
 				return { seed: layoutSeed, rootRot: lRes[layoutSeed].r };
 			}
@@ -4365,10 +4417,19 @@ void main() {
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 			gl.uniform1i(uCutLineOverlay, 3);
+			// Store truncoct-14 layout data for mode-switching and SVG export
 			window._truncOct14CutLineTex = cutLineTex;
+			window._truncOct14Placed = placed.slice();
+			window._truncOct14EdgeNeighbor = edgeNeighbor;
+			window._truncOct14TabH = tabH;
+			window._truncOct14TabInset = tabInset;
 		})();
 
 		// ── Upload the correct net layout data based on current projection mode ──
+		// Called when switching between foldable/preview modes. Routes to the
+		// correct per-type stored data (bucky-32, rhombic-30, or truncoct-14)
+		// and syncs the shared globals (buckyBBox, buckyTightBBox, buckyPaperRect)
+		// so the export handler and SVG generator see current values.
 		function uploadActiveNetData() {
 			const isRhombic = projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_RHOMBIC_PREVIEW;
 			const isTruncOct = projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_TRUNCOCT_PREVIEW;
@@ -4388,6 +4449,9 @@ void main() {
 				gl.bindTexture(gl.TEXTURE_2D, clTex);
 			}
 			window.buckyBBox = { x0: bb[0], y0: bb[1], x1: bb[2], y1: bb[3] };
+			// Sync per-type tight bbox to shared global for export clipping
+			const tbb = isTruncOct ? window._truncOct14TightBBox : isRhombic ? window._rhombic30TightBBox : window._bucky32TightBBox;
+			if (tbb) window.buckyTightBBox = tbb;
 			const pr = isRhombic ? window._rhombic30PaperRect : window._bucky32PaperRect;
 			if (pr) gl.uniform4f(uBuckyPaperRect, pr.x0, pr.y0, pr.x1, pr.y1);
 			else gl.uniform4f(uBuckyPaperRect, 0, 0, 0, 0);
@@ -4404,6 +4468,7 @@ void main() {
 			gl.activeTexture(gl.TEXTURE1);
 			gl.bindTexture(gl.TEXTURE_2D, t);
 			window.buckyBBox = { x0: bb[0], y0: bb[1], x1: bb[2], y1: bb[3] };
+			if (window._bucky32TightBBox) window.buckyTightBBox = window._bucky32TightBBox;
 		}
 
 		// Placeholder texture (1×1 black)
@@ -4974,6 +5039,17 @@ void main() {
 			globeRow.style.display = (isFoldable || isAnyPreview || isAzimuthal || isCollage || isStereo) ? 'none' : '';
 			magnifierGroup.style.display = (isFoldable || isAnyPreview) ? 'none' : '';
 			if (exportRow) exportRow.style.display = hasTexture ? '' : 'none';
+			// SVG cutline export is only available in foldable projection modes.
+			// When switching away from foldable, auto-reset format to PNG.
+			var svgOpt = document.querySelector('#export-fmt option[value="svg"]');
+			if (svgOpt) {
+				svgOpt.disabled = !isFoldable;
+				svgOpt.style.display = isFoldable ? '' : 'none';
+				if (!isFoldable && document.getElementById('export-fmt').value === 'svg') {
+					document.getElementById('export-fmt').value = 'png';
+					document.getElementById('export-fmt').dispatchEvent(new Event('change'));
+				}
+			}
 			// Swap net overlay data when switching between foldable modes
 			if (isFoldable || isAnyPreview) uploadActiveNetData();
 		}
@@ -7420,9 +7496,16 @@ void main() {
 		const iccFileInput = document.getElementById('icc-file');
 		let iccProfileData = null; // ArrayBuffer of the currently selected profile
 
-		// Show/hide ICC section based on format selection
+		// Show/hide ICC profile section and DPI input based on export format.
+		// TIFF: full ICC section (dropdown, load button, link, DPI).
+		// SVG:  only DPI input (no ICC profile needed for vector output).
+		// PNG:  section hidden entirely.
 		exportFmt.addEventListener('change', () => {
-			iccSection.classList.toggle('visible', exportFmt.value === 'tiff');
+			var fmt = exportFmt.value;
+			iccSection.classList.toggle('visible', fmt === 'tiff' || fmt === 'svg');
+			document.getElementById('icc-select').style.display = fmt === 'tiff' ? '' : 'none';
+			document.getElementById('icc-load-btn').style.display = fmt === 'tiff' ? '' : 'none';
+			document.getElementById('icc-link').style.display = fmt === 'tiff' ? '' : 'none';
 		});
 
 		// ── ICC profile caching in IndexedDB (prefix 'icc:') ──
@@ -7633,11 +7716,14 @@ void main() {
 			try {
 				const names = await cacheListNames();
 				cachedFilesEl.innerHTML = '';
+				var ccLink = document.getElementById('clear-cache');
 				if (names.length === 0) {
 					cachedFilesEl.style.display = 'none';
+					ccLink.style.display = 'none';
 					return;
 				}
 				cachedFilesEl.style.display = 'table';
+				ccLink.style.display = 'block';
 				for (const n of names) {
 					const entry = await cacheLoadByName(n);
 					const cfg = await loadProjectionConfig(n);
@@ -7746,6 +7832,43 @@ void main() {
 			} finally { _updateListPending = false; }
 		}
 
+		// ── Clear cache button ──
+		// Deletes ALL cached panoramas, resets the viewer to its initial state
+		// (no texture, default camera, empty animations), and clears IndexedDB.
+		const clearCacheLink = document.getElementById('clear-cache');
+		clearCacheLink.addEventListener('click', async (e) => {
+			e.preventDefault();
+			const names = await cacheListNames();
+			if (!names.length) return;
+			for (const n of names) await cacheDeleteByName(n);
+			sourceFileName = '';
+			hasTexture = 0; texWidth = 0; texHeight = 0;
+			videoActive = false;
+			videoEl.pause(); videoEl.removeAttribute('src');
+			timelineEl.style.display = 'none';
+			if (animPlaying) toggleAnimPlayback();
+			hideAnimTimeline();
+			animations.length = 0;
+			selectedAnimIndex = -1;
+			pendingKfTime = -1;
+			updateAnimUI();
+			gl.bindTexture(gl.TEXTURE_2D, tex);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+			if (exportRow) exportRow.style.display = 'none';
+			camQuat = [0, 0, 0, 1];
+			levelQuat = [0, 0, 0, 1];
+			isLeveled = true;
+			updateLevelSliders();
+			updateLevelBtnState();
+			updateCamSliders();
+			document.getElementById('drop-zone').style.display = '';
+			needsRedraw = true;
+			const db = await openDB();
+			const tx = db.transaction(DB_STORE, 'readwrite');
+			tx.objectStore(DB_STORE).delete('lastFile');
+			await updateCachedFilesList();
+		});
+
 		async function switchCachedFile(name) {
 			if (name === sourceFileName) return;
 			const cached = await cacheLoadByName(name);
@@ -7793,6 +7916,390 @@ void main() {
 		// For buckyball projection: clips to the net bounding box with 1:1 aspect,
 		// resolution slightly larger than the source equirect texture.
 		// For other projections: keeps viewport aspect ratio at source texture height.
+
+		// ═══════════════════════════════════════════════════════════════════
+		// SVG Cutline Generator
+		// ═══════════════════════════════════════════════════════════════════
+		// Generates a vector SVG of the foldable net's cut lines for all three
+		// polyhedron types (buckyball-32, rhombic-30, truncoct-14).
+		//
+		// The SVG matches the raster export's physical dimensions at the given
+		// DPI, using inches for width/height attributes so print software
+		// reproduces exact scale.
+		//
+		// Structure of the output SVG:
+		//   1. <clipPath> — evenodd clip: outer rect minus all face polygons,
+		//      so tab strokes don't bleed into face interiors.
+		//   2. Clipped <g> — tab trapezoid outlines (3 open edges per tab).
+		//   3. Unclipped <g> — face boundary edges (shared edges deduplicated
+		//      via tab-ownership logic so each edge appears exactly once).
+		//
+		// Coordinate system: the tight bounding box (all vertices + tab corners)
+		// is computed inline from stored layout data to avoid stale globals.
+		// Landscape nets are rotated 90° CW to portrait, matching the TIFF
+		// export's rotation convention.
+		// ═══════════════════════════════════════════════════════════════════
+		function generateCutlineSVG() {
+			const isBucky32 = projectionModeIndex === M_FOLDABLE;
+			const isRhombic = projectionModeIndex === M_RHOMBIC_FOLDABLE;
+			const isTruncOct = projectionModeIndex === M_TRUNCOCT_FOLDABLE;
+			if (!isBucky32 && !isRhombic && !isTruncOct) return null;
+
+			// ── Step 1: Compute tight bounding box from stored layout data ──
+			// This iterates all polygon vertices AND glue-tab outer corners to
+			// find exact bounds. Computed inline rather than reading the global
+			// buckyTightBBox to avoid stale values after mode switches.
+			var netX0 = Infinity, netX1 = -Infinity, netY0 = Infinity, netY1 = -Infinity;
+			if (isBucky32 || isTruncOct) {
+				// Select the correct net type's stored layout data
+				var _data   = isTruncOct ? window._truncOct14Data       : window._bucky32Data;
+				var _scale  = isTruncOct ? window._truncOct14Scale      : window._bucky32Scale;
+				var _placed = isTruncOct ? window._truncOct14Placed     : window._bucky32Placed;
+				var _eNbr   = isTruncOct ? window._truncOct14EdgeNeighbor : window._bucky32EdgeNeighbor;
+				var _tH     = isTruncOct ? window._truncOct14TabH       : window._bucky32TabH;
+				var _tI     = isTruncOct ? window._truncOct14TabInset   : window._bucky32TabInset;
+				var _tMap   = isTruncOct ? null                         : window._bucky32TabsMap;
+				var _nF     = isTruncOct ? 14 : 32;
+				if (!_data || !_placed) return null;
+				for (var ii = 0; ii < _nF; ii++) {
+					if (!_placed[ii]) continue;
+					var _fx = _data[ii*4], _fy = _data[ii*4+1], _rot = _data[ii*4+2];
+					// Face side count: truncoct has 6-gons (i<8) and 4-gons; bucky has 5-gons (i<12) and 6-gons
+					var _n = isTruncOct ? (ii < 8 ? 6 : 4) : (ii < 12 ? 5 : 6);
+					// Circumradius: distance from face center to vertex in net space
+					var _cr = isTruncOct
+						? ((_n === 6 ? 1.0 : Math.SQRT1_2) / _scale)
+						: ((_n === 5 ? 1 / (2 * Math.sin(Math.PI / 5)) : 1.0) / _scale);
+					for (var kk = 0; kk < _n; kk++) {
+						// Compute edge endpoints (vertex kk and kk+1)
+						var _a1 = _rot + (2*kk+1) * Math.PI / _n;
+						var _a2 = _rot + (2*(kk+1)+1) * Math.PI / _n;
+						var _v1x = _fx + _cr*Math.cos(_a1), _v1y = _fy + _cr*Math.sin(_a1);
+						var _v2x = _fx + _cr*Math.cos(_a2), _v2y = _fy + _cr*Math.sin(_a2);
+						netX0 = Math.min(netX0, _v1x); netX1 = Math.max(netX1, _v1x);
+						netY0 = Math.min(netY0, _v1y); netY1 = Math.max(netY1, _v1y);
+						// Check if this face owns a glue tab on this edge
+						var _inf = _eNbr[ii][kk];
+						if (_inf && _inf.isInternal) continue;
+						var _hasTab = true;
+						if (_inf) {
+							if (isTruncOct) { _hasTab = !(ii > _inf.j); }
+							else {
+								var _ek = Math.min(ii, _inf.j) + '-' + Math.max(ii, _inf.j);
+								if (_tMap && _ek in _tMap) _hasTab = (_tMap[_ek] === ii);
+								else _hasTab = (ii < _inf.j);
+							}
+						}
+						// Include tab outer corners in bbox
+						if (_hasTab) {
+							var _emx = (_v1x+_v2x)/2-_fx, _emy = (_v1y+_v2y)/2-_fy;
+							var _eml = Math.sqrt(_emx*_emx + _emy*_emy);
+							var _nx = _emx/_eml, _ny = _emy/_eml;
+							var _dx = _v2x-_v1x, _dy = _v2y-_v1y;
+							var _o1x = _v1x+_nx*_tH+_dx*_tI, _o1y = _v1y+_ny*_tH+_dy*_tI;
+							var _o2x = _v2x+_nx*_tH-_dx*_tI, _o2y = _v2y+_ny*_tH-_dy*_tI;
+							netX0 = Math.min(netX0, _o1x, _o2x); netX1 = Math.max(netX1, _o1x, _o2x);
+							netY0 = Math.min(netY0, _o1y, _o2y); netY1 = Math.max(netY1, _o1y, _o2y);
+						}
+					}
+				}
+			} else {
+				// Rhombic-30: golden-ratio rhombus vertices + asymmetric tab corners
+				var _data   = window._rhombic30Data;
+				var _scale  = window._rhombic30Scale;
+				var _placed = window._rhombic30Placed;
+				var _eNbr   = window._rhombic30EdgeNeighbor;
+				var _tH     = window._rhombic30TabH;
+				var _tIA    = window._rhombic30TabInsetAcute;
+				var _tIO    = window._rhombic30TabInsetObtuse;
+				var _tMap   = window._rhombic30TabsMap;
+				if (!_data || !_placed) return null;
+				var _PHI = (1 + Math.sqrt(5)) / 2;
+				var _iA = 1 / Math.sqrt(1 + _PHI * _PHI), _iB = _PHI * _iA;
+				var _haS = _iB / _scale, _hbS = _iA / _scale; // long/short half-diagonals
+				for (var ii = 0; ii < 30; ii++) {
+					if (!_placed[ii]) continue;
+					var _fx = _data[ii*4], _fy = _data[ii*4+1], _rot = _data[ii*4+2];
+					var _cr2 = Math.cos(_rot), _sr2 = Math.sin(_rot);
+					// 4 vertices of the golden rhombus
+					var _verts = [[_fx+_haS*_cr2, _fy+_haS*_sr2], [_fx-_hbS*_sr2, _fy+_hbS*_cr2],
+					              [_fx-_haS*_cr2, _fy-_haS*_sr2], [_fx+_hbS*_sr2, _fy-_hbS*_cr2]];
+					for (var kk = 0; kk < 4; kk++) {
+						netX0 = Math.min(netX0, _verts[kk][0]); netX1 = Math.max(netX1, _verts[kk][0]);
+						netY0 = Math.min(netY0, _verts[kk][1]); netY1 = Math.max(netY1, _verts[kk][1]);
+						var _inf = _eNbr[ii][kk];
+						if (_inf && _inf.isInternal) continue;
+						var _hasTab = true;
+						if (_inf) {
+							var _ek = Math.min(ii, _inf.j) + '-' + Math.max(ii, _inf.j);
+							if (_tMap && _ek in _tMap) _hasTab = (_tMap[_ek] === ii);
+							else _hasTab = (ii < _inf.j);
+						}
+						// Rhombic tabs use asymmetric insets: acute vs obtuse vertex
+						if (_hasTab) {
+							var _v1 = _verts[kk], _v2 = _verts[(kk+1) % 4];
+							var _emx = (_v1[0]+_v2[0])/2-_fx, _emy = (_v1[1]+_v2[1])/2-_fy;
+							var _eml = Math.sqrt(_emx*_emx + _emy*_emy);
+							var _nx = _emx/_eml, _ny = _emy/_eml;
+							var _dx = _v2[0]-_v1[0], _dy = _v2[1]-_v1[1];
+							var _ins1 = (kk % 2 === 0) ? _tIA : _tIO;
+							var _ins2 = (kk % 2 === 0) ? _tIO : _tIA;
+							var _o1x = _v1[0]+_nx*_tH+_dx*_ins1, _o1y = _v1[1]+_ny*_tH+_dy*_ins1;
+							var _o2x = _v2[0]+_nx*_tH-_dx*_ins2, _o2y = _v2[1]+_ny*_tH-_dy*_ins2;
+							netX0 = Math.min(netX0, _o1x, _o2x); netX1 = Math.max(netX1, _o1x, _o2x);
+							netY0 = Math.min(netY0, _o1y, _o2y); netY1 = Math.max(netY1, _o1y, _o2y);
+						}
+					}
+				}
+			}
+			if (!isFinite(netX0)) return null;
+			const bb = { x0: netX0, y0: netY0, x1: netX1, y1: netY1 };
+			const bbW = bb.x1 - bb.x0, bbH = bb.y1 - bb.y0;
+
+			// ── Step 2: Compute export pixel dimensions (same as raster export) ──
+			// The longer bbox side maps to max(texWidth, texHeight) pixels.
+			const S = Math.max(texWidth, texHeight);
+			var w, h;
+			if (bbW >= bbH) { w = S; h = Math.round(S * bbH / bbW); }
+			else { h = S; w = Math.round(S * bbW / bbH); }
+
+			const dpi = Math.max(1, parseInt(document.getElementById('dpi-input').value, 10) || 300);
+			// Rotate to portrait if landscape (matches TIFF export convention)
+			var rotated = w > h;
+			var tw = rotated ? h : w, th = rotated ? w : h;
+
+			// ── Step 3: Build coordinate mapper ──
+			// Maps net-space (x,y) → SVG viewBox string "x,y".
+			// Non-rotated: Y is flipped (net Y-up → SVG Y-down).
+			// Rotated 90° CW: axes are swapped.
+			var p;
+			var vbW, vbH;
+			if (rotated) {
+				vbW = bbH; vbH = bbW;
+				p = function(x, y) { return (y - bb.y0).toFixed(4) + ',' + (x - bb.x0).toFixed(4); };
+			} else {
+				vbW = bbW; vbH = bbH;
+				p = function(x, y) { return (x - bb.x0).toFixed(4) + ',' + (bb.y1 - y).toFixed(4); };
+			}
+
+			// Stroke width: 0.5pt (physical) converted to viewBox units
+			var strokeW = 0.5 / 72 / (tw / dpi) * vbW;
+
+			// Pad viewBox to prevent stroke clipping at boundaries
+			var pad = strokeW * 2;
+
+			// Outer clip rect covering the padded viewBox (part of the evenodd clip)
+			var clipRect = 'M' + (-pad).toFixed(4) + ',' + (-pad).toFixed(4) + 'L' + (vbW+pad).toFixed(4) + ',' + (-pad).toFixed(4) + 'L' + (vbW+pad).toFixed(4) + ',' + (vbH+pad).toFixed(4) + 'L' + (-pad).toFixed(4) + ',' + (vbH+pad).toFixed(4) + 'Z';
+
+			// Three SVG path groups, built separately and assembled at the end
+			var clipPolygons = ''; // face interiors (subtracted from clipRect via evenodd)
+			var tabPaths = '';     // tab trapezoid outlines (clipped to exclude face interiors)
+			var edgePaths = '';    // face boundary edges (unclipped, drawn on top)
+
+			// ── Step 4: Generate SVG paths for buckyball-32 / truncoct-14 ──
+			// Both use regular polygons (pentagons/hexagons or hexagons/squares)
+			// and share the same code path with type-specific lookup functions.
+			if (isBucky32 || isTruncOct) {
+				var data   = isTruncOct ? window._truncOct14Data       : window._bucky32Data;
+				var scale  = isTruncOct ? window._truncOct14Scale      : window._bucky32Scale;
+				var placed = isTruncOct ? window._truncOct14Placed     : window._bucky32Placed;
+				var eNbr   = isTruncOct ? window._truncOct14EdgeNeighbor : window._bucky32EdgeNeighbor;
+				var tH     = isTruncOct ? window._truncOct14TabH       : window._bucky32TabH;
+				var tI     = isTruncOct ? window._truncOct14TabInset   : window._bucky32TabInset;
+				var tMap   = isTruncOct ? null                         : window._bucky32TabsMap;
+				var nFaces = isTruncOct ? 14 : 32;
+				// Side count per face: bucky = 5 (pentagon) or 6 (hexagon),
+				//                      truncoct = 6 (hexagon) or 4 (square)
+				var nS     = isTruncOct ? function(i) { return i < 8 ? 6 : 4; }
+				                        : function(i) { return i < 12 ? 5 : 6; };
+				// Circumradius per face (center-to-vertex distance in net space)
+				var cR     = isTruncOct ? function(i) { return (nS(i) === 6 ? 1.0 : Math.SQRT1_2) / scale; }
+				                        : function(i) { return (nS(i) === 5 ? 1 / (2 * Math.sin(Math.PI / 5)) : 1.0) / scale; };
+
+				// 4a. Clip polygons — face interiors for the evenodd clip path
+				for (var i = 0; i < nFaces; i++) {
+					if (!placed[i]) continue;
+					var fx = data[i * 4], fy = data[i * 4 + 1], rot = data[i * 4 + 2];
+					var n = nS(i), cr = cR(i);
+					var d = '';
+					for (var k = 0; k < n; k++) {
+						var a = rot + (2 * k + 1) * Math.PI / n;
+						d += (k === 0 ? 'M' : 'L') + p(fx + cr * Math.cos(a), fy + cr * Math.sin(a));
+					}
+					clipPolygons += d + 'Z';
+				}
+
+				// 4b. Tab outlines — open 3-edge trapezoids (two diagonals + outer edge;
+				//     the base polygon edge is omitted to avoid double-drawing).
+				//     Tab ownership is determined by tabsMap (bucky) or index order (truncoct).
+				for (var i = 0; i < nFaces; i++) {
+					if (!placed[i]) continue;
+					var fx = data[i * 4], fy = data[i * 4 + 1], rot = data[i * 4 + 2];
+					var n = nS(i), cr = cR(i);
+					for (var k = 0; k < n; k++) {
+						var info = eNbr[i][k];
+						if (info && info.isInternal) continue;
+						if (isTruncOct) {
+							if (info && info.j < i) continue;
+						} else {
+							if (info) {
+								var ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+								if (tMap && ek in tMap) { if (tMap[ek] !== i) continue; }
+								else { if (info.j < i) continue; }
+							}
+						}
+						var a1 = rot + (2 * k + 1) * Math.PI / n;
+						var a2 = rot + (2 * (k + 1) + 1) * Math.PI / n;
+						var v1x = fx + cr * Math.cos(a1), v1y = fy + cr * Math.sin(a1);
+						var v2x = fx + cr * Math.cos(a2), v2y = fy + cr * Math.sin(a2);
+						var emx = (v1x + v2x) / 2 - fx, emy = (v1y + v2y) / 2 - fy;
+						var eml = Math.sqrt(emx * emx + emy * emy);
+						var nx = emx / eml, ny = emy / eml;
+						var dx = v2x - v1x, dy = v2y - v1y;
+						var o1x = v1x + nx * tH + dx * tI, o1y = v1y + ny * tH + dy * tI;
+						var o2x = v2x + nx * tH - dx * tI, o2y = v2y + ny * tH - dy * tI;
+						tabPaths += '<path d="M' + p(v1x, v1y) + 'L' + p(o1x, o1y) + 'L' + p(o2x, o2y) + 'L' + p(v2x, v2y) + '"/>\n';
+					}
+				}
+
+				// 4c. Face boundary edges — edges where this face does NOT own the tab.
+				//     For each shared edge, exactly one face draws the tab outline (4b)
+				//     and the other draws the polygon edge here — ensuring no duplicate lines.
+				for (var i = 0; i < nFaces; i++) {
+					if (!placed[i]) continue;
+					var fx = data[i * 4], fy = data[i * 4 + 1], rot = data[i * 4 + 2];
+					var n = nS(i), cr = cR(i);
+					for (var k = 0; k < n; k++) {
+						var info = eNbr[i][k];
+						if (info && info.isInternal) continue;
+						if (isTruncOct) {
+							if (info && placed[info.j] && !(info.j < i)) continue;
+						} else {
+							if (info && placed[info.j]) {
+								var ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+								var iOwnTab;
+								if (tMap && ek in tMap) iOwnTab = (tMap[ek] === i);
+								else iOwnTab = !(info.j < i);
+								if (iOwnTab) continue;
+							}
+						}
+						var a1 = rot + (2 * k + 1) * Math.PI / n;
+						var a2 = rot + (2 * (k + 1) + 1) * Math.PI / n;
+						var v1x = fx + cr * Math.cos(a1), v1y = fy + cr * Math.sin(a1);
+						var v2x = fx + cr * Math.cos(a2), v2y = fy + cr * Math.sin(a2);
+						edgePaths += '<path d="M' + p(v1x, v1y) + 'L' + p(v2x, v2y) + '"/>\n';
+					}
+				}
+			// ── Step 4 (rhombic-30): Generate SVG paths for golden-ratio rhombi ──
+			// Rhombic-30 has its own code path because vertices are computed from
+			// long/short half-diagonals rather than circumradius, and tab insets
+			// are asymmetric (acute vs obtuse vertex).
+			} else if (isRhombic) {
+				var data   = window._rhombic30Data;
+				var scale  = window._rhombic30Scale;
+				var placed = window._rhombic30Placed;
+				var eNbr   = window._rhombic30EdgeNeighbor;
+				var tH     = window._rhombic30TabH;
+				var tIA    = window._rhombic30TabInsetAcute;
+				var tIO    = window._rhombic30TabInsetObtuse;
+				var tMap   = window._rhombic30TabsMap;
+				var PHI    = (1 + Math.sqrt(5)) / 2;
+				var iA     = 1 / Math.sqrt(1 + PHI * PHI);
+				var iB     = PHI * iA;
+				var haS    = iB / scale, hbS = iA / scale;
+
+				// Helper: compute the 4 vertices of a golden rhombus at (fx,fy,rot)
+				function rhombV(fx, fy, rot) {
+					var cr = Math.cos(rot), sr = Math.sin(rot);
+					return [[fx + haS * cr, fy + haS * sr],
+					        [fx - hbS * sr, fy + hbS * cr],
+					        [fx - haS * cr, fy - haS * sr],
+					        [fx + hbS * sr, fy - hbS * cr]];
+				}
+				// Helper: test if a point overlaps any other rhombus (L1 norm test).
+				// Used to auto-flip tab direction away from face interiors.
+				function flapHits(px, py, excl) {
+					for (var f = 0; f < 30; f++) {
+						if (f === excl) continue;
+						var cr = Math.cos(-data[f * 4 + 2]), sr = Math.sin(-data[f * 4 + 2]);
+						var dx = px - data[f * 4], dy = py - data[f * 4 + 1];
+						if (Math.abs(dx * cr - dy * sr) / haS + Math.abs(dx * sr + dy * cr) / hbS < 1.0) return true;
+					}
+					return false;
+				}
+
+				// 4a. Clip polygons (rhombus interiors)
+				for (var i = 0; i < 30; i++) {
+					if (!placed[i]) continue;
+					var verts = rhombV(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
+					clipPolygons += 'M' + p(verts[0][0], verts[0][1]);
+					for (var k = 1; k < 4; k++) clipPolygons += 'L' + p(verts[k][0], verts[k][1]);
+					clipPolygons += 'Z';
+				}
+
+				// 4b. Tab outlines (rhombic — asymmetric acute/obtuse insets, auto-flip)
+				for (var i = 0; i < 30; i++) {
+					if (!placed[i]) continue;
+					var fx = data[i * 4], fy = data[i * 4 + 1];
+					var verts = rhombV(fx, fy, data[i * 4 + 2]);
+					for (var k = 0; k < 4; k++) {
+						var info = eNbr[i][k];
+						if (info && info.isInternal) continue;
+						if (info) {
+							var ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							if (tMap && ek in tMap) { if (tMap[ek] !== i) continue; }
+							else { if (info.j < i) continue; }
+						}
+						var v1 = verts[k], v2 = verts[(k + 1) % 4];
+						var emx = (v1[0] + v2[0]) / 2 - fx, emy = (v1[1] + v2[1]) / 2 - fy;
+						var eml = Math.sqrt(emx * emx + emy * emy);
+						var nx = emx / eml, ny = emy / eml;
+						var probeCX = (v1[0] + v2[0]) / 2 + nx * tH * 0.5;
+						var probeCY = (v1[1] + v2[1]) / 2 + ny * tH * 0.5;
+						if (flapHits(probeCX, probeCY, i)) { nx = -nx; ny = -ny; }
+						var dx = v2[0] - v1[0], dy = v2[1] - v1[1];
+						var ins1 = (k % 2 === 0) ? tIA : tIO;
+						var ins2 = (k % 2 === 0) ? tIO : tIA;
+						var o1x = v1[0] + nx * tH + dx * ins1, o1y = v1[1] + ny * tH + dy * ins1;
+						var o2x = v2[0] + nx * tH - dx * ins2, o2y = v2[1] + ny * tH - dy * ins2;
+						tabPaths += '<path d="M' + p(v1[0], v1[1]) + 'L' + p(o1x, o1y) + 'L' + p(o2x, o2y) + 'L' + p(v2[0], v2[1]) + '"/>\n';
+					}
+				}
+
+				// 4c. Face boundary edges (rhombic)
+				for (var i = 0; i < 30; i++) {
+					if (!placed[i]) continue;
+					var verts = rhombV(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
+					for (var k = 0; k < 4; k++) {
+						var info = eNbr[i][k];
+						if (info && info.isInternal) continue;
+						if (info && placed[info.j]) {
+							var ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							var iOwnTab;
+							if (tMap && ek in tMap) iOwnTab = (tMap[ek] === i);
+							else iOwnTab = (i < info.j);
+							if (iOwnTab) continue;
+						}
+						var v1 = verts[k], v2 = verts[(k + 1) % 4];
+						edgePaths += '<path d="M' + p(v1[0], v1[1]) + 'L' + p(v2[0], v2[1]) + '"/>\n';
+					}
+				}
+			}
+
+			// ── Step 5: Assemble final SVG document ──
+			// viewBox is padded by 2×strokeW on each side to prevent edge clipping.
+			// width/height are in inches (pixels ÷ DPI) for accurate print scaling.
+			// The evenodd clip path subtracts face polygons from the outer rect,
+			// so tab strokes stop at face boundaries — matching the raster overlay.
+			return '<?xml version="1.0" encoding="UTF-8"?>\n' +
+				'<svg xmlns="http://www.w3.org/2000/svg" viewBox="' + (-pad).toFixed(4) + ' ' + (-pad).toFixed(4) + ' ' + (vbW + 2*pad).toFixed(4) + ' ' + (vbH + 2*pad).toFixed(4) +
+				'" width="' + (tw / dpi).toFixed(4) + 'in" height="' + (th / dpi).toFixed(4) + 'in">\n' +
+				'<defs><clipPath id="fc"><path d="' + clipRect + clipPolygons + '" clip-rule="evenodd"/></clipPath></defs>\n' +
+				'<g fill="none" stroke="#000" stroke-width="' + strokeW.toFixed(6) + '" stroke-linejoin="round">\n' +
+				'<g clip-path="url(#fc)">\n' + tabPaths + '</g>\n' +
+				edgePaths + '</g>\n</svg>';
+		}
+
 		exportBtn.addEventListener('click', () => {
 			if (!texWidth || !texHeight) return;
 
@@ -7875,6 +8382,32 @@ void main() {
 				gl.uniform4f(uExportClip, -1, -1, 1, 1);
 			}
 
+			// ── SVG cutline export ──
+			// Vector export — no WebGL rasterisation needed, early return.
+			// Restores exportClip and paper rect uniforms, generates the SVG
+			// from stored layout data, and triggers a download.
+			if (exportFmt.value === 'svg') {
+				gl.uniform4f(uExportClip, -1, -1, 1, 1);
+				if (window._bucky32PaperRect || window._rhombic30PaperRect) {
+					const isRhombicP = projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_RHOMBIC_PREVIEW;
+					const pr = isRhombicP ? window._rhombic30PaperRect : window._bucky32PaperRect;
+					if (pr) gl.uniform4f(uBuckyPaperRect, pr.x0, pr.y0, pr.x1, pr.y1);
+				}
+				const svgStr = generateCutlineSVG();
+				if (!svgStr) return;
+				const baseName = sourceFileName ? sourceFileName.replace(/\.[^.]+$/, '') : 'dome-mapper';
+				const projName = projectionModes[projectionModeIndex].replace(/\s+/g, '-');
+				let tw = w, th = h;
+				if (w > h) { tw = h; th = w; }
+				const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+				const a = document.createElement('a');
+				a.href = URL.createObjectURL(blob);
+				a.download = baseName + '-' + projName + '-' + tw + 'x' + th + '-cutline.svg';
+				a.click();
+				URL.revokeObjectURL(a.href);
+				return;
+			}
+
 			// Resize canvas to export resolution
 			canvas.width = w;
 			canvas.height = h;
@@ -7942,7 +8475,8 @@ void main() {
 					cmyk = rotated;
 					tw = h; th = w;
 				}
-				const tiffBuf = encodeCmykTiff(tw, th, cmyk, 300, iccProfileData);
+				const dpi = Math.max(1, parseInt(document.getElementById('dpi-input').value, 10) || 300);
+				const tiffBuf = encodeCmykTiff(tw, th, cmyk, dpi, iccProfileData);
 				const blob = new Blob([tiffBuf], { type: 'image/tiff' });
 				a.href = URL.createObjectURL(blob);
 				const iccTag = iccSelect.value ? '-' + iccSelect.value.replace(/\.icc$/i, '').replace(/\s+/g, '_') : '';
