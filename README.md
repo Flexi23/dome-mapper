@@ -104,8 +104,7 @@ Animation
     ├── time (seconds)
     ├── quat [x, y, z, w]          ← camera orientation (SQUAD spline)
     ├── fovDeg, pixelate, ...       ← numeric params (linear lerp)
-    └── globeVisible, collageFlip,  ← boolean params (snap)
-        azimuthalMask
+    └── globeVisible, ...           ← boolean params (snap)
 ```
 
 Each keyframe stores a **full projection state snapshot** — all parameters from the camera quaternion to the stereographic Scaramuzza coefficients to the globe overlay settings.
@@ -115,8 +114,8 @@ Each keyframe stores a **full projection state snapshot** — all parameters fro
 | Category | Properties | Interpolation |
 |---|---|---|
 | Camera orientation | `quat` [x, y, z, w] | **SQUAD** — C¹-smooth spherical spline (Catmull-Rom tangents via `squadInner`, hemisphere-consistent) |
-| Numeric | `fovDeg`, `pixelate`, `collageRotationDeg`, `azimuthalZoom`, `stereoD`, `stereoA0`–`stereoA3`, `globeSize`, `globeOpacity`, `globeReflect`, `buckyOverlayAlpha` | Catmull-Rom spline |
-| Boolean | `globeVisible`, `collageFlip`, `azimuthalMask` | Snap to keyframe A |
+| Numeric | `fovDeg`, `pixelate`, `collageRotationDeg`, `collageFlip`, `azimuthalZoom`, `stereoD`, `stereoA0`–`stereoA3`, `globeSize`, `globeOpacity`, `globeReflect`, `buckyOverlayAlpha` | Catmull-Rom spline |
+| Boolean | `globeVisible` | Snap to keyframe A |
 
 ### Timeline Interactions
 
@@ -202,8 +201,8 @@ Non-quaternion attributes (FOV, zoom, stereographic coefficients, etc.) use a st
 | 0 | **Equirectangular** | Direct 2:1 equirectangular mapping; black bars when viewport aspect ≠ 2:1 |
 | 1 | **Perspective** | Gnomonic projection with adjustable FOV (20°–170°); mathematically a special case of the stereographic family at D=1 |
 | 2 | **Buckyball-32 Preview** | SDF-raymarched truncated icosahedron floating over the panorama; Blinn-Phong lit, bevelled edges, real-time rotation via Y/P/R face sliders |
-| 3 | **Azimuthal Equidistant** | Full sphere mapped into a disc (forward pole → center, backward pole → edge); optional circular mask |
-| 4 | **Azimuthal Collage** | Two overlapping azimuthal equidistant discs side-by-side (front/back hemispheres) with rotation, flip, and zoom |
+| 3 | **Azimuthal Equidistant** | Full sphere mapped into a disc (forward pole → center, backward pole → edge) |
+| 4 | **Azimuthal Collage** | Two overlapping azimuthal equidistant discs side-by-side (front/back hemispheres) with rotation, overlap blend slider (0–1), zoom (1×–10×), and auto-fit scaling |
 | 5 | **Stereographic** | Generalised stereographic with Scaramuzza polynomial lens distortion; D parameter (D=2 conformal, D=1 gnomonic) and a¹–a⁴ coefficients |
 | 6 | **Buckyball-32 Foldable** | Flat 2D net of a truncated icosahedron unfolded onto the screen; gnomonic back-projection with 2D canvas overlay (edges, glue tabs); paper format presets with in-shader paper outline |
 | 7 | **Rhombic-30 Foldable** | Flat 2D net of a rhombic triacontahedron (30 golden rhombi); configurable layout with paper format presets, in-shader paper outline, and L1 norm point-in-rhombus test |

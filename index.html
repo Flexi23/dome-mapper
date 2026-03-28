@@ -1014,14 +1014,9 @@
 				<span id="pixelate-row" class="span hide-in-level-off" style="display:contents">
 					<span>Pixelate</span> <input type="range" id="pixelate-slider" min="0" max="100" value="100" step="1"> <span class="val" id="pixelate-val">100%</span>
 				</span>
-				<span id="azimuthal-row" class="span hide-in-level-off" style="display:none">
-					<span>Mask</span> <label style="display:flex;align-items:center"><input type="checkbox" id="azimuthal-mask" checked></label> <span></span>
-				</span>
+
 				<span id="collage-row" class="span hide-in-level-off" style="display:none">
-					<span>Flip</span> <label style="display:flex;align-items:center"><input type="checkbox" id="collage-flip"></label> <span></span>
-				</span>
-				<span id="azimuthal-zoom-row" class="span hide-in-level-off" style="display:none">
-					<span>Zoom</span> <input type="range" id="azimuthal-zoom" min="10" max="300" value="100" step="1"> <span class="val" id="azimuthal-zoom-val">1.00×</span>
+					<span>Flip</span> <input type="range" id="collage-flip" min="0" max="100" value="0" step="1"> <span class="val" id="collage-flip-val">0%</span>
 				</span>
 				<span id="collage-rotation-row" class="span hide-in-level-off" style="display:none">
 					<span>Rotation</span> <input type="range" id="collage-rotation" min="-180" max="180" value="0" step="1"> <span class="val" id="collage-rotation-val">0°</span>
@@ -1037,6 +1032,9 @@
 						<button id="stereo-copy" title="Copy stereographic parameters">Copy</button>
 						<button id="stereo-paste" title="Paste stereographic parameters">Paste</button>
 					</div>
+				</span>
+				<span id="azimuthal-zoom-row" class="span hide-in-level-off" style="display:none">
+					<span>Zoom</span> <input type="range" id="azimuthal-zoom" min="100" max="1000" value="100" step="1"> <span class="val" id="azimuthal-zoom-val">1.00×</span>
 				</span>
 				<span id="bucky-layout-row" class="span hide-in-level-off" style="display:none">
 					<span>Layout</span>
@@ -1171,7 +1169,7 @@ uniform vec2 pointer;            // mouse position in 0..1 screen space
 uniform float magnifierRadius;   // lens radius in screen fraction
 uniform float refractivity;      // lens refraction index (1.0 = off)
 uniform float collageRotation;   // 2D rotation angle for collage view (radians)
-uniform float collageFlip;       // -1.0 or 1.0: flip overlap assignment
+uniform float collageFlip;       // 0.0–1.0: overlap blend slider
 uniform float azimuthalMask;     // 1.0 = mask outside disc to black, 0.0 = show equirect
 uniform float azimuthalZoom;      // zoom factor for azimuthal projections (default 1.0)
 uniform float stereoD;            // generalised stereographic distance parameter
@@ -1602,6 +1600,8 @@ void main() {
 
 	vec3 rd;
 	vec2 tcGrid;
+	vec3 collageRd2;
+	float collageMixAlpha = -1.0;
 
 	// Projection cascade — threshold N.5 selects mode index N.
 	// Keep in sync with JS projectionModes array & M_* constants.
@@ -2309,11 +2309,15 @@ void main() {
 		// Left disc centered on forward pole, right disc on backward pole.
 		// Overlap is split horizontally (seamless at y=0 center line).
 		vec2 uv = lensUV;
-		uv.x *= resolution.x / resolution.y;
+		float aspect = resolution.x / resolution.y;
+		uv.x *= aspect;
 		// Apply 2D rotation
 		float cr = cos(collageRotation), sr = sin(collageRotation);
 		uv = vec2(uv.x * cr - uv.y * sr, uv.x * sr + uv.y * cr);
-		uv *= azimuthalZoom;
+		// Auto-scale so both discs (centers ±0.5, radius 1) fit viewport after rotation
+		float absC = abs(cr), absS = abs(sr);
+		float fitScale = max((0.5 * absC + 1.0) / aspect, 0.5 * absS + 1.0);
+		uv *= fitScale * azimuthalZoom;
 		float discRadius = 1.0;
 		vec2 c1 = vec2(-0.5, 0.0);
 		vec2 c2 = vec2(0.5, 0.0);
@@ -2335,21 +2339,28 @@ void main() {
 			rd = viewMatrix * rd;
 			tcGrid = dirToEquirect(rd);
 		} else {
-		// In overlap: lower half → left disc, upper half → right disc
-		bool useLeft = m1 && (!m2 || uv.y * collageFlip < 0.0);
-		if (useLeft) {
-			float theta = d1 * PI;
-			float phi = atan(-off1.x, -off1.y);
-			rd = normalize(vec3(sin(theta)*sin(phi), cos(theta), -sin(theta)*cos(phi)));
-			rd = vec3(rd.y, rd.z, rd.x); // pre-rotation P=+90° Y=-90°
+		// In overlap: blend between left and right disc
+		float thetaL = d1 * PI;
+		float phiL = atan(-off1.x, -off1.y);
+		vec3 rdL = normalize(vec3(sin(thetaL)*sin(phiL), cos(thetaL), -sin(thetaL)*cos(phiL)));
+		rdL = vec3(rdL.y, rdL.z, rdL.x);
+		float thetaR = (1.0 - d2) * PI;
+		float phiR = atan(off2.x, -off2.y);
+		vec3 rdR = normalize(vec3(sin(thetaR)*sin(phiR), cos(thetaR), -sin(thetaR)*cos(phiR)));
+		rdR = vec3(rdR.y, rdR.z, rdR.x);
+		if (m1 && m2) {
+			// Overlap: linear crossfade between discs
+			// upper half (uv.y>=0): default=right, slider 1=left
+			// lower half (uv.y<0):  default=left,  slider 1=right
+			rd = viewMatrix * rdL;
+			collageRd2 = viewMatrix * rdR;
+			collageMixAlpha = (uv.y >= 0.0) ? (1.0 - collageFlip) : collageFlip;
+			tcGrid = dirToEquirect(rd);
 		} else {
-			float theta = (1.0 - d2) * PI;
-			float phi = atan(off2.x, -off2.y);
-			rd = normalize(vec3(sin(theta)*sin(phi), cos(theta), -sin(theta)*cos(phi)));
-			rd = vec3(rd.y, rd.z, rd.x); // pre-rotation P=+90° Y=-90°
+			rd = m1 ? rdL : rdR;
+			rd = viewMatrix * rd;
+			tcGrid = dirToEquirect(rd);
 		}
-		rd = viewMatrix * rd;
-		tcGrid = dirToEquirect(rd);
 		} // end else (inside disc)
 	} else if (projection > 2.5) {
 		// ── Azimuthal equidistant projection ──
@@ -2590,6 +2601,10 @@ void main() {
 	}
 
 	vec3 color = samplePanorama(rd);
+	if (collageMixAlpha >= 0.0) {
+		vec3 fgColor = samplePanorama(collageRd2);
+		color = mix(color, fgColor, collageMixAlpha);
+	}
 
 	// Grid overlay (uses un-leveled tcGrid so grid stays fixed)
 	color = applyGrid(color, tcGrid);
@@ -4612,10 +4627,16 @@ void main() {
 		const fovVal = document.getElementById('fov-val');
 		const collageRotationSlider = document.getElementById('collage-rotation');
 		const collageRotationVal = document.getElementById('collage-rotation-val');
-		const collageFlipToggle = document.getElementById('collage-flip');
-		const azimuthalMaskToggle = document.getElementById('azimuthal-mask');
+		const collageFlipSlider = document.getElementById('collage-flip');
+		const collageFlipVal = document.getElementById('collage-flip-val');
+
 		const azimuthalZoomSlider = document.getElementById('azimuthal-zoom');
 		const azimuthalZoomVal = document.getElementById('azimuthal-zoom-val');
+		function syncAzimuthalZoomUI() {
+			const dz = 1 / azimuthalZoom;
+			azimuthalZoomSlider.value = Math.round(dz * 100);
+			azimuthalZoomVal.textContent = dz.toFixed(2) + '×';
+		}
 		const pixelateSlider = document.getElementById('pixelate-slider');
 		const pixelateVal = document.getElementById('pixelate-val');
 		const stereoDSlider = document.getElementById('stereo-d');
@@ -4678,8 +4699,8 @@ void main() {
 
 		// Collage parameters
 		let collageRotationDeg = 0;
-		let collageFlip = false;
-		let azimuthalMask = true;
+		let collageFlip = 0.0;
+
 		let azimuthalZoom = 1.0;
 
 		// Pixelate (nearest-neighbor interpolation)
@@ -4728,23 +4749,26 @@ void main() {
 			collageRotationVal.textContent = '0°';
 			saveProjectionConfig();
 		});
-		collageFlipToggle.addEventListener('change', () => {
-			collageFlip = collageFlipToggle.checked;
+		collageFlipSlider.addEventListener('input', () => {
+			collageFlip = +collageFlipSlider.value / 100;
+			collageFlipVal.textContent = Math.round(collageFlip * 100) + '%';
 			saveProjectionConfig();
 		});
-		azimuthalMaskToggle.addEventListener('change', () => {
-			azimuthalMask = azimuthalMaskToggle.checked;
+		collageFlipSlider.addEventListener('dblclick', () => {
+			collageFlip = 0.0;
+			collageFlipSlider.value = 0;
+			collageFlipVal.textContent = '0%';
 			saveProjectionConfig();
 		});
+
 		azimuthalZoomSlider.addEventListener('input', () => {
-			azimuthalZoom = +azimuthalZoomSlider.value / 100;
-			azimuthalZoomVal.textContent = azimuthalZoom.toFixed(2) + '×';
+			azimuthalZoom = 100 / +azimuthalZoomSlider.value;
+			azimuthalZoomVal.textContent = (+azimuthalZoomSlider.value / 100).toFixed(2) + '×';
 			saveProjectionConfig();
 		});
 		azimuthalZoomSlider.addEventListener('dblclick', () => {
 			azimuthalZoom = 1.0;
-			azimuthalZoomSlider.value = 100;
-			azimuthalZoomVal.textContent = '1.00×';
+			syncAzimuthalZoomUI();
 			saveProjectionConfig();
 		});
 		// Stereographic controls
@@ -4783,7 +4807,7 @@ void main() {
 			stereoA1 = 0.0; stereoA1Slider.value = 0; stereoA1Val.textContent = '0.0';
 			stereoA2 = 0.0; stereoA2Slider.value = 0; stereoA2Val.textContent = '0.0';
 			stereoA3 = 0.0; stereoA3Slider.value = 0; stereoA3Val.textContent = '0.00';
-			azimuthalZoom = 1.0; azimuthalZoomSlider.value = 100; azimuthalZoomVal.textContent = '1.00×';
+			azimuthalZoom = 1.0; syncAzimuthalZoomUI();
 			saveProjectionConfig();
 		});
 		let _stereoClip = null;
@@ -4797,7 +4821,7 @@ void main() {
 			stereoA1 = _stereoClip.a1; stereoA1Slider.value = stereoA1; stereoA1Val.textContent = stereoA1.toFixed(1);
 			stereoA2 = _stereoClip.a2; stereoA2Slider.value = stereoA2; stereoA2Val.textContent = stereoA2.toFixed(1);
 			stereoA3 = _stereoClip.a3; stereoA3Slider.value = stereoA3; stereoA3Val.textContent = stereoA3.toFixed(2);
-			azimuthalZoom = _stereoClip.zoom; azimuthalZoomSlider.value = Math.round(azimuthalZoom * 100); azimuthalZoomVal.textContent = azimuthalZoom.toFixed(2) + '×';
+			azimuthalZoom = _stereoClip.zoom; syncAzimuthalZoomUI();
 			saveProjectionConfig();
 		});
 		globeToggle.addEventListener('change', () => { globeVisible = globeToggle.checked; saveProjectionConfig(); });
@@ -4998,7 +5022,7 @@ void main() {
 		const fovRow = document.getElementById('fov-row');
 		const pixelateRow = document.getElementById('pixelate-row');
 		const collageRow = document.getElementById('collage-row');
-		const azimuthalRow = document.getElementById('azimuthal-row');
+
 		const azimuthalZoomRow = document.getElementById('azimuthal-zoom-row');
 		const collageRotationRow = document.getElementById('collage-rotation-row');
 		const stereographicRow = document.getElementById('stereographic-row');
@@ -5026,7 +5050,7 @@ void main() {
 			const isAnyPreview = isBuckyPreview || isRhombicPreview || isTruncOctPreview;
 			fovRow.style.display = (isPerspective || isAnyPreview) ? 'contents' : 'none';
 			pixelateRow.style.display = (isStereo || isPerspective || isAzimuthal || isCollage) ? 'contents' : 'none';
-			azimuthalRow.style.display = (isAzimuthal || isCollage) ? 'contents' : 'none';
+
 			azimuthalZoomRow.style.display = (isAzimuthal || isCollage || isStereo) ? 'contents' : 'none';
 			collageRow.style.display = isCollage ? 'contents' : 'none';
 			collageRotationRow.style.display = isCollage ? 'contents' : 'none';
@@ -5333,7 +5357,9 @@ void main() {
 				const ru = u * cr - v * sr;
 				const rv = u * sr + v * cr;
 				u = ru; v = rv;
-				u *= azimuthalZoom; v *= azimuthalZoom;
+				const absC = Math.abs(cr), absS = Math.abs(sr);
+				const fitScale = Math.max((0.5 * absC + 1.0) / aspect, 0.5 * absS + 1.0);
+				u *= fitScale * azimuthalZoom; v *= fitScale * azimuthalZoom;
 				const dR = 1.0;
 				const ox1 = u - (-0.5), oy1 = v;
 				const ox2 = u - 0.5, oy2 = v;
@@ -5342,8 +5368,7 @@ void main() {
 				const d1c = r1 / dR, d2c = r2 / dR;
 				const m1 = d1c < 1.0, m2 = d2c < 1.0;
 				if (!unclamped && !m1 && !m2) return null;
-				const flipSign = collageFlip ? -1 : 1;
-				const useLeft = m1 && (!m2 || v * flipSign < 0)
+				const useLeft = m1 && (!m2 || (collageFlip < 0.5 ? v < 0 : v >= 0))
 					|| (!m1 && !m2 && d1c < d2c);
 				let theta, phi;
 				if (useLeft) {
@@ -5758,8 +5783,7 @@ void main() {
 						fovVal.textContent = Math.round(fovDeg) + '°';
 					} else if (projectionModeIndex === M_AZIMUTHAL || projectionModeIndex === M_COLLAGE || projectionModeIndex === M_STEREO) {
 						azimuthalZoom = solveZoom(p1.x, p1.y, p2.x, p2.y, _pinchCosAngle);
-						azimuthalZoomSlider.value = Math.round(azimuthalZoom * 100);
-						azimuthalZoomVal.textContent = azimuthalZoom.toFixed(2) + '×';
+						syncAzimuthalZoomUI();
 					}
 					// Step 2: compute new local dirs with updated FOV/zoom
 					const ld1 = screenToLocalDir(p1.x, p1.y);
@@ -5900,9 +5924,8 @@ void main() {
 			e.preventDefault();
 			if (projectionModeIndex === M_AZIMUTHAL || projectionModeIndex === M_COLLAGE || projectionModeIndex === M_STEREO) {
 				// Azimuthal / stereographic: zoom
-				azimuthalZoom = Math.max(0.1, Math.min(3.0, azimuthalZoom + e.deltaY * 0.001));
-				azimuthalZoomSlider.value = Math.round(azimuthalZoom * 100);
-				azimuthalZoomVal.textContent = azimuthalZoom.toFixed(2) + '×';
+				azimuthalZoom = Math.max(0.1, Math.min(1.0, azimuthalZoom + e.deltaY * 0.001));
+				syncAzimuthalZoomUI();
 				saveProjectionConfig();
 				return;
 			}
@@ -6337,7 +6360,6 @@ void main() {
 						globeSize,
 						collageRotationDeg,
 						collageFlip,
-						azimuthalMask,
 						azimuthalZoom,
 						stereoD,
 						stereoA0,
@@ -6410,18 +6432,18 @@ void main() {
 				collageRotationSlider.value = collageRotationDeg;
 				collageRotationVal.textContent = collageRotationDeg + '°';
 			}
-			if (typeof cfg.collageFlip === 'boolean') {
+			if (typeof cfg.collageFlip === 'number') {
 				collageFlip = cfg.collageFlip;
-				collageFlipToggle.checked = collageFlip;
-			}
-			if (typeof cfg.azimuthalMask === 'boolean') {
-				azimuthalMask = cfg.azimuthalMask;
-				azimuthalMaskToggle.checked = azimuthalMask;
+				collageFlipSlider.value = Math.round(collageFlip * 100);
+				collageFlipVal.textContent = Math.round(collageFlip * 100) + '%';
+			} else if (typeof cfg.collageFlip === 'boolean') {
+				collageFlip = cfg.collageFlip ? 1.0 : 0.0;
+				collageFlipSlider.value = Math.round(collageFlip * 100);
+				collageFlipVal.textContent = Math.round(collageFlip * 100) + '%';
 			}
 			if (typeof cfg.azimuthalZoom === 'number') {
 				azimuthalZoom = cfg.azimuthalZoom;
-				azimuthalZoomSlider.value = Math.round(azimuthalZoom * 100);
-				azimuthalZoomVal.textContent = azimuthalZoom.toFixed(2) + '×';
+				syncAzimuthalZoomUI();
 			}
 			if (typeof cfg.stereoD === 'number') {
 				stereoD = cfg.stereoD;
@@ -6693,8 +6715,7 @@ void main() {
 		//     globeReflect: 0.5,       // globe reflection strength
 		//     buckyOverlayAlpha: 0.5,  // net/wireframe overlay alpha
 		//     globeVisible: true,      // globe on/off
-		//     collageFlip: false,      // collage horizontal flip
-		//     azimuthalMask: false }   // circular mask on/off
+		//     collageFlip: 0.0 }      // collage overlap blend (0–1)
 
 		const KF_PROPS = {
 			get fovDeg() { return fovDeg; }, set fovDeg(v) { fovDeg = v; },
@@ -6711,11 +6732,10 @@ void main() {
 			get globeReflect() { return globeReflect; }, set globeReflect(v) { globeReflect = v; },
 			get buckyOverlayAlpha() { return buckyOverlayAlpha; }, set buckyOverlayAlpha(v) { buckyOverlayAlpha = v; },
 			get globeVisible() { return globeVisible; }, set globeVisible(v) { globeVisible = v; },
-			get collageFlip() { return collageFlip; }, set collageFlip(v) { collageFlip = v; },
-			get azimuthalMask() { return azimuthalMask; }, set azimuthalMask(v) { azimuthalMask = v; }
+			get collageFlip() { return collageFlip; }, set collageFlip(v) { collageFlip = v; }
 		};
-		const KF_NUMERIC = ['fovDeg','pixelate','collageRotationDeg','azimuthalZoom','stereoD','stereoA0','stereoA1','stereoA2','stereoA3','globeSize','globeOpacity','globeReflect','buckyOverlayAlpha'];
-		const KF_BOOL = ['globeVisible','collageFlip','azimuthalMask'];
+		const KF_NUMERIC = ['fovDeg','pixelate','collageRotationDeg','collageFlip','azimuthalZoom','stereoD','stereoA0','stereoA1','stereoA2','stereoA3','globeSize','globeOpacity','globeReflect','buckyOverlayAlpha'];
+		const KF_BOOL = ['globeVisible'];
 
 		// Snapshot the current projection state into a plain object suitable
 		// for storage as a keyframe. Caller must add .time before inserting.
@@ -6764,9 +6784,8 @@ void main() {
 			fovSlider.value = fovDeg; fovVal.textContent = Math.round(fovDeg) + '°';
 			pixelateSlider.value = Math.round(pixelate * 100); pixelateVal.textContent = Math.round(pixelate * 100) + '%';
 			collageRotationSlider.value = collageRotationDeg; collageRotationVal.textContent = collageRotationDeg + '°';
-			collageFlipToggle.checked = collageFlip;
-			azimuthalZoomSlider.value = Math.round(azimuthalZoom * 100); azimuthalZoomVal.textContent = azimuthalZoom.toFixed(2) + '×';
-			azimuthalMaskToggle.checked = azimuthalMask;
+			collageFlipSlider.value = Math.round(collageFlip * 100); collageFlipVal.textContent = Math.round(collageFlip * 100) + '%';
+			syncAzimuthalZoomUI();
 			stereoDSlider.value = stereoD; stereoDVal.textContent = stereoD.toFixed(2);
 			stereoA0Slider.value = stereoA0; stereoA0Val.textContent = stereoA0.toFixed(1);
 			stereoA1Slider.value = stereoA1; stereoA1Val.textContent = stereoA1.toFixed(1);
@@ -8427,8 +8446,8 @@ void main() {
 			gl.uniform1f(uBuckyOverlayAlpha, buckyOverlayAlpha);
 			gl.uniform1f(uCutLineMode, cutLineMode);
 			gl.uniform1f(uCollageRotation, collageRotationDeg * Math.PI / 180);
-			gl.uniform1f(uCollageFlip, collageFlip ? -1.0 : 1.0);
-			gl.uniform1f(uAzimuthalMask, azimuthalMask ? 1.0 : 0.0);
+			gl.uniform1f(uCollageFlip, collageFlip);
+			gl.uniform1f(uAzimuthalMask, 1.0);
 			gl.uniform1f(uAzimuthalZoom, azimuthalZoom);
 			gl.uniform1f(uStereoD, stereoD);
 			gl.uniform4f(uStereoScaramuzza, stereoA0, stereoA1, stereoA2, stereoA3);
@@ -8732,23 +8751,28 @@ void main() {
 					const existing = await cacheListNames();
 					for (const name of DEFAULT_IMAGES) {
 						if (existing.includes(name)) continue;
-						setProgress(0, 'fetching ' + name + '…');
-						const blob = await fetchWithProgress(encodeURI(name));
-						const img = await loadImageFromBlob(blob);
-						if (!hasTexture) {
-							uploadTexture(img);
-							sourceFileName = name;
-							isLeveled = false;
-							updateLevelBtnState();
-							hasTexture = true;
+						try {
+							setProgress(0, 'fetching ' + name + '…');
+							const blob = await fetchWithProgress(encodeURI(name));
+							const img = await loadImageFromBlob(blob);
+							if (!hasTexture) {
+								uploadTexture(img);
+								sourceFileName = name;
+								isLeveled = false;
+								updateLevelBtnState();
+								hasTexture = true;
+							}
+							await cacheStore(blob, name, img.width, img.height);
+						} catch (e) {
+							console.warn('Failed to fetch default image:', name, e);
 						}
-						await cacheStore(blob, name, img.width, img.height);
 					}
 				}
 				await updateCachedFilesList();
 				hideProgress();
 			} catch (e) {
 				console.warn('Initial load failed:', e);
+				await updateCachedFilesList();
 				progressEl.style.display = 'none';
 			}
 		})();
@@ -8840,8 +8864,8 @@ void main() {
 			gl.uniform1f(uMagnifierRadius, magnifierEnabled ? magnifierRadius : 0.0);
 			gl.uniform1f(uRefractivity, magnifierEnabled ? magnifierRefractivity : 1.0);
 			gl.uniform1f(uCollageRotation, collageRotationDeg * Math.PI / 180);
-			gl.uniform1f(uCollageFlip, collageFlip ? -1.0 : 1.0);
-			gl.uniform1f(uAzimuthalMask, azimuthalMask ? 1.0 : 0.0);
+			gl.uniform1f(uCollageFlip, collageFlip);
+			gl.uniform1f(uAzimuthalMask, 1.0);
 			gl.uniform1f(uAzimuthalZoom, azimuthalZoom);
 			gl.uniform1f(uStereoD, stereoD);
 			gl.uniform4f(uStereoScaramuzza, stereoA0, stereoA1, stereoA2, stereoA3);

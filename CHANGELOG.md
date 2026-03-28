@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Azimuthal collage auto-fit scaling** — `fitScale` factor in both GLSL shader and JS SVG export automatically scales the two-disc layout so the full collage remains visible at any rotation angle; uses circular extent formula `0.5·|cos θ| + 1.0` for tight fitting without excess black borders
+
+### Changed
+- **Collage flip → blend slider** — replaced the boolean collage flip checkbox with a 0–1 range slider; the shader now linearly crossfades between upper and lower disc (`collageMixAlpha = (uv.y ≥ 0) ? 1−flip : flip`); `collageFlip` changed from `KF_BOOL` to `KF_NUMERIC` for smooth animation interpolation; config persistence is backwards-compatible (booleans are migrated to 0/1 on load)
+- **Azimuthal zoom display inverted** — zoom slider now shows 1×–10× (reciprocal of internal 0.1–1.0 value); `syncAzimuthalZoomUI()` helper keeps slider position and display label in sync across all code paths (input, double-click reset, stereo reset/paste, pinch/wheel zoom, config load)
+- **Stereographic menu reordered** — D and Scaramuzza parameters row moved above the zoom row in the stereographic controls
+
+### Removed
+- **Azimuthal mask toggle** — the circular mask checkbox and all related code (HTML, CSS, JS, config persistence, animation keyframe attribute) have been removed; the mask is now always on (shader uniform hardcoded to 1.0)
+
+### Fixed
+- **Startup crash on missing default image** — each default image fetch is now wrapped in an individual try/catch so a 404 for one file no longer aborts the entire startup sequence; `updateCachedFilesList()` is also called in the outer catch block to ensure the file list and "clear cache" link are always displayed
+- **Collage blend formula** — fixed the initial two-phase alpha implementation (both endpoints fully opaque at 0 and 0.5) with a correct linear crossfade
+- **fitScale formula tightened** — replaced conservative rectangular bounding-box formula (`1.5·|cos θ| + |sin θ|`) with circular extent (`0.5·|cos θ| + 1.0`) matching actual disc geometry, reducing excess black at 45° rotation
+
 ## [0.18.0] - 2026-03-28
 
 ### Added
