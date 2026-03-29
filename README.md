@@ -554,21 +554,22 @@ The paper rect is computed from the **tight bounding box** (`buckyTightBBox`) �
 
 ## Export
 
-The export button renders the current view at high resolution and downloads the result. A **format dropdown** next to the Save button offers three output formats:
+The export button renders the current view at high resolution and downloads the result. A **format dropdown** next to the Save button offers four output formats:
 
 | Format | Description |
 |---|---|
 | **PNG** | Standard lossless image; default for all projections |
 | **CMYK TIFF** | Uncompressed TIFF with `PhotometricInterpretation = CMYK`, `SamplesPerPixel = 4`, and configurable DPI resolution metadata; suitable for professional print workflows (ISO 12647-2:2013) |
 | **SVG Cutline** | Vector SVG of the foldable net's physical cut lines; available only in foldable projection modes (buckyball-32, rhombic-30, truncoct-14); includes face boundary edges, glue tab outlines, and an evenodd clip path |
+| **PDF (CMYK + Cutline)** | Combined CMYK raster image and vector cutline overlay in a single PDF/X-compatible file; FlateDecode-compressed; available only in foldable projection modes; optional ICC profile embedding; configurable paper size (A0–A4 or fit-to-content) and non-printable margin |
 
 ### DPI Setting
 
-A **DPI input** (default: 300) is shown when CMYK TIFF or SVG Cutline is selected. For TIFF exports, DPI is embedded as XResolution/YResolution TIFF tags. For SVG exports, the DPI determines the physical `width` and `height` attributes (in inches), ensuring the print dimensions match the raster export at the same DPI.
+A **DPI input** (default: 300) is shown when CMYK TIFF, SVG Cutline, or PDF is selected. For TIFF exports, DPI is embedded as XResolution/YResolution TIFF tags. For SVG exports, the DPI determines the physical `width` and `height` attributes (in inches). For PDF exports, DPI controls the raster image resolution metadata. All three formats share the same DPI value, ensuring consistent print dimensions.
 
 ### ICC Profiles
 
-When **CMYK TIFF** is selected, an **ICC profile section** appears with a dropdown of cached profiles and a "Load .icc" button. Loaded profiles are persisted in IndexedDB (key prefix `icc:`) and survive page reloads. The selected profile is embedded via TIFF tag 34675 (ICCProfile), enabling tagged output for Fogra51 (PSOcoated_v3) or other print profiles.
+When **CMYK TIFF** or **PDF** is selected, an **ICC profile section** appears with a dropdown of cached profiles and a "Load .icc" button. Loaded profiles are persisted in IndexedDB (key prefix `icc:`) and survive page reloads. For TIFF, the profile is embedded via tag 34675 (ICCProfile). For PDF, it is embedded as an ICCBased colorspace with an OutputIntent dictionary. Both enable tagged output for Fogra51 (PSOcoated_v3) or other print profiles.
 
 ### SVG Cutline Export
 
@@ -580,7 +581,28 @@ The SVG Cutline format generates a vector file with:
 
 The SVG uses its own inline tight bounding box computation (iterating all polygon vertices and tab outer corners) rather than relying on the shared global, avoiding stale values after mode switches. Landscape nets are rotated 90° clockwise to portrait orientation, matching the TIFF export convention. The stroke width is 0.5pt (physical), and the viewBox is padded to prevent boundary clipping.
 
-The SVG option is **disabled and hidden** when not in a foldable projection mode. Switching away from foldable while SVG is selected automatically resets the format to PNG.
+The SVG and PDF options are **disabled and hidden** when not in a foldable projection mode. Switching away from foldable while SVG or PDF is selected automatically resets the format to PNG.
+
+### PDF Export
+
+The PDF format combines a **CMYK raster image** and a **vector cutline overlay** in a single file, suitable for professional print production without requiring separate raster/vector files.
+
+**Structure:**
+- PDF 1.4 with binary comment marker (PDF/X-compatible)
+- CMYK image XObject, FlateDecode-compressed via the native `CompressionStream('deflate')` API
+- Content stream placing the image and stroking the cutline paths
+- Optional ICCBased colorspace with OutputIntent (falls back to DeviceCMYK)
+
+**Paper size & margin:**
+- Paper size dropdown: A0–A4 (ISO dimensions in mm) or "Fit to content" (page sized to image + margins)
+- Non-printable margin input (0–50 mm, default 3 mm); the raster image is scaled to fit within the printable area preserving aspect ratio, centered on the page
+
+**Cutline overlay:**
+- Face boundary edges and glue tab outlines rendered as PDF path operators (0.5 pt CMYK black stroke, round line join)
+- Tab paths are clipped at face polygon edges using the PDF evenodd clip operator (`W* n`), preventing tabs from bleeding into face interiors
+- Same geometry and tab-ownership logic as the SVG cutline export
+
+Landscape nets are rotated 90° CW to portrait orientation, matching the TIFF and SVG export convention.
 
 Each projection uses optimised dimensions:
 
@@ -599,7 +621,7 @@ Each projection uses optimised dimensions:
 
 The implementation resizes the WebGL canvas to export resolution, sets the `exportClip` uniform to remap `screenUV` from the default `(−1,−1)→(1,1)` range to the net's bounding box coordinates (with aspect-ratio compensation), renders a single frame, and reads pixels via `gl.readPixels()` within the same JS task. After export, the canvas and uniform are restored to viewport defaults.
 
-Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png` (or `.tif` for CMYK TIFF, `-cutline.svg` for SVG Cutline).
+Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png` (or `.tif` for CMYK TIFF, `-cutline.svg` for SVG Cutline, `.pdf` for PDF with optional paper size suffix like `-A2`).
 
 ---
 
@@ -616,7 +638,7 @@ Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png` (or `
 | 📏 **Grid overlay** | 3-state grid (Off → Tex → View): **Tex** draws a 32×16 grid in equirectangular texture coordinates, **View** draws the grid in screen/viewport coordinates using `gl_FragCoord`; cycle via `X` key or button |
 | 🎯 **Fly-to** | Double-click to smoothly animate camera toward any point; works in both camera and leveling mode |
 | ⚖️ **Horizon leveling** | Dedicated leveling mode with accept/discard; yaw/pitch/roll sliders; double-click horizon to auto-level; per-file persistence |
-| 📸 **PNG / CMYK TIFF / SVG export** | Export current view at source texture resolution; PNG, CMYK TIFF (configurable DPI, optional ICC profile), or SVG Cutline (vector cut lines for foldable nets); projection-specific dimensions and clipping |
+| 📸 **PNG / CMYK TIFF / SVG / PDF export** | Export current view at source texture resolution; PNG, CMYK TIFF (configurable DPI, optional ICC profile), SVG Cutline (vector cut lines for foldable nets), or PDF (CMYK + Cutline, configurable paper size and margin); projection-specific dimensions and clipping |
 | 🔢 **Y / P / R sliders** | Live Euler-angle readout; drag to set orientation, double-click to reset; copy/paste quaternion |
 | 💾 **Multi-file cache** | Multiple panoramas cached in IndexedDB; switch between cached files via file list; last-viewed file restored on reload; "clear cache" link to delete all cached data and reset viewer state |
 | ⚙️ **Per-file config** | Camera orientation, FOV, projection mode, grid, globe, leveling, and all projection parameters persisted per file |

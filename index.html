@@ -447,6 +447,41 @@
 			white-space: nowrap;
 		}
 		#icc-load-btn:hover { background: #2a5a2a; color: #8f8; }
+		#paper-row {
+			display: flex;
+			gap: 4px;
+			align-items: center;
+			margin-top: 4px;
+		}
+		#paper-row label {
+			font-size: 11px;
+			color: #6d6;
+			white-space: nowrap;
+		}
+		#paper-size {
+			padding: 2px 4px;
+			font-size: 11px;
+			border-radius: 4px;
+			color: #6d6;
+			border: 1px solid #4a4;
+			background: #1a3a1a;
+			cursor: pointer;
+			outline: none;
+		}
+		#paper-size option { background: #1a2a1a; color: #6d6; }
+		#paper-margin {
+			width: 40px;
+			padding: 2px 4px;
+			font-size: 11px;
+			border-radius: 4px;
+			color: #6d6;
+			border: 1px solid #4a4;
+			background: #1a3a1a;
+			outline: none;
+			-moz-appearance: textfield;
+		}
+		#paper-margin::-webkit-inner-spin-button,
+		#paper-margin::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 		#icc-link {
 			display: block;
 			font-size: 10px;
@@ -1100,6 +1135,7 @@
 				<option value="png">PNG</option>
 				<option value="tiff">CMYK TIFF</option>
 				<option value="svg">SVG Cutline</option>
+				<option value="pdf">PDF (CMYK + Cutline)</option>
 			</select>
 		</div>
 		<div id="icc-section" class="hide-in-level-off">
@@ -1107,6 +1143,17 @@
 				<label id="dpi-label">DPI <input type="number" id="dpi-input" value="300" min="1" max="9999" step="1"></label>
 				<select id="icc-select"><option value="">(no ICC profile)</option></select>
 				<button id="icc-load-btn">Load .icc</button>
+			</div>
+			<div id="paper-row" style="display:none">
+				<label>Paper <select id="paper-size">
+					<option value="fit">Fit to content</option>
+					<option value="a4">A4 (210×297 mm)</option>
+					<option value="a3">A3 (297×420 mm)</option>
+					<option value="a2" selected>A2 (420×594 mm)</option>
+					<option value="a1">A1 (594×841 mm)</option>
+					<option value="a0">A0 (841×1189 mm)</option>
+				</select></label>
+				<label>Margin <input type="number" id="paper-margin" value="3" min="0" max="50" step="0.5"> mm</label>
 			</div>
 			<a id="icc-link" href="https://registry.color.org/profile-registry/" target="_blank" rel="noopener">ICC Profile Registry ↗</a>
 		</div>
@@ -1470,7 +1517,7 @@ vec4 renderGlobe(vec2 screenUV, float radius) {
 	// Environment reflection
 	vec3 refl = reflect(-V, n);
 	vec3 reflWorld = vm * refl;
-	vec3 envCol = mix(testPattern(reflWorld), texture(equirect, dirToEquirect(reflWorld)).rgb, hasTexture);
+	vec3 envCol = mix(testPattern(reflWorld), texture(equirect, dirToEquirect(levelMatrix * reflWorld)).rgb, hasTexture);
 	base = mix(base, envCol, globeReflect * (1.0 - rim * 0.5));
 
 	// Grid overlay
@@ -7521,10 +7568,11 @@ void main() {
 		// PNG:  section hidden entirely.
 		exportFmt.addEventListener('change', () => {
 			var fmt = exportFmt.value;
-			iccSection.classList.toggle('visible', fmt === 'tiff' || fmt === 'svg');
-			document.getElementById('icc-select').style.display = fmt === 'tiff' ? '' : 'none';
-			document.getElementById('icc-load-btn').style.display = fmt === 'tiff' ? '' : 'none';
-			document.getElementById('icc-link').style.display = fmt === 'tiff' ? '' : 'none';
+			iccSection.classList.toggle('visible', fmt === 'tiff' || fmt === 'svg' || fmt === 'pdf');
+			document.getElementById('icc-select').style.display = (fmt === 'tiff' || fmt === 'pdf') ? '' : 'none';
+			document.getElementById('icc-load-btn').style.display = (fmt === 'tiff' || fmt === 'pdf') ? '' : 'none';
+			document.getElementById('icc-link').style.display = (fmt === 'tiff' || fmt === 'pdf') ? '' : 'none';
+			document.getElementById('paper-row').style.display = (fmt === 'pdf') ? '' : 'none';
 		});
 
 		// ── ICC profile caching in IndexedDB (prefix 'icc:') ──
@@ -7718,6 +7766,553 @@ void main() {
 			u8.set(cmykData, pixelDataOffset);
 
 			return buf;
+		}
+
+		// ── Paper size definitions (mm) ──
+		const paperSizes = {
+			a0: [841, 1189], a1: [594, 841], a2: [420, 594],
+			a3: [297, 420], a4: [210, 297]
+		};
+
+		// ── Zlib compression via native CompressionStream ──
+		// PDF /FlateDecode expects zlib-wrapped deflate (RFC 1950).
+		async function zlibCompress(data) {
+			const cs = new CompressionStream('deflate');
+			const writer = cs.writable.getWriter();
+			writer.write(data);
+			writer.close();
+			return new Uint8Array(await new Response(cs.readable).arrayBuffer());
+		}
+
+		// ── PDF encoder: CMYK raster + vector cutline overlay ──
+		// Produces a valid PDF/X-compatible file with:
+		//   - CMYK image XObject (FlateDecode compressed)
+		//   - Optional ICC output intent
+		//   - Optional vector cutline overlay (stroke paths)
+		//   - Paper size with non-printable margin
+		//
+		// Parameters:
+		//   imgW, imgH — raster pixel dimensions
+		//   cmykData   — Uint8Array of CMYK interleaved pixels (top-to-bottom)
+		//   dpi        — resolution for the image
+		//   iccProfile — ArrayBuffer of ICC profile data (or null)
+		//   cutlinePaths — array of {op:'M'|'L'|'Z', x?, y?} commands in points (or null)
+		//   paperKey   — 'fit'|'a4'|'a3'|'a2'|'a1'|'a0'
+		//   marginMM   — non-printable margin in mm
+		async function encodePdf(imgW, imgH, cmykData, dpi, iccProfile, cutlinePaths, paperKey, marginMM) {
+			const imgWpt = imgW / dpi * 72;   // image width in points
+			const imgHpt = imgH / dpi * 72;   // image height in points
+			const marginPt = marginMM / 25.4 * 72;
+
+			// Determine page size in points (always portrait: short side × long side)
+			var pageW, pageH;
+			if (paperKey === 'fit' || !paperSizes[paperKey]) {
+				pageW = imgWpt + 2 * marginPt;
+				pageH = imgHpt + 2 * marginPt;
+			} else {
+				var mmW = paperSizes[paperKey][0], mmH = paperSizes[paperKey][1];
+				pageW = mmW / 25.4 * 72;
+				pageH = mmH / 25.4 * 72;
+			}
+
+			// Printable area
+			var printW = pageW - 2 * marginPt;
+			var printH = pageH - 2 * marginPt;
+
+			// Scale image to fit within printable area, preserving aspect ratio
+			var scale = Math.min(printW / imgWpt, printH / imgHpt);
+			var drawW = imgWpt * scale;
+			var drawH = imgHpt * scale;
+			// Center on page
+			var drawX = marginPt + (printW - drawW) / 2;
+			var drawY = marginPt + (printH - drawH) / 2;
+
+			// Compress CMYK data
+			var compressedImg = await zlibCompress(cmykData);
+
+			var hasICC = iccProfile && iccProfile.byteLength > 0;
+			var compressedICC = hasICC ? await zlibCompress(new Uint8Array(iccProfile)) : null;
+
+			// Build PDF objects as strings/bytes
+			var enc = new TextEncoder();
+			var objects = []; // array of {offset, bytes}
+			var objOffsets = [];
+			var pos = 0;
+
+			function str(s) { var b = enc.encode(s); objects.push(b); pos += b.length; return b; }
+			function raw(bytes) { var b = new Uint8Array(bytes); objects.push(b); pos += b.length; }
+			function startObj(n) { objOffsets[n] = pos; str(n + ' 0 obj\n'); }
+			function endObj() { str('endobj\n'); }
+
+			// Object numbering:
+			// 1 = Catalog
+			// 2 = Pages
+			// 3 = Page
+			// 4 = Image XObject
+			// 5 = Content stream
+			// 6 = DeviceCMYK colorspace (or ICCBased)
+			// 7 = ICC stream (if present)
+			var nextObj = hasICC ? 8 : 7;
+
+			// ── Header ──
+			str('%PDF-1.4\n%');
+			raw([0xE2, 0xE3, 0xCF, 0xD3]); // binary comment to mark file as binary
+			str('\n');
+
+			// ── Obj 1: Catalog ──
+			startObj(1);
+			str('<< /Type /Catalog /Pages 2 0 R >>\n');
+			endObj();
+
+			// ── Obj 2: Pages ──
+			startObj(2);
+			str('<< /Type /Pages /Kids [3 0 R] /Count 1 >>\n');
+			endObj();
+
+			// ── Obj 3: Page ──
+			startObj(3);
+			str('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' +
+				pageW.toFixed(2) + ' ' + pageH.toFixed(2) +
+				'] /Contents 5 0 R /Resources << /XObject << /Img 4 0 R >> >> >>\n');
+			endObj();
+
+			// ── Obj 4: Image XObject ──
+			startObj(4);
+			var csRef = hasICC ? '[/ICCBased 7 0 R]' : '/DeviceCMYK';
+			str('<< /Type /XObject /Subtype /Image /Width ' + imgW +
+				' /Height ' + imgH + ' /ColorSpace ' + csRef +
+				' /BitsPerComponent 8 /Filter /FlateDecode /Length ' +
+				compressedImg.length + ' >>\nstream\n');
+			objects.push(compressedImg); pos += compressedImg.length;
+			str('\nendstream\n');
+			endObj();
+
+			// ── Obj 5: Content stream ──
+			// Draw image, then overlay cutline paths
+			var contentParts = [];
+			// Image placement: translate + scale via cm operator
+			contentParts.push('q');
+			contentParts.push(drawW.toFixed(4) + ' 0 0 ' + drawH.toFixed(4) + ' ' +
+				drawX.toFixed(4) + ' ' + drawY.toFixed(4) + ' cm');
+			contentParts.push('/Img Do');
+			contentParts.push('Q');
+
+			// Cutline vector overlay
+			if (cutlinePaths && (cutlinePaths.tabs.length > 0 || cutlinePaths.edges.length > 0)) {
+				// Set stroke style
+				contentParts.push('q');
+				contentParts.push('0 0 0 1 K'); // CMYK black
+				contentParts.push('0.5 w');      // 0.5pt line width
+				contentParts.push('1 j');         // round line join
+
+				// Clipped tabs: define evenodd clip from face polygons, then stroke tabs
+				if (cutlinePaths.tabs.length > 0 && cutlinePaths.clips.length > 0) {
+					contentParts.push('q');
+					// Build clip path: outer page rect (CW) + face polygons (inherent winding)
+					// Evenodd rule makes the face interiors "holes" in the clip region
+					contentParts.push('0 0 ' + pageW.toFixed(4) + ' ' + pageH.toFixed(4) + ' re');
+					for (var i = 0; i < cutlinePaths.clips.length; i++) {
+						var cmd = cutlinePaths.clips[i];
+						if (cmd.op === 'M') contentParts.push(cmd.x.toFixed(4) + ' ' + cmd.y.toFixed(4) + ' m');
+						else if (cmd.op === 'L') contentParts.push(cmd.x.toFixed(4) + ' ' + cmd.y.toFixed(4) + ' l');
+						else if (cmd.op === 'Z') contentParts.push('h');
+					}
+					contentParts.push('W* n'); // evenodd clip, no-op paint
+					// Stroke tab paths inside clip
+					for (var i = 0; i < cutlinePaths.tabs.length; i++) {
+						var cmd = cutlinePaths.tabs[i];
+						if (cmd.op === 'M') contentParts.push(cmd.x.toFixed(4) + ' ' + cmd.y.toFixed(4) + ' m');
+						else if (cmd.op === 'L') contentParts.push(cmd.x.toFixed(4) + ' ' + cmd.y.toFixed(4) + ' l');
+						else if (cmd.op === 'S') contentParts.push('S');
+					}
+					contentParts.push('Q');
+				}
+
+				// Unclipped edge paths
+				for (var i = 0; i < cutlinePaths.edges.length; i++) {
+					var cmd = cutlinePaths.edges[i];
+					if (cmd.op === 'M') contentParts.push(cmd.x.toFixed(4) + ' ' + cmd.y.toFixed(4) + ' m');
+					else if (cmd.op === 'L') contentParts.push(cmd.x.toFixed(4) + ' ' + cmd.y.toFixed(4) + ' l');
+					else if (cmd.op === 'S') contentParts.push('S');
+				}
+
+				contentParts.push('Q');
+			}
+
+			var contentStr = contentParts.join('\n') + '\n';
+			var contentBytes = enc.encode(contentStr);
+			startObj(5);
+			str('<< /Length ' + contentBytes.length + ' >>\nstream\n');
+			objects.push(contentBytes); pos += contentBytes.length;
+			str('\nendstream\n');
+			endObj();
+
+			// ── Obj 6: Colorspace ──
+			startObj(6);
+			if (hasICC) {
+				str('[/ICCBased 7 0 R]\n');
+			} else {
+				str('/DeviceCMYK\n');
+			}
+			endObj();
+
+			// ── Obj 7: ICC stream (if present) ──
+			if (hasICC) {
+				startObj(7);
+				str('<< /N 4 /Alternate /DeviceCMYK /Filter /FlateDecode /Length ' +
+					compressedICC.length + ' >>\nstream\n');
+				objects.push(compressedICC); pos += compressedICC.length;
+				str('\nendstream\n');
+				endObj();
+			}
+
+			// ── xref table ──
+			var xrefOffset = pos;
+			str('xref\n0 ' + nextObj + '\n');
+			str('0000000000 65535 f \n');
+			for (var n = 1; n < nextObj; n++) {
+				str(String(objOffsets[n]).padStart(10, '0') + ' 00000 n \n');
+			}
+
+			// ── Trailer ──
+			str('trailer\n<< /Size ' + nextObj + ' /Root 1 0 R >>\n');
+			str('startxref\n' + xrefOffset + '\n%%EOF\n');
+
+			// Concatenate all chunks
+			var totalLen = 0;
+			for (var i = 0; i < objects.length; i++) totalLen += objects[i].length;
+			var result = new Uint8Array(totalLen);
+			var off = 0;
+			for (var i = 0; i < objects.length; i++) {
+				result.set(objects[i], off);
+				off += objects[i].length;
+			}
+			return result.buffer;
+		}
+
+		// ── Generate cutline paths in PDF points for the current foldable net ──
+		// Returns an array of {op, x?, y?} commands positioned on the PDF page,
+		// or null if not in a foldable mode.
+		function generateCutlinePdfPaths(drawX, drawY, drawW, drawH) {
+			const isBucky32 = projectionModeIndex === M_FOLDABLE;
+			const isRhombic = projectionModeIndex === M_RHOMBIC_FOLDABLE;
+			const isTruncOct = projectionModeIndex === M_TRUNCOCT_FOLDABLE;
+			if (!isBucky32 && !isRhombic && !isTruncOct) return null;
+
+			// Compute tight bounding box (same as generateCutlineSVG Step 1)
+			var netX0 = Infinity, netX1 = -Infinity, netY0 = Infinity, netY1 = -Infinity;
+			if (isBucky32 || isTruncOct) {
+				var _data   = isTruncOct ? window._truncOct14Data       : window._bucky32Data;
+				var _scale  = isTruncOct ? window._truncOct14Scale      : window._bucky32Scale;
+				var _placed = isTruncOct ? window._truncOct14Placed     : window._bucky32Placed;
+				var _eNbr   = isTruncOct ? window._truncOct14EdgeNeighbor : window._bucky32EdgeNeighbor;
+				var _tH     = isTruncOct ? window._truncOct14TabH       : window._bucky32TabH;
+				var _tI     = isTruncOct ? window._truncOct14TabInset   : window._bucky32TabInset;
+				var _tMap   = isTruncOct ? null                         : window._bucky32TabsMap;
+				var _nF     = isTruncOct ? 14 : 32;
+				if (!_data || !_placed) return null;
+				for (var ii = 0; ii < _nF; ii++) {
+					if (!_placed[ii]) continue;
+					var _fx = _data[ii*4], _fy = _data[ii*4+1], _rot = _data[ii*4+2];
+					var _n = isTruncOct ? (ii < 8 ? 6 : 4) : (ii < 12 ? 5 : 6);
+					var _cr = isTruncOct
+						? ((_n === 6 ? 1.0 : Math.SQRT1_2) / _scale)
+						: ((_n === 5 ? 1 / (2 * Math.sin(Math.PI / 5)) : 1.0) / _scale);
+					for (var kk = 0; kk < _n; kk++) {
+						var _a1 = _rot + (2*kk+1) * Math.PI / _n;
+						var _a2 = _rot + (2*(kk+1)+1) * Math.PI / _n;
+						var _v1x = _fx + _cr*Math.cos(_a1), _v1y = _fy + _cr*Math.sin(_a1);
+						var _v2x = _fx + _cr*Math.cos(_a2), _v2y = _fy + _cr*Math.sin(_a2);
+						netX0 = Math.min(netX0, _v1x); netX1 = Math.max(netX1, _v1x);
+						netY0 = Math.min(netY0, _v1y); netY1 = Math.max(netY1, _v1y);
+						var _inf = _eNbr[ii][kk];
+						if (_inf && _inf.isInternal) continue;
+						var _hasTab = true;
+						if (_inf) {
+							if (isTruncOct) { _hasTab = !(ii > _inf.j); }
+							else {
+								var _ek = Math.min(ii, _inf.j) + '-' + Math.max(ii, _inf.j);
+								if (_tMap && _ek in _tMap) _hasTab = (_tMap[_ek] === ii);
+								else _hasTab = (ii < _inf.j);
+							}
+						}
+						if (_hasTab) {
+							var _emx = (_v1x+_v2x)/2-_fx, _emy = (_v1y+_v2y)/2-_fy;
+							var _eml = Math.sqrt(_emx*_emx + _emy*_emy);
+							var _nx = _emx/_eml, _ny = _emy/_eml;
+							var _dx = _v2x-_v1x, _dy = _v2y-_v1y;
+							var _o1x = _v1x+_nx*_tH+_dx*_tI, _o1y = _v1y+_ny*_tH+_dy*_tI;
+							var _o2x = _v2x+_nx*_tH-_dx*_tI, _o2y = _v2y+_ny*_tH-_dy*_tI;
+							netX0 = Math.min(netX0, _o1x, _o2x); netX1 = Math.max(netX1, _o1x, _o2x);
+							netY0 = Math.min(netY0, _o1y, _o2y); netY1 = Math.max(netY1, _o1y, _o2y);
+						}
+					}
+				}
+			} else {
+				var _data   = window._rhombic30Data;
+				var _scale  = window._rhombic30Scale;
+				var _placed = window._rhombic30Placed;
+				var _eNbr   = window._rhombic30EdgeNeighbor;
+				var _tH     = window._rhombic30TabH;
+				var _tIA    = window._rhombic30TabInsetAcute;
+				var _tIO    = window._rhombic30TabInsetObtuse;
+				var _tMap   = window._rhombic30TabsMap;
+				if (!_data || !_placed) return null;
+				var _PHI = (1 + Math.sqrt(5)) / 2;
+				var _iA = 1 / Math.sqrt(1 + _PHI * _PHI), _iB = _PHI * _iA;
+				var _haS = _iB / _scale, _hbS = _iA / _scale;
+				for (var ii = 0; ii < 30; ii++) {
+					if (!_placed[ii]) continue;
+					var _fx = _data[ii*4], _fy = _data[ii*4+1], _rot = _data[ii*4+2];
+					var _cr2 = Math.cos(_rot), _sr2 = Math.sin(_rot);
+					var _verts = [[_fx+_haS*_cr2, _fy+_haS*_sr2], [_fx-_hbS*_sr2, _fy+_hbS*_cr2],
+					              [_fx-_haS*_cr2, _fy-_haS*_sr2], [_fx+_hbS*_sr2, _fy-_hbS*_cr2]];
+					for (var kk = 0; kk < 4; kk++) {
+						netX0 = Math.min(netX0, _verts[kk][0]); netX1 = Math.max(netX1, _verts[kk][0]);
+						netY0 = Math.min(netY0, _verts[kk][1]); netY1 = Math.max(netY1, _verts[kk][1]);
+						var _inf = _eNbr[ii][kk];
+						if (_inf && _inf.isInternal) continue;
+						var _hasTab = true;
+						if (_inf) {
+							var _ek = Math.min(ii, _inf.j) + '-' + Math.max(ii, _inf.j);
+							if (_tMap && _ek in _tMap) _hasTab = (_tMap[_ek] === ii);
+							else _hasTab = (ii < _inf.j);
+						}
+						if (_hasTab) {
+							var _v1 = _verts[kk], _v2 = _verts[(kk+1) % 4];
+							var _emx = (_v1[0]+_v2[0])/2-_fx, _emy = (_v1[1]+_v2[1])/2-_fy;
+							var _eml = Math.sqrt(_emx*_emx + _emy*_emy);
+							var _nx = _emx/_eml, _ny = _emy/_eml;
+							var _dx = _v2[0]-_v1[0], _dy = _v2[1]-_v1[1];
+							var _ins1 = (kk % 2 === 0) ? _tIA : _tIO;
+							var _ins2 = (kk % 2 === 0) ? _tIO : _tIA;
+							var _o1x = _v1[0]+_nx*_tH+_dx*_ins1, _o1y = _v1[1]+_ny*_tH+_dy*_ins1;
+							var _o2x = _v2[0]+_nx*_tH-_dx*_ins2, _o2y = _v2[1]+_ny*_tH-_dy*_ins2;
+							netX0 = Math.min(netX0, _o1x, _o2x); netX1 = Math.max(netX1, _o1x, _o2x);
+							netY0 = Math.min(netY0, _o1y, _o2y); netY1 = Math.max(netY1, _o1y, _o2y);
+						}
+					}
+				}
+			}
+			if (!isFinite(netX0)) return null;
+			var bb = { x0: netX0, y0: netY0, x1: netX1, y1: netY1 };
+			var bbW = bb.x1 - bb.x0, bbH = bb.y1 - bb.y0;
+
+			// Determine pixel dimensions (same logic as raster export)
+			var S = Math.max(texWidth, texHeight);
+			var w, h;
+			if (bbW >= bbH) { w = S; h = Math.round(S * bbH / bbW); }
+			else { h = S; w = Math.round(S * bbW / bbH); }
+			var rotated = w > h;
+			var tw = rotated ? h : w, th = rotated ? w : h;
+
+			// Map net-space coordinates → PDF points within the draw rectangle.
+			// The raster image is always portrait (rotated if landscape), and the
+			// cutline paths must match exactly.
+			// PDF Y-axis goes up from bottom.
+			var clipCmds = []; // face polygon interiors (for evenodd clip)
+			var tabCmds = [];  // tab trapezoid outlines (clipped)
+			var edgeCmds = []; // face boundary edges (unclipped)
+			var pt; // net-space → PDF-page-space
+			if (rotated) {
+				// 90° CW rotation: net-y maps to PDF-x (same direction),
+				// net-x maps to PDF-y (inverted: low net-x → top → high PDF-y)
+				pt = function(x, y) {
+					var px = drawX + (y - bb.y0) / bbH * drawW;
+					var py = drawY + (bb.x1 - x) / bbW * drawH;
+					return { x: px, y: py };
+				};
+			} else {
+				// No rotation: net-x → PDF-x, net-y → PDF-y (y is flipped: high net-y = high PDF-y)
+				pt = function(x, y) {
+					var px = drawX + (x - bb.x0) / bbW * drawW;
+					var py = drawY + (y - bb.y0) / bbH * drawH;
+					return { x: px, y: py };
+				};
+			}
+
+			// Helper: emit face polygon for clip path
+			function emitClipPoly(verts) {
+				for (var vi = 0; vi < verts.length; vi++) {
+					var v = pt(verts[vi][0], verts[vi][1]);
+					clipCmds.push({op: vi === 0 ? 'M' : 'L', x: v.x, y: v.y});
+				}
+				clipCmds.push({op:'Z'});
+			}
+			// Helper: emit tab outline (3 open edges of trapezoid + stroke)
+			function emitTab(v1x, v1y, o1x, o1y, o2x, o2y, v2x, v2y) {
+				var a = pt(v1x, v1y), b = pt(o1x, o1y), c = pt(o2x, o2y), d = pt(v2x, v2y);
+				tabCmds.push({op:'M', x:a.x, y:a.y});
+				tabCmds.push({op:'L', x:b.x, y:b.y});
+				tabCmds.push({op:'L', x:c.x, y:c.y});
+				tabCmds.push({op:'L', x:d.x, y:d.y});
+				tabCmds.push({op:'S'});
+			}
+			// Helper: emit edge line
+			function emitEdge(v1x, v1y, v2x, v2y) {
+				var a = pt(v1x, v1y), b = pt(v2x, v2y);
+				edgeCmds.push({op:'M', x:a.x, y:a.y});
+				edgeCmds.push({op:'L', x:b.x, y:b.y});
+				edgeCmds.push({op:'S'});
+			}
+
+			// Generate paths (same geometry logic as generateCutlineSVG Step 4)
+			if (isBucky32 || isTruncOct) {
+				var data   = isTruncOct ? window._truncOct14Data       : window._bucky32Data;
+				var scale  = isTruncOct ? window._truncOct14Scale      : window._bucky32Scale;
+				var placed = isTruncOct ? window._truncOct14Placed     : window._bucky32Placed;
+				var eNbr   = isTruncOct ? window._truncOct14EdgeNeighbor : window._bucky32EdgeNeighbor;
+				var tH     = isTruncOct ? window._truncOct14TabH       : window._bucky32TabH;
+				var tI     = isTruncOct ? window._truncOct14TabInset   : window._bucky32TabInset;
+				var tMap   = isTruncOct ? null                         : window._bucky32TabsMap;
+				var nFaces = isTruncOct ? 14 : 32;
+				var nS     = isTruncOct ? function(i) { return i < 8 ? 6 : 4; }
+				                        : function(i) { return i < 12 ? 5 : 6; };
+				var cR     = isTruncOct ? function(i) { return (nS(i) === 6 ? 1.0 : Math.SQRT1_2) / scale; }
+				                        : function(i) { return (nS(i) === 5 ? 1 / (2 * Math.sin(Math.PI / 5)) : 1.0) / scale; };
+
+				// Clip polygons + Tabs
+				for (var i = 0; i < nFaces; i++) {
+					if (!placed[i]) continue;
+					var fx = data[i * 4], fy = data[i * 4 + 1], rot = data[i * 4 + 2];
+					var n = nS(i), cr = cR(i);
+					// Emit clip polygon for this face
+					var faceVerts = [];
+					for (var k = 0; k < n; k++) {
+						var a = rot + (2 * k + 1) * Math.PI / n;
+						faceVerts.push([fx + cr * Math.cos(a), fy + cr * Math.sin(a)]);
+					}
+					emitClipPoly(faceVerts);
+					for (var k = 0; k < n; k++) {
+						var info = eNbr[i][k];
+						if (info && info.isInternal) continue;
+						if (isTruncOct) {
+							if (info && info.j < i) continue;
+						} else {
+							if (info) {
+								var ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+								if (tMap && ek in tMap) { if (tMap[ek] !== i) continue; }
+								else { if (info.j < i) continue; }
+							}
+						}
+						var a1 = rot + (2 * k + 1) * Math.PI / n;
+						var a2 = rot + (2 * (k + 1) + 1) * Math.PI / n;
+						var v1x = fx + cr * Math.cos(a1), v1y = fy + cr * Math.sin(a1);
+						var v2x = fx + cr * Math.cos(a2), v2y = fy + cr * Math.sin(a2);
+						var emx = (v1x + v2x) / 2 - fx, emy = (v1y + v2y) / 2 - fy;
+						var eml = Math.sqrt(emx * emx + emy * emy);
+						var nx = emx / eml, ny = emy / eml;
+						var dx = v2x - v1x, dy = v2y - v1y;
+						var o1x = v1x + nx * tH + dx * tI, o1y = v1y + ny * tH + dy * tI;
+						var o2x = v2x + nx * tH - dx * tI, o2y = v2y + ny * tH - dy * tI;
+						emitTab(v1x, v1y, o1x, o1y, o2x, o2y, v2x, v2y);
+					}
+				}
+				// Edges
+				for (var i = 0; i < nFaces; i++) {
+					if (!placed[i]) continue;
+					var fx = data[i * 4], fy = data[i * 4 + 1], rot = data[i * 4 + 2];
+					var n = nS(i), cr = cR(i);
+					for (var k = 0; k < n; k++) {
+						var info = eNbr[i][k];
+						if (info && info.isInternal) continue;
+						if (isTruncOct) {
+							if (info && placed[info.j] && !(info.j < i)) continue;
+						} else {
+							if (info && placed[info.j]) {
+								var ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+								var iOwnTab;
+								if (tMap && ek in tMap) iOwnTab = (tMap[ek] === i);
+								else iOwnTab = !(info.j < i);
+								if (iOwnTab) continue;
+							}
+						}
+						var a1 = rot + (2 * k + 1) * Math.PI / n;
+						var a2 = rot + (2 * (k + 1) + 1) * Math.PI / n;
+						var v1x = fx + cr * Math.cos(a1), v1y = fy + cr * Math.sin(a1);
+						var v2x = fx + cr * Math.cos(a2), v2y = fy + cr * Math.sin(a2);
+						emitEdge(v1x, v1y, v2x, v2y);
+					}
+				}
+			} else if (isRhombic) {
+				var data   = window._rhombic30Data;
+				var scale  = window._rhombic30Scale;
+				var placed = window._rhombic30Placed;
+				var eNbr   = window._rhombic30EdgeNeighbor;
+				var tH     = window._rhombic30TabH;
+				var tIA    = window._rhombic30TabInsetAcute;
+				var tIO    = window._rhombic30TabInsetObtuse;
+				var tMap   = window._rhombic30TabsMap;
+				var PHI    = (1 + Math.sqrt(5)) / 2;
+				var iA     = 1 / Math.sqrt(1 + PHI * PHI);
+				var iB     = PHI * iA;
+				var haS    = iB / scale, hbS = iA / scale;
+				function rhombV(fx, fy, rot) {
+					var cr = Math.cos(rot), sr = Math.sin(rot);
+					return [[fx + haS * cr, fy + haS * sr],
+					        [fx - hbS * sr, fy + hbS * cr],
+					        [fx - haS * cr, fy - haS * sr],
+					        [fx + hbS * sr, fy - hbS * cr]];
+				}
+				function flapHits(px, py, excl) {
+					for (var f = 0; f < 30; f++) {
+						if (f === excl) continue;
+						var cr = Math.cos(-data[f * 4 + 2]), sr = Math.sin(-data[f * 4 + 2]);
+						var dx = px - data[f * 4], dy = py - data[f * 4 + 1];
+						if (Math.abs(dx * cr - dy * sr) / haS + Math.abs(dx * sr + dy * cr) / hbS < 1.0) return true;
+					}
+					return false;
+				}
+				// Clip polygons + Tabs
+				for (var i = 0; i < 30; i++) {
+					if (!placed[i]) continue;
+					var fx = data[i * 4], fy = data[i * 4 + 1];
+					var verts = rhombV(fx, fy, data[i * 4 + 2]);
+					emitClipPoly(verts);
+					for (var k = 0; k < 4; k++) {
+						var info = eNbr[i][k];
+						if (info && info.isInternal) continue;
+						if (info) {
+							var ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							if (tMap && ek in tMap) { if (tMap[ek] !== i) continue; }
+							else { if (info.j < i) continue; }
+						}
+						var v1 = verts[k], v2 = verts[(k + 1) % 4];
+						var emx = (v1[0] + v2[0]) / 2 - fx, emy = (v1[1] + v2[1]) / 2 - fy;
+						var eml = Math.sqrt(emx * emx + emy * emy);
+						var nx = emx / eml, ny = emy / eml;
+						var probeCX = (v1[0] + v2[0]) / 2 + nx * tH * 0.5;
+						var probeCY = (v1[1] + v2[1]) / 2 + ny * tH * 0.5;
+						if (flapHits(probeCX, probeCY, i)) { nx = -nx; ny = -ny; }
+						var dx = v2[0] - v1[0], dy = v2[1] - v1[1];
+						var ins1 = (k % 2 === 0) ? tIA : tIO;
+						var ins2 = (k % 2 === 0) ? tIO : tIA;
+						var o1x = v1[0] + nx * tH + dx * ins1, o1y = v1[1] + ny * tH + dy * ins1;
+						var o2x = v2[0] + nx * tH - dx * ins2, o2y = v2[1] + ny * tH - dy * ins2;
+						emitTab(v1[0], v1[1], o1x, o1y, o2x, o2y, v2[0], v2[1]);
+					}
+				}
+				// Edges
+				for (var i = 0; i < 30; i++) {
+					if (!placed[i]) continue;
+					var verts = rhombV(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
+					for (var k = 0; k < 4; k++) {
+						var info = eNbr[i][k];
+						if (info && info.isInternal) continue;
+						if (info && placed[info.j]) {
+							var ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							var iOwnTab;
+							if (tMap && ek in tMap) iOwnTab = (tMap[ek] === i);
+							else iOwnTab = (i < info.j);
+							if (iOwnTab) continue;
+						}
+						var v1 = verts[k], v2 = verts[(k + 1) % 4];
+						emitEdge(v1[0], v1[1], v2[0], v2[1]);
+					}
+				}
+			}
+
+			return (tabCmds.length > 0 || edgeCmds.length > 0) ? { clips: clipCmds, tabs: tabCmds, edges: edgeCmds } : null;
 		}
 
 		const cachedFilesEl = document.getElementById('cached-files');
@@ -8502,6 +9097,63 @@ void main() {
 				a.download = baseName + '-' + projName + '-' + tw + 'x' + th + cutTag + '-cmyk' + iccTag + '.tif';
 				a.click();
 				URL.revokeObjectURL(a.href);
+			} else if (exportFmt.value === 'pdf') {
+				// PDF export: CMYK raster + optional vector cutline overlay
+				let cmyk = rgbaToCmyk(pixels, w, h);
+				let tw = w, th = h;
+				if (w > h) {
+					const rotated = new Uint8Array(w * h * 4);
+					for (let y = 0; y < h; y++) {
+						for (let x = 0; x < w; x++) {
+							const si = (y * w + x) * 4;
+							const dx = h - 1 - y;
+							const dy = x;
+							const di = (dy * h + dx) * 4;
+							rotated[di]     = cmyk[si];
+							rotated[di + 1] = cmyk[si + 1];
+							rotated[di + 2] = cmyk[si + 2];
+							rotated[di + 3] = cmyk[si + 3];
+						}
+					}
+					cmyk = rotated;
+					tw = h; th = w;
+				}
+				const dpi = Math.max(1, parseInt(document.getElementById('dpi-input').value, 10) || 300);
+				const paperKey = document.getElementById('paper-size').value;
+				const marginMM = Math.max(0, parseFloat(document.getElementById('paper-margin').value) || 3);
+
+				// Compute placement to get cutline path coordinates
+				const imgWpt = tw / dpi * 72;
+				const imgHpt = th / dpi * 72;
+				const marginPt = marginMM / 25.4 * 72;
+				var pageW, pageH;
+				if (paperKey === 'fit' || !paperSizes[paperKey]) {
+					pageW = imgWpt + 2 * marginPt;
+					pageH = imgHpt + 2 * marginPt;
+				} else {
+					pageW = paperSizes[paperKey][0] / 25.4 * 72;
+					pageH = paperSizes[paperKey][1] / 25.4 * 72;
+				}
+				var printW = pageW - 2 * marginPt;
+				var printH = pageH - 2 * marginPt;
+				var imgScale = Math.min(printW / imgWpt, printH / imgHpt);
+				var drawW = imgWpt * imgScale;
+				var drawH = imgHpt * imgScale;
+				var drawX = marginPt + (printW - drawW) / 2;
+				var drawY = marginPt + (printH - drawH) / 2;
+
+				// Generate cutline vector paths positioned on the PDF page
+				const cutPaths = generateCutlinePdfPaths(drawX, drawY, drawW, drawH);
+
+				encodePdf(tw, th, cmyk, dpi, iccProfileData, cutPaths, paperKey, marginMM).then(pdfBuf => {
+					const blob = new Blob([pdfBuf], { type: 'application/pdf' });
+					const iccTag = iccSelect.value ? '-' + iccSelect.value.replace(/\.icc$/i, '').replace(/\s+/g, '_') : '';
+					const paperTag = paperKey !== 'fit' ? '-' + paperKey.toUpperCase() : '';
+					a.href = URL.createObjectURL(blob);
+					a.download = baseName + '-' + projName + '-' + tw + 'x' + th + cutTag + '-cmyk' + iccTag + paperTag + '.pdf';
+					a.click();
+					URL.revokeObjectURL(a.href);
+				});
 			} else {
 				// PNG export (default)
 				const out = document.createElement('canvas');
