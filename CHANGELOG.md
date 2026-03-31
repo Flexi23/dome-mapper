@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-03-31
+
+### Added
+- **Favorite flag** — each cached file can be marked as favorite via a star icon (★/☆) in the file list; the flag is persisted per file in the IndexedDB config; click the star to toggle
+- **Level mode camera preset** — entering level mode on an un-leveled file now initializes the level quaternion from the current camera orientation (conjugated by `camQuatOffset` to convert from view space to texture space), so the user starts leveling from their current viewpoint instead of identity
+
+### Changed
+- **File list sorting** — cached files are now sorted lexicographically by name
+- **File deletion selects next** — deleting the active file now selects the next file in the sorted list (or the last file if the deleted file was at the end), instead of always jumping to the first file
+- **Level mode discard restores camera** — `setLevelMode(on, discard)` now accepts a `discard` parameter; accept resets `camQuat` to identity, discard restores the previous camera orientation
+
+### Fixed
+- **Stale favorite on file switch** — switching to a file without existing config no longer inherits the `favorite` flag from the previously active file; `favorite` is explicitly reset to `false` in the no-config branch of `switchCachedFile`
+
 ## [0.19.0] - 2026-03-29
 
 ### Added

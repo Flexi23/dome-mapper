@@ -809,6 +809,16 @@
 			color: #aaa;
 		}
 
+		#cached-files .fav {
+			font-size: 12px;
+			cursor: pointer;
+			opacity: 0.3;
+			padding: 0 2px;
+			user-select: none;
+		}
+		#cached-files .fav:hover { opacity: 1; }
+		#cached-files .fav.on { opacity: 0.85; color: #fb0; }
+
 		#cached-files .level {
 			font-size: 10px;
 		}
@@ -4714,6 +4724,7 @@ void main() {
 		let cutLineMode = 0; // 0 = off, 1 = overlay, 2 = cut only
 		let levelMode = false;
 		let isLeveled = false;
+		let favorite = false;
 		let levelQuat = [0, 0, 0, 1];
 
 		// Magnifier state
@@ -5027,12 +5038,17 @@ void main() {
 		let _prevLevelQuat = null;
 		let _prevLevelState = null;
 		const hideDuringLevel = document.querySelectorAll('#controls .hide-in-level-off');
-		function setLevelMode(on) {
+		function setLevelMode(on, discard) {
 			levelMode = on;
 			levelAnglesDiv.style.display = on ? '' : 'none';
 			if (on) {
 				_prevLevelQuat = [...levelQuat];
 				_prevLevelState = { camQuat: [...camQuat], globeVisible, showGrid };
+				// If not yet leveled, use current perspective as initial level value
+				// Conjugate by camQuatOffset to account for the -90° yaw offset in viewMatrix
+				if (!isLeveled && (levelQuat[0] === 0 && levelQuat[1] === 0 && levelQuat[2] === 0 && levelQuat[3] === 1)) {
+					levelQuat = quatNormalize(quatMul(quatMul(camQuatOffset, camQuat), quatConj(camQuatOffset)));
+				}
 				camQuat = [0, 0, 0, 1];
 				globeVisible = false;
 				globeToggle.checked = false;
@@ -5043,16 +5059,19 @@ void main() {
 			} else {
 				isLeveled = levelQuat[0] !== 0 || levelQuat[1] !== 0 || levelQuat[2] !== 0 || levelQuat[3] !== 1;
 				if (_prevLevelState) {
-					camQuat = _prevLevelState.camQuat;
+					// On discard, restore original camera; on accept, reset to identity
+					camQuat = discard ? _prevLevelState.camQuat : [0, 0, 0, 1];
 					globeVisible = _prevLevelState.globeVisible;
 					globeToggle.checked = globeVisible;
 					syncGridToggles(_prevLevelState.showGrid);
 					_prevLevelState = null;
 				} else {
+					camQuat = [0, 0, 0, 1];
 					syncGridToggles(0);
 				}
 				hideDuringLevel.forEach(el => el.classList.remove('hide-in-level'));
 				updateProjectionUI();
+				updateCamSliders();
 				_prevLevelQuat = null;
 			}
 			updateLevelBtnState();
@@ -5063,7 +5082,7 @@ void main() {
 		document.getElementById('level-accept').addEventListener('click', () => { setLevelMode(false); });
 		document.getElementById('level-discard').addEventListener('click', () => {
 			if (_prevLevelQuat) levelQuat = [..._prevLevelQuat];
-			setLevelMode(false);
+			setLevelMode(false, true);
 		});
 
 		const fovRow = document.getElementById('fov-row');
@@ -6414,6 +6433,7 @@ void main() {
 						stereoA2,
 						stereoA3,
 						pixelate,
+						favorite,
 						animations: animations.map(a => ({ name: a.name, duration: a.duration, loop: !!a.loop, projectionModeIndex: a.projectionModeIndex, keyframes: a.keyframes || [] }))
 					}, configKey());
 				});
@@ -6522,6 +6542,7 @@ void main() {
 				pixelateSlider.value = Math.round(pixelate * 100);
 				pixelateVal.textContent = Math.round(pixelate * 100) + '%';
 			}
+			favorite = !!cfg.favorite;
 			// Update Euler angle sliders to reflect restored quaternion
 			updateCamSliders();
 			updateFacesSliders();
@@ -8324,6 +8345,19 @@ void main() {
 		}
 
 		let _updateListPending = false;
+		async function toggleFavorite(name) {
+			try {
+				const db = await openDB();
+				const cfg = await loadProjectionConfig(name) || {};
+				cfg.favorite = !cfg.favorite;
+				const tx = db.transaction(DB_STORE, 'readwrite');
+				tx.objectStore(DB_STORE).put(cfg, 'cfg:' + name);
+				await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+				if (name === sourceFileName) favorite = cfg.favorite;
+				await updateCachedFilesList();
+			} catch (e) { console.warn('toggleFavorite:', e); }
+		}
+
 		async function updateCachedFilesList() {
 			if (_updateListPending) return;
 			_updateListPending = true;
@@ -8338,12 +8372,25 @@ void main() {
 				}
 				cachedFilesEl.style.display = 'table';
 				ccLink.style.display = 'block';
+				// pre-load configs for sorting
+				const items = [];
 				for (const n of names) {
 					const entry = await cacheLoadByName(n);
 					const cfg = await loadProjectionConfig(n);
+					items.push({ n, entry, cfg });
+				}
+				items.sort((a, b) => a.n.localeCompare(b.n));
+				for (const { n, entry, cfg } of items) {
 					const isActive = n === sourceFileName;
 					const tr = document.createElement('tr');
 					tr.className = isActive ? 'active' : '';
+					// favorite star
+					const tdFav = document.createElement('td');
+					tdFav.className = 'fav' + (cfg && cfg.favorite ? ' on' : '');
+					tdFav.textContent = cfg && cfg.favorite ? '\u2605' : '\u2606';
+					tdFav.title = cfg && cfg.favorite ? 'remove favorite' : 'mark as favorite';
+					tdFav.addEventListener('click', (e) => { e.stopPropagation(); toggleFavorite(n); });
+					tr.appendChild(tdFav);
 					// level indicator
 					const tdLvl = document.createElement('td');
 					tdLvl.className = 'level';
@@ -8398,12 +8445,16 @@ void main() {
 					delBtn.title = 'remove from cache';
 					delBtn.addEventListener('click', async (e) => {
 						e.stopPropagation();
+						// Determine the next file to show (the one above in the sorted list)
+						const sortedNames = items.map(it => it.n);
+						const delIdx = sortedNames.indexOf(n);
 						await cacheDeleteByName(n);
 						if (n === sourceFileName) {
 							sourceFileName = '';
-							const remaining = await cacheListNames();
+							const remaining = sortedNames.filter(x => x !== n);
 							if (remaining.length > 0) {
-								await switchCachedFile(remaining[0]);
+								const nextIdx = Math.min(delIdx, remaining.length - 1);
+								await switchCachedFile(remaining[nextIdx]);
 								return;
 							}
 							hasTexture = 0; texWidth = 0; texHeight = 0;
@@ -8510,6 +8561,7 @@ void main() {
 				camQuat = [0, 0, 0, 1];
 				levelQuat = [0, 0, 0, 1];
 				isLeveled = false;
+				favorite = false;
 				levelMode = false;
 				levelAnglesDiv.style.display = 'none';
 				syncGridToggles(0);

@@ -86,6 +86,8 @@ Both the **controls panel** (top-right) and the **file list** (top-left) can be 
 | Drag slider | Set yaw, pitch, or roll directly (Euler degrees) |
 | Double-click slider | Reset that axis to 0° |
 
+Camera sliders map directly to `quatToEulerDeg` output (Tait-Bryan YXZ: yaw→yaw, pitch→pitch, roll→roll). Leveling sliders **swap pitch and roll** because the level quaternion operates in texture space (applied as `levelMatrix * dir` during equirectangular sampling), where the intuitive physical axes are transposed relative to the camera-space Euler decomposition.
+
 ## Animation Editor
 
 The animation panel lets you create keyframe-driven camera animations that interpolate between saved projection states.
@@ -640,8 +642,8 @@ Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png` (or `
 | ⚖️ **Horizon leveling** | Dedicated leveling mode with accept/discard; yaw/pitch/roll sliders; double-click horizon to auto-level; per-file persistence |
 | 📸 **PNG / CMYK TIFF / SVG / PDF export** | Export current view at source texture resolution; PNG, CMYK TIFF (configurable DPI, optional ICC profile), SVG Cutline (vector cut lines for foldable nets), or PDF (CMYK + Cutline, configurable paper size and margin); projection-specific dimensions and clipping |
 | 🔢 **Y / P / R sliders** | Live Euler-angle readout; drag to set orientation, double-click to reset; copy/paste quaternion |
-| 💾 **Multi-file cache** | Multiple panoramas cached in IndexedDB; switch between cached files via file list; last-viewed file restored on reload; "clear cache" link to delete all cached data and reset viewer state |
-| ⚙️ **Per-file config** | Camera orientation, FOV, projection mode, grid, globe, leveling, and all projection parameters persisted per file |
+| 💾 **Multi-file cache** | Multiple panoramas cached in IndexedDB; switch between cached files via file list; last-viewed file restored on reload; "clear cache" link to delete all cached data and reset viewer state; favorite flag (★) per file |
+| ⚙️ **Per-file config** | Camera orientation, FOV, projection mode, grid, globe, leveling, favorite flag, and all projection parameters persisted per file |
 | ✂️ **Cut line overlay** | 3-state toggle (Off / Overlay / Only) rendering physical cut outlines for all three foldable nets; tab edges, polygon edges, and ownership-aware boundary logic |
 | 🎨 **Test pattern** | Built-in checkerboard fallback with meridian/equator markers |
 
