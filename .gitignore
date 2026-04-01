@@ -1,9 +1,10 @@
 # Images (tracked before release, ignored during development)
-*.jpg
+# *.jpg
 *.jpeg
-*.png
+# *.png
 *.webp
 *.hdr
 *.exr
 2025-11-17 last mile to work equirect.mp4
 .vscode/settings.json
+.github/copilot-instructions.md
