@@ -1780,7 +1780,7 @@ void main() {
 		// 8 hexagons (n=6) + 6 squares (n=4).
 		// Point-in-regular-polygon test + gnomonic back-projection.
 
-		vec2 uv = screenUV;
+		vec2 uv = lensUV;
 		uv.x *= aspect;
 		float bbHalfW = max(abs(buckyBBox.x), abs(buckyBBox.z));
 		float bbHalfH = max(abs(buckyBBox.y), abs(buckyBBox.w));
@@ -1987,7 +1987,7 @@ void main() {
 		// Point-in-rhombus test uses L1 norm: |x/ha| + |y/hb| < 1.
 		// Gnomonic back-projection maps 2D rhombus position → unit sphere direction.
 
-		vec2 uv = screenUV;
+		vec2 uv = lensUV;
 		uv.x *= aspect;
 		float bbHalfW = max(abs(buckyBBox.x), abs(buckyBBox.z));
 		float bbHalfH = max(abs(buckyBBox.y), abs(buckyBBox.w));
@@ -2118,7 +2118,7 @@ void main() {
 		//   3. Camera rotation + texture sampling
 		//   4. Composite 2D canvas overlay (edges, tabs, labels) on top
 
-		vec2 uv = screenUV;
+		vec2 uv = lensUV;
 		uv.x *= aspect;
 
 		// Fit entire net (including glue tabs) into the viewport.
@@ -4678,6 +4678,9 @@ void main() {
 			if (projectionModeIndex === M_PREVIEW) { foldable32facesQuat = q; return; }
 			camQuat = q;
 		}
+		function isFoldableMode() {
+			return projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_TRUNCOCT_FOLDABLE;
+		}
 
 		let fovDeg = 135;
 		const fovSlider = document.getElementById('fov-slider');
@@ -4966,7 +4969,7 @@ void main() {
 		const levelRollVal = document.getElementById('level-roll-val');
 
 		function updateLevelSliders() {
-			const e = quatToEulerDeg(levelQuat);
+			const e = quatToEulerDeg(isFoldableMode() ? activeQuat() : levelQuat);
 			levelYawIn.value = e.yaw.toFixed(1);
 			levelPitchIn.value = e.roll.toFixed(1);
 			levelRollIn.value = e.pitch.toFixed(1);
@@ -4982,9 +4985,14 @@ void main() {
 			q = quatMul(quatFromAxisAngle(0, 1, 0, yaw), q);
 			q = quatMul(q, quatFromAxisAngle(1, 0, 0, pitch));
 			q = quatMul(q, quatFromAxisAngle(0, 0, 1, roll));
-			levelQuat = quatNormalize(q);
+			if (isFoldableMode()) {
+				setActiveQuat(quatNormalize(q));
+				updateFacesSliders();
+			} else {
+				levelQuat = quatNormalize(q);
+				isLeveled = levelQuat[0] !== 0 || levelQuat[1] !== 0 || levelQuat[2] !== 0 || levelQuat[3] !== 1;
+			}
 			updateLevelSliders();
-			isLeveled = levelQuat[0] !== 0 || levelQuat[1] !== 0 || levelQuat[2] !== 0 || levelQuat[3] !== 1;
 			saveProjectionConfig();
 		}
 		levelYawIn.addEventListener('input', onLevelAngleInput);
@@ -4992,8 +5000,13 @@ void main() {
 		levelRollIn.addEventListener('input', onLevelAngleInput);
 
 		document.getElementById('level-reset').addEventListener('click', () => {
-			levelQuat = [0, 0, 0, 1];
-			isLeveled = false;
+			if (isFoldableMode()) {
+				setActiveQuat([0, 0, 0, 1]);
+				updateFacesSliders();
+			} else {
+				levelQuat = [0, 0, 0, 1];
+				isLeveled = false;
+			}
 			updateLevelSliders();
 			updateLevelBtnState();
 			saveProjectionConfig();
@@ -5001,12 +5014,17 @@ void main() {
 		});
 		let _quatClip = null;
 		document.getElementById('level-copy').addEventListener('click', () => {
-			_quatClip = [...levelQuat];
+			_quatClip = isFoldableMode() ? [...activeQuat()] : [...levelQuat];
 		});
 		document.getElementById('level-paste').addEventListener('click', () => {
 			if (!_quatClip) return;
-			levelQuat = [..._quatClip];
-			isLeveled = levelQuat[0] !== 0 || levelQuat[1] !== 0 || levelQuat[2] !== 0 || levelQuat[3] !== 1;
+			if (isFoldableMode()) {
+				setActiveQuat([..._quatClip]);
+				updateFacesSliders();
+			} else {
+				levelQuat = [..._quatClip];
+				isLeveled = levelQuat[0] !== 0 || levelQuat[1] !== 0 || levelQuat[2] !== 0 || levelQuat[3] !== 1;
+			}
 			updateLevelSliders();
 			updateLevelBtnState();
 			saveProjectionConfig();
@@ -5040,27 +5058,31 @@ void main() {
 		const hideDuringLevel = document.querySelectorAll('#controls .hide-in-level-off');
 		function setLevelMode(on, discard) {
 			levelMode = on;
+			const foldable = isFoldableMode();
 			levelAnglesDiv.style.display = on ? '' : 'none';
 			if (on) {
-				_prevLevelQuat = [...levelQuat];
+				_prevLevelQuat = foldable ? [...activeQuat()] : [...levelQuat];
 				_prevLevelState = { camQuat: [...camQuat], globeVisible, showGrid };
-				// If not yet leveled, use current perspective as initial level value
-				// Conjugate by camQuatOffset to account for the -90° yaw offset in viewMatrix
-				if (!isLeveled && (levelQuat[0] === 0 && levelQuat[1] === 0 && levelQuat[2] === 0 && levelQuat[3] === 1)) {
-					levelQuat = quatNormalize(quatMul(quatMul(camQuatOffset, camQuat), quatConj(camQuatOffset)));
+				if (!foldable) {
+					// If not yet leveled, use current perspective as initial level value
+					// Conjugate by camQuatOffset to account for the -90° yaw offset in viewMatrix
+					if (!isLeveled && (levelQuat[0] === 0 && levelQuat[1] === 0 && levelQuat[2] === 0 && levelQuat[3] === 1)) {
+						levelQuat = quatNormalize(quatMul(quatMul(camQuatOffset, camQuat), quatConj(camQuatOffset)));
+					}
+					camQuat = [0, 0, 0, 1];
 				}
-				camQuat = [0, 0, 0, 1];
 				globeVisible = false;
 				globeToggle.checked = false;
-				syncGridToggles(2);
+				syncGridToggles(1);
 				hideDuringLevel.forEach(el => el.classList.add('hide-in-level'));
 				updateProjectionUI();
 				updateLevelSliders();
 			} else {
-				isLeveled = levelQuat[0] !== 0 || levelQuat[1] !== 0 || levelQuat[2] !== 0 || levelQuat[3] !== 1;
+				if (!foldable) isLeveled = levelQuat[0] !== 0 || levelQuat[1] !== 0 || levelQuat[2] !== 0 || levelQuat[3] !== 1;
 				if (_prevLevelState) {
+					if (foldable && discard) setActiveQuat([..._prevLevelQuat]);
 					// On discard, restore original camera; on accept, reset to identity
-					camQuat = discard ? _prevLevelState.camQuat : [0, 0, 0, 1];
+					camQuat = discard ? _prevLevelState.camQuat : (foldable ? camQuat : [0, 0, 0, 1]);
 					globeVisible = _prevLevelState.globeVisible;
 					globeToggle.checked = globeVisible;
 					syncGridToggles(_prevLevelState.showGrid);
@@ -5081,7 +5103,10 @@ void main() {
 		levelBtn.addEventListener('click', () => { setLevelMode(true); });
 		document.getElementById('level-accept').addEventListener('click', () => { setLevelMode(false); });
 		document.getElementById('level-discard').addEventListener('click', () => {
-			if (_prevLevelQuat) levelQuat = [..._prevLevelQuat];
+			if (_prevLevelQuat) {
+				if (isFoldableMode()) setActiveQuat([..._prevLevelQuat]);
+				else levelQuat = [..._prevLevelQuat];
+			}
 			setLevelMode(false, true);
 		});
 
@@ -5127,7 +5152,7 @@ void main() {
 			rhombicLayoutRow.style.display = isRhombic ? 'contents' : 'none';
 			facesRow.style.display = isAnyPreview ? 'contents' : 'none';
 			globeRow.style.display = (isFoldable || isAnyPreview || isAzimuthal || isCollage || isStereo) ? 'none' : '';
-			magnifierGroup.style.display = (isFoldable || isAnyPreview) ? 'none' : '';
+			magnifierGroup.style.display = '';
 			if (exportRow) exportRow.style.display = hasTexture ? '' : 'none';
 			// SVG cutline export is only available in foldable projection modes.
 			// When switching away from foldable, auto-reset format to PNG.
@@ -5808,7 +5833,7 @@ void main() {
 			}
 			dragStartDir = screenToLocalDir(e.clientX, e.clientY);
 			dragStartWorldDir = screenToWorldDir(e.clientX, e.clientY);
-			dragStartQuat = levelMode ? Array.from(levelQuat) : Array.from(activeQuat());
+			dragStartQuat = (levelMode && !isFoldableMode()) ? Array.from(levelQuat) : Array.from(activeQuat());
 			// Preview: circle test separates ball drag from background drag
 			_previewDragBg = false;
 			if (!levelMode && isPreviewMode()) {
@@ -5870,21 +5895,24 @@ void main() {
 
 			if (!dragging) return;
 			if (levelMode) {
+				const foldable = isFoldableMode();
 				if (e.shiftKey) {
 					const dx = e.clientX - lastX;
 					lastX = e.clientX; lastY = e.clientY;
 					if (dx !== 0) {
 						const qr = quatFromAxisAngle(0, 0, 1, dx * 0.003);
-						levelQuat = quatNormalize(quatMul(qr, levelQuat));
+						if (foldable) setActiveQuat(quatNormalize(quatMul(qr, activeQuat())));
+						else levelQuat = quatNormalize(quatMul(qr, levelQuat));
 					}
 					dragStartWorldDir = screenToWorldDir(e.clientX, e.clientY);
-					dragStartQuat = Array.from(levelQuat);
+					dragStartQuat = foldable ? Array.from(activeQuat()) : Array.from(levelQuat);
 				} else {
-					// Pixel-locked: adjust levelQuat so the grabbed texture pixel stays under cursor
+					// Pixel-locked: adjust quaternion so the grabbed texture pixel stays under cursor
 					const worldNow = screenToWorldDir(e.clientX, e.clientY);
 					if (dragStartWorldDir && worldNow) {
 						const qRot = quatFromTwoVectors(worldNow, dragStartWorldDir);
-						levelQuat = quatNormalize(quatMul(dragStartQuat, qRot));
+						if (foldable) setActiveQuat(quatNormalize(quatMul(dragStartQuat, qRot)));
+						else levelQuat = quatNormalize(quatMul(dragStartQuat, qRot));
 					} else {
 						const dx = e.clientX - lastX;
 						const dy = e.clientY - lastY;
@@ -5892,16 +5920,19 @@ void main() {
 						const sensitivity = 0.003;
 						if (dx !== 0) {
 							const qy = quatFromAxisAngle(0, 1, 0, -dx * sensitivity);
-							levelQuat = quatNormalize(quatMul(qy, levelQuat));
+							if (foldable) setActiveQuat(quatNormalize(quatMul(qy, activeQuat())));
+							else levelQuat = quatNormalize(quatMul(qy, levelQuat));
 						}
 						if (dy !== 0) {
 							const qp = quatFromAxisAngle(1, 0, 0, dy * sensitivity);
-							levelQuat = quatNormalize(quatMul(qp, levelQuat));
+							if (foldable) setActiveQuat(quatNormalize(quatMul(qp, activeQuat())));
+							else levelQuat = quatNormalize(quatMul(qp, levelQuat));
 						}
 					}
 				}
 				updateLevelSliders();
-				isLeveled = true;
+				if (foldable) updateFacesSliders();
+				else isLeveled = true;
 				return;
 			}
 			const previewBall = !_previewDragBg && isPreviewMode();
@@ -6808,7 +6839,7 @@ void main() {
 		// Snapshot the current projection state into a plain object suitable
 		// for storage as a keyframe. Caller must add .time before inserting.
 		function captureKeyframeState() {
-			const q = Array.from(camQuat);
+			const q = Array.from(activeQuat());
 			// Ensure consistent quaternion hemisphere with existing keyframes
 			if (selectedAnimIndex >= 0) {
 				const kfs = getKeyframes();
@@ -6837,7 +6868,7 @@ void main() {
 		// Restore all projection state variables from a keyframe snapshot
 		// and update the UI sliders to reflect the new values.
 		function applyKeyframeState(s) {
-			if (s.quat) camQuat = Array.from(s.quat);
+			if (s.quat) setActiveQuat(Array.from(s.quat));
 			KF_NUMERIC.forEach(k => { if (typeof s[k] === 'number') KF_PROPS[k] = s[k]; });
 			KF_BOOL.forEach(k => { if (typeof s[k] === 'boolean') KF_PROPS[k] = s[k]; });
 			updateProjectionSliders();
@@ -6961,7 +6992,7 @@ void main() {
 				}
 				const sA = squadInner(q0, qA, qB);
 				const sB = squadInner(qA, qB, q3);
-				camQuat = quatSquad(qA, qB, sA, sB, frac);
+				setActiveQuat(quatSquad(qA, qB, sA, sB, frac));
 
 				// Numeric: Catmull-Rom spline (C1-smooth)
 				KF_NUMERIC.forEach(k => {
@@ -9116,7 +9147,7 @@ void main() {
 			// Flip Y and write to 2D canvas for PNG export
 			const a = document.createElement('a');
 			const baseName = cutLineMode === 2 ? 'cutline' : (sourceFileName ? sourceFileName.replace(/\.[^.]+$/, '') : 'dome-mapper');
-			const cutTag = (cutLineMode === 1) ? '-cutline' : '';
+			const cutTag = (cutLineMode === 1 && isFoldableMode()) ? '-cutline' : '';
 			const projName = projectionModes[projectionModeIndex].replace(/\s+/g, '-');
 
 			if (exportFmt.value === 'tiff') {

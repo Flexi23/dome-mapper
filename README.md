@@ -623,7 +623,7 @@ Each projection uses optimised dimensions:
 
 The implementation resizes the WebGL canvas to export resolution, sets the `exportClip` uniform to remap `screenUV` from the default `(−1,−1)→(1,1)` range to the net's bounding box coordinates (with aspect-ratio compensation), renders a single frame, and reads pixels via `gl.readPixels()` within the same JS task. After export, the canvas and uniform are restored to viewport defaults.
 
-Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png` (or `.tif` for CMYK TIFF, `-cutline.svg` for SVG Cutline, `.pdf` for PDF with optional paper size suffix like `-A2`).
+Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png` (or `.tif` for CMYK TIFF, `-cutline.svg` for SVG Cutline in foldable modes, `.pdf` for PDF with optional paper size suffix like `-A2`).
 
 ---
 
@@ -634,12 +634,12 @@ Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png` (or `
 | 🖼️ **Image & Video support** | Drop equirectangular JPEG/PNG or MP4/WebM video files |
 | 📽️ **Video playback** | Timeline with seek bar, time display; click to play/pause |
 | 🎬 **Animation editor** | Keyframe-driven camera animations with SQUAD quaternion spline interpolation, Catmull-Rom for numeric parameters, visual timeline with draggable pins, loop mode with seamless wrap |
-| 🔎 **Magnifier** | Cursor-following lens with adjustable radius and refractivity (half-sphere refraction shader); toggle via `M` key |
+| 🔎 **Magnifier** | Cursor-following lens with adjustable radius and refractivity (half-sphere refraction shader); toggle via `M` key; works in all projection modes including foldable nets |
 | 📐 **Pixelate** | Slider blending between linear (smooth) and nearest-neighbor (pixelated) texture filtering |
 | 🌐 **Globe overlay** | 3D sphere with lat/lon grid, equator (orange) and prime meridian (blue) rings; environment reflection from panorama; adjustable size, opacity, and reflectivity; toggle via `G` key |
 | 📏 **Grid overlay** | 3-state grid (Off → Tex → View): **Tex** draws a 32×16 grid in equirectangular texture coordinates, **View** draws the grid in screen/viewport coordinates using `gl_FragCoord`; cycle via `X` key or button |
 | 🎯 **Fly-to** | Double-click to smoothly animate camera toward any point; works in both camera and leveling mode |
-| ⚖️ **Horizon leveling** | Dedicated leveling mode with accept/discard; yaw/pitch/roll sliders; double-click horizon to auto-level; per-file persistence |
+| ⚖️ **Horizon leveling** | Dedicated leveling mode with accept/discard; yaw/pitch/roll sliders; double-click horizon to auto-level; per-file persistence; in foldable projections edits the faces quaternion directly |
 | 📸 **PNG / CMYK TIFF / SVG / PDF export** | Export current view at source texture resolution; PNG, CMYK TIFF (configurable DPI, optional ICC profile), SVG Cutline (vector cut lines for foldable nets), or PDF (CMYK + Cutline, configurable paper size and margin); projection-specific dimensions and clipping |
 | 🔢 **Y / P / R sliders** | Live Euler-angle readout; drag to set orientation, double-click to reset; copy/paste quaternion |
 | 💾 **Multi-file cache** | Multiple panoramas cached in IndexedDB; switch between cached files via file list; last-viewed file restored on reload; "clear cache" link to delete all cached data and reset viewer state; favorite flag (★) per file |

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-04-01
+
+### Added
+- **Magnifier in foldable projections** — the magnifier lens (half-sphere refraction) is now available in all three foldable net views (buckyball-32, rhombic-30, truncoct-14); the magnifier UI group is always visible regardless of projection mode, and the foldable shaders sample from `lensUV` instead of `screenUV` so the lens distortion affects the net texture
+- **Leveling mode edits foldable quaternion** — entering leveling mode in a foldable projection now directly edits the foldable faces quaternion (`foldable32facesQuat` / `foldable30facesQuat` / `foldable14facesQuat`) instead of `levelQuat`; the level sliders, reset, copy/paste, and discard all operate on the active foldable quaternion; `isFoldableMode()` helper added
+
+### Changed
+- **Leveling mode always enables Grid: Tex** — entering leveling mode now switches to Grid: Tex (showGrid = 1) in all projections, instead of Grid: View (showGrid = 2)
+- **Export cutline suffix scoped to foldable** — the `-cutline` filename suffix is now only appended when exporting from a foldable projection mode with cut line overlay enabled; non-foldable exports no longer include the suffix
+
+### Fixed
+- **Animation playback in foldable projections** — keyframe capture, application, and SQUAD interpolation now use `activeQuat()` / `setActiveQuat()` instead of direct `camQuat` access, so animations correctly drive the foldable faces quaternion in all three foldable net views
+
 ## [0.20.0] - 2026-03-31
 
 ### Added
