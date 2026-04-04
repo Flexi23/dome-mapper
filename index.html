@@ -556,7 +556,20 @@
 			display: flex;
 			flex-direction: column;
 			gap: 4px;
+			max-height: 50vh;
 		}
+
+		#controls {
+			scrollbar-width: thin;
+			scrollbar-color: rgba(255,255,255,0.15) transparent;
+		}
+		#controls::-webkit-scrollbar { width: 5px; }
+		#controls::-webkit-scrollbar-track { background: transparent; }
+		#controls::-webkit-scrollbar-thumb {
+			background: rgba(255,255,255,0.15);
+			border-radius: 3px;
+		}
+		#controls::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
 
 		#info-top-row {
 			display: flex;
@@ -768,6 +781,23 @@
 			border-color: #888;
 		}
 
+		#cached-files-scroll {
+			overflow-y: auto;
+			flex: 1 1 auto;
+			min-height: 0;
+			max-height: calc(50vh - 60px);
+			scrollbar-width: thin;
+			scrollbar-color: rgba(255,255,255,0.15) transparent;
+		}
+
+		#cached-files-scroll::-webkit-scrollbar { width: 5px; }
+		#cached-files-scroll::-webkit-scrollbar-track { background: transparent; }
+		#cached-files-scroll::-webkit-scrollbar-thumb {
+			background: rgba(255,255,255,0.15);
+			border-radius: 3px;
+		}
+		#cached-files-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+
 		#cached-files {
 			display: none;
 			font-size: 11px;
@@ -973,7 +1003,9 @@
 			<label id="open-file-btn" title="Open image or video">📂 Open file<input type="file" accept="image/*,video/*" multiple style="display:none"></label>
 			<button class="panel-toggle" title="Toggle file list">✕</button>
 		</div>
-		<table id="cached-files"></table>
+		<div id="cached-files-scroll">
+			<table id="cached-files"></table>
+		</div>
 		<a id="clear-cache" href="#">clear cache</a>
 	</div>
 	<div id="anim-panel" class="collapsed">
@@ -1657,6 +1689,7 @@ void main() {
 
 	vec3 rd;
 	vec2 tcGrid;
+	vec2 tcGridCollage;
 	vec3 collageRd2;
 	float collageMixAlpha = -1.0;
 
@@ -2413,6 +2446,7 @@ void main() {
 			collageRd2 = viewMatrix * rdR;
 			collageMixAlpha = (uv.y >= 0.0) ? (1.0 - collageFlip) : collageFlip;
 			tcGrid = dirToEquirect(rd);
+			tcGridCollage = dirToEquirect(collageRd2);
 		} else {
 			rd = m1 ? rdL : rdR;
 			rd = viewMatrix * rd;
@@ -2660,11 +2694,13 @@ void main() {
 	vec3 color = samplePanorama(rd);
 	if (collageMixAlpha >= 0.0) {
 		vec3 fgColor = samplePanorama(collageRd2);
+		color = applyGrid(color, tcGrid);
+		fgColor = applyGrid(fgColor, tcGridCollage);
 		color = mix(color, fgColor, collageMixAlpha);
+	} else {
+		// Grid overlay (uses un-leveled tcGrid so grid stays fixed)
+		color = applyGrid(color, tcGrid);
 	}
-
-	// Grid overlay (uses un-leveled tcGrid so grid stays fixed)
-	color = applyGrid(color, tcGrid);
 
 	// View-space grid (screen-aligned, projection-independent)
 	color = applyViewGrid(color, lensNorm);
@@ -3242,8 +3278,7 @@ void main() {
 				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
 				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, oCanvas);
 				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-				gl.generateMipmap(gl.TEXTURE_2D);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -3365,8 +3400,7 @@ void main() {
 				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
 				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, clCanvas);
 				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-				gl.generateMipmap(gl.TEXTURE_2D);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -3828,8 +3862,7 @@ void main() {
 				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
 				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, oCanvas);
 				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-				gl.generateMipmap(gl.TEXTURE_2D);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -3946,8 +3979,7 @@ void main() {
 				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
 				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, clCanvas);
 				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-				gl.generateMipmap(gl.TEXTURE_2D);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -4371,8 +4403,7 @@ void main() {
 			gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
 			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, oCanvas);
 			gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-			gl.generateMipmap(gl.TEXTURE_2D);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -4483,8 +4514,7 @@ void main() {
 			gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
 			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, clCanvas);
 			gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-			gl.generateMipmap(gl.TEXTURE_2D);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -4495,6 +4525,36 @@ void main() {
 			window._truncOct14EdgeNeighbor = edgeNeighbor;
 			window._truncOct14TabH = tabH;
 			window._truncOct14TabInset = tabInset;
+
+			// Tight bounding box including tab extents (for export clipping)
+			let netX0 = Infinity, netX1 = -Infinity, netY0 = Infinity, netY1 = -Infinity;
+			for (let i = 0; i < 14; i++) {
+				if (!placed[i]) continue;
+				const fx = data[i * 4], fy = data[i * 4 + 1], rot = data[i * 4 + 2];
+				const n = nSides(i), cr = circumR(i) / scale;
+				for (let k = 0; k < n; k++) {
+					const a1 = rot + (2 * k + 1) * Math.PI / n;
+					const a2 = rot + (2 * (k + 1) + 1) * Math.PI / n;
+					const v1x = fx + cr * Math.cos(a1), v1y = fy + cr * Math.sin(a1);
+					const v2x = fx + cr * Math.cos(a2), v2y = fy + cr * Math.sin(a2);
+					netX0 = Math.min(netX0, v1x); netX1 = Math.max(netX1, v1x);
+					netY0 = Math.min(netY0, v1y); netY1 = Math.max(netY1, v1y);
+					const info = edgeNeighbor[i][k];
+					if (info && info.isInternal) continue;
+					let hasTab = (info) ? (i < info.j) : true;
+					if (hasTab) {
+						const emx = (v1x + v2x) / 2 - fx, emy = (v1y + v2y) / 2 - fy;
+						const eml = Math.sqrt(emx * emx + emy * emy);
+						const nx = emx / eml, ny = emy / eml;
+						const dx = v2x - v1x, dy = v2y - v1y;
+						const o1x = v1x + nx * tabH + dx * tabInset, o1y = v1y + ny * tabH + dy * tabInset;
+						const o2x = v2x + nx * tabH - dx * tabInset, o2y = v2y + ny * tabH - dy * tabInset;
+						netX0 = Math.min(netX0, o1x, o2x); netX1 = Math.max(netX1, o1x, o2x);
+						netY0 = Math.min(netY0, o1y, o2y); netY1 = Math.max(netY1, o1y, o2y);
+					}
+				}
+			}
+			window._truncOct14TightBBox = { x0: netX0, y0: netY0, x1: netX1, y1: netY1 };
 		})();
 
 		// ── Upload the correct net layout data based on current projection mode ──
@@ -5074,6 +5134,7 @@ void main() {
 				globeVisible = false;
 				globeToggle.checked = false;
 				syncGridToggles(1);
+				if (!infoPanel.classList.contains('collapsed')) { infoPanel.classList.add('collapsed'); infoToggle.textContent = '📂'; }
 				hideDuringLevel.forEach(el => el.classList.add('hide-in-level'));
 				updateProjectionUI();
 				updateLevelSliders();
@@ -6128,7 +6189,10 @@ void main() {
 					const next = e.code === 'ArrowRight'
 						? (idx + 1) % names.length
 						: (idx - 1 + names.length) % names.length;
-					switchCachedFile(names[next]);
+					switchCachedFile(names[next]).then(() => {
+						const activeRow = cachedFilesEl.querySelector('tr.active');
+						if (activeRow) activeRow.scrollIntoView({ block: 'nearest' });
+					});
 				});
 				return;
 			}
@@ -6607,6 +6671,10 @@ void main() {
 		infoToggle.addEventListener('click', () => {
 			const collapsed = infoPanel.classList.toggle('collapsed');
 			infoToggle.textContent = collapsed ? '📂' : '✕';
+			if (!collapsed) {
+				const activeRow = cachedFilesEl.querySelector('tr.active');
+				if (activeRow) requestAnimationFrame(() => activeRow.scrollIntoView({ block: 'nearest' }));
+			}
 		});
 
 		// ══════════════════════════════════════════════════════════
@@ -8385,15 +8453,34 @@ void main() {
 				tx.objectStore(DB_STORE).put(cfg, 'cfg:' + name);
 				await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
 				if (name === sourceFileName) favorite = cfg.favorite;
-				await updateCachedFilesList();
+				await updateCachedFilesList(true);
 			} catch (e) { console.warn('toggleFavorite:', e); }
 		}
 
-		async function updateCachedFilesList() {
+		let _cachedListNames = []; // sorted names from last full rebuild
+
+		async function updateCachedFilesList(forceRebuild) {
 			if (_updateListPending) return;
 			_updateListPending = true;
 			try {
 				const names = await cacheListNames();
+				const sorted = names.slice().sort((a, b) => a.localeCompare(b));
+
+				// Fast path: if the set of files hasn't changed, just update active + indicators
+				if (!forceRebuild && sorted.length > 0 && sorted.length === _cachedListNames.length
+					&& sorted.every((n, i) => n === _cachedListNames[i])) {
+					const rows = cachedFilesEl.querySelectorAll('tr');
+					for (let i = 0; i < rows.length; i++) {
+						const n = sorted[i];
+						const isActive = n === sourceFileName;
+						rows[i].className = isActive ? 'active' : '';
+					}
+					return;
+				}
+				_cachedListNames = sorted;
+
+				const scrollEl = document.getElementById('cached-files-scroll');
+				const scrollTop = scrollEl.scrollTop;
 				cachedFilesEl.innerHTML = '';
 				var ccLink = document.getElementById('clear-cache');
 				if (names.length === 0) {
@@ -8517,13 +8604,19 @@ void main() {
 								tx.objectStore(DB_STORE).delete('lastFile');
 							}).catch(() => {});
 						}
-						await updateCachedFilesList();
+						await updateCachedFilesList(true);
 					});
 					tdDel.appendChild(delBtn);
 					tr.appendChild(tdDel);
 					// click row to switch
 					tr.addEventListener('click', () => switchCachedFile(n));
 					cachedFilesEl.appendChild(tr);
+				}
+				if (scrollTop > 0) {
+					scrollEl.scrollTop = scrollTop;
+				} else {
+					const activeRow = cachedFilesEl.querySelector('tr.active');
+					if (activeRow) activeRow.scrollIntoView({ block: 'nearest' });
 				}
 			} finally { _updateListPending = false; }
 		}
@@ -8562,7 +8655,7 @@ void main() {
 			const db = await openDB();
 			const tx = db.transaction(DB_STORE, 'readwrite');
 			tx.objectStore(DB_STORE).delete('lastFile');
-			await updateCachedFilesList();
+			await updateCachedFilesList(true);
 		});
 
 		async function switchCachedFile(name) {
@@ -9105,9 +9198,23 @@ void main() {
 				return;
 			}
 
+			// Cap export dimensions to GPU limits to avoid silently clamped drawing buffer
+			const maxRB = gl.getParameter(gl.MAX_RENDERBUFFER_SIZE);
+			if (w > maxRB || h > maxRB) {
+				const scale = maxRB / Math.max(w, h);
+				w = Math.round(w * scale);
+				h = Math.round(h * scale);
+			}
+
 			// Resize canvas to export resolution
 			canvas.width = w;
 			canvas.height = h;
+
+			// Verify browser didn't clamp further
+			if (gl.drawingBufferWidth < w || gl.drawingBufferHeight < h) {
+				w = gl.drawingBufferWidth;
+				h = gl.drawingBufferHeight;
+			}
 			gl.viewport(0, 0, w, h);
 
 			// Render at export resolution (draws to default framebuffer, textures stay bound)
@@ -9120,7 +9227,7 @@ void main() {
 			gl.uniform1f(uGlobeRadius, 0.0); // no globe in export
 			gl.uniform1f(uRefractivity, 1.0); // no magnifier in export
 			gl.uniform1f(uProjection, projectionModeIndex);
-			gl.uniform1f(uShowGrid, showGrid);
+			gl.uniform1f(uShowGrid, 0); // always off in export
 			gl.uniform1f(uBuckyOverlayAlpha, buckyOverlayAlpha);
 			gl.uniform1f(uCutLineMode, cutLineMode);
 			gl.uniform1f(uCollageRotation, collageRotationDeg * Math.PI / 180);
@@ -9281,8 +9388,7 @@ void main() {
 
 			const w = src.width || src.naturalWidth;
 			const h = src.height || src.naturalHeight;
-			gl.generateMipmap(gl.TEXTURE_2D);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -9382,7 +9488,7 @@ void main() {
 					updateLevelBtnState();
 					saveProjectionConfig();
 				}
-				await updateCachedFilesList();
+				await updateCachedFilesList(true);
 				return;
 			}
 			if (!isImageFile(file.name)) return;
@@ -9409,7 +9515,7 @@ void main() {
 				updateLevelBtnState();
 				saveProjectionConfig();
 			}
-			await updateCachedFilesList();
+			await updateCachedFilesList(true);
 		}
 
 		const DEFAULT_IMAGES = ['2025-09-26 Hohe D\u00fcne.jpg', '2025-10-18 Warnem\u00fcnde.jpg'];
@@ -9503,11 +9609,11 @@ void main() {
 						}
 					}
 				}
-				await updateCachedFilesList();
+				await updateCachedFilesList(true);
 				hideProgress();
 			} catch (e) {
 				console.warn('Initial load failed:', e);
-				await updateCachedFilesList();
+				await updateCachedFilesList(true);
 				progressEl.style.display = 'none';
 			}
 		})();

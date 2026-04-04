@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-04-04
+
+### Added
+- **Styled scrollbars** — thin, semi-transparent scrollbars (5 px, rounded thumb, hover highlight) for the file list and controls panel, matching the dark UI theme; uses both `scrollbar-width`/`scrollbar-color` (Firefox) and `::-webkit-scrollbar` pseudo-elements (Chromium/Safari)
+- **Scroll-to-active on panel open** — opening the file list panel automatically scrolls to the currently active file entry
+- **Scroll-to-active on arrow key switch** — switching files with Left/Right arrow keys scrolls the file list to keep the active entry visible
+
+### Changed
+- **File list height capped at 50 vh** — the file list panel is now limited to half the viewport height; the header row and "clear cache" link remain fixed while only the file entries scroll, via a dedicated `#cached-files-scroll` wrapper div
+- **Fast-path file list update** — switching between cached files no longer tears down and rebuilds the entire file list DOM; when the set of files hasn't changed, only the `active` class is toggled on existing rows, eliminating the visible flicker during rapid switching
+- **Scroll position preserved on list rebuild** — when the file list is fully rebuilt (file added/removed, favorite toggled), the scroll position is saved and restored instead of jumping to the top
+
 ## [0.21.0] - 2026-04-01
 
 ### Added
