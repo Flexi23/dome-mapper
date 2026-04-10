@@ -1,7 +1,7 @@
 # Images (tracked before release, ignored during development)
 # *.jpg
 *.jpeg
-# *.png
+*.png
 *.webp
 *.hdr
 *.exr

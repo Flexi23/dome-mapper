@@ -654,11 +654,43 @@ Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png` (or `
 ```
 dome-mapper/
 ├── index.html                       # Self-contained viewer (HTML + GLSL + JS)
-├── buckyball-net-layouter.html      # Interactive net layout editor for the truncated icosahedron
-├── rhombic-30-net-layouter.html     # Interactive net layout editor for the rhombic triacontahedron
+├── net-layouter.html                # Unified net layout editor for all polyhedra
+├── geometry-presets.js              # Shared polyhedron definitions (vertices, adjacency, presets)
+├── buckyball-net-layouter.html      # Legacy net layout editor for the truncated icosahedron
+├── rhombic-30-net-layouter.html     # Legacy net layout editor for the rhombic triacontahedron
 ├── CHANGELOG.md                     # Version history
 └── README.md                        # This file
 ```
+
+### Unified Net Layouter
+
+A standalone HTML tool (`net-layouter.html`) backed by a shared geometry definitions file (`geometry-presets.js`) for interactively optimizing flat net layouts of any supported polyhedron. A geometry selector dynamically loads the chosen solid. Currently supported:
+
+| Geometry | Faces | Face shape | Dual of |
+|---|---|---|---|
+| **Rhombic-12** | 12 | congruent rhombi (70.53°/109.47°) | cuboctahedron |
+| **Truncoct-14** | 14 | 8 hexagons + 6 squares | — (truncated octahedron) |
+| **Rhombic-30** | 30 | congruent golden rhombi | icosahedron |
+| **Buckyball-32** | 32 | 20 hexagons + 12 pentagons | — (truncated icosahedron) |
+| **Deltoidal-60** | 60 | congruent kites | rhombicosidodecahedron |
+| **Pentahex-60** | 60 | congruent irregular pentagons | snub dodecahedron |
+| **Rhombicosi-62** | 62 | 20 triangles + 30 squares + 12 pentagons | — (rhombicosidodecahedron) |
+
+**Features:**
+- **Interactive reparenting** — click any face to reassign its parent in the unfolding tree; the net recomputes instantly
+- **Glue tab placement mode** — toggle mode where clicking a cut-edge flap swaps tab ownership between adjacent faces
+- **Tab-aware rotation optimization** — auto-rotation accounts for actual tab geometry when computing the bounding box and page fill score
+- **Paper format presets** — predefined optimized layouts for DIN A, US Letter, US Legal, US Tabloid, and B5 JIS paper aspect ratios; custom paper sizes supported
+- **Flip H / V** — mirror the net layout horizontally or vertically
+- **Ghost polygon preview** — shows where a face would land before committing a reparent
+- **Tooltip fill preview** — hovering a face or flap shows projected page fill with a colored +/− delta
+- **Undo / Redo** — browser history-based undo/redo for all layout and tab ownership changes
+- **Copy / Paste** — exports `{ geometry, parents, tabs, mirrored, angle, aspect }` JSON to clipboard
+- **Configurable paper margins** — adjustable margin slider affects effective aspect ratio and paper outline
+
+### Legacy Net Layouters
+
+The original per-polyhedron layouters (`buckyball-net-layouter.html`, `rhombic-30-net-layouter.html`) remain for reference but are superseded by the unified layouter.
 
 ### Buckyball Net Layouter
 

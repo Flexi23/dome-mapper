@@ -1,0 +1,1299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Net Layouter</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1a1a2e; color: #ccc; font-family: system-ui, sans-serif; overflow: hidden; }
+canvas { display: block; }
+#ui {
+	position: fixed; top: 12px; left: 12px;
+	background: rgba(20, 20, 40, 0.9); padding: 12px 16px; border-radius: 8px;
+	font-size: 13px; line-height: 1.6; z-index: 10; min-width: 240px;
+	max-height: calc(100vh - 24px); overflow-y: auto;
+}
+#ui label { display: block; margin: 4px 0; }
+#ui select, #ui input[type=range] { width: 100%; }
+#ui .row { display: flex; align-items: center; gap: 8px; }
+#ui .val { min-width: 32px; text-align: right; font-variant-numeric: tabular-nums; }
+#ui button { width: 100%; margin: 3px 0; padding: 4px 8px; cursor: pointer; border-radius: 4px; border: 1px solid #555; background: #2a2a4a; color: #ccc; font-size: 12px; }
+#ui button:hover { background: #3a3a6a; }
+#ui .btn-row { display: flex; gap: 6px; }
+#ui .btn-row button { flex: 1; }
+#ui .label-row { display: flex; justify-content: space-between; align-items: center; margin: 4px 0 2px; }
+#ui .label-row span { display: flex; gap: 4px; align-items: center; }
+#ui .label-row button { width: auto; margin: 0; padding: 1px 6px; font-size: 11px; line-height: 1.4; }
+#ui hr { border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 8px 0; }
+#score { color: #8f8; margin-top: 6px; }
+#tooltip {
+	position: fixed; pointer-events: none; z-index: 20;
+	background: rgba(10, 10, 30, 0.92); color: #eee; padding: 6px 10px;
+	border-radius: 5px; font-size: 12px; display: none; white-space: nowrap;
+}
+</style>
+</head>
+<body>
+<div id="ui">
+	<label>Geometry:
+		<select id="geo-select"></select>
+	</label>
+
+	<hr>
+
+	<label>Preset:
+		<select id="preset-select"></select>
+	</label>
+
+	<hr>
+
+	<div class="label-row">
+		<span>Paper format:</span>
+		<span>
+			<button id="btn-delete-custom" style="display:none" title="Delete custom format">🗑</button>
+			<button id="btn-save-custom" title="Create new custom format">＋ New</button>
+		</span>
+	</div>
+	<select id="paper-fmt"></select>
+
+	<div class="row" style="margin-top:6px">
+		<label style="flex:1; margin:0">Orientation:</label>
+		<select id="orientation" style="width:auto">
+			<option value="landscape">Landscape</option>
+			<option value="portrait">Portrait</option>
+		</select>
+	</div>
+
+	<div class="row" style="margin-top:4px">
+		<label style="flex:1; margin:0">Margin:</label>
+		<input type="range" id="margin-slider" min="0" max="20" step="0.5" value="0" style="flex:2">
+		<span class="val" id="margin-val">0 mm</span>
+	</div>
+
+	<hr>
+
+	<div class="btn-row">
+		<button id="btn-flip-h">↔ Flip H</button>
+		<button id="btn-flip-v">↕ Flip V</button>
+	</div>
+	<button id="btn-glue-tab">✂ Edit Glue Tabs</button>
+	<div class="btn-row">
+		<button id="btn-export-clip" title="Copy layout to clipboard">📋 Copy</button>
+		<button id="btn-import-clip" title="Paste layout from clipboard">📥 Paste</button>
+	</div>
+	<div id="score"></div>
+</div>
+<div id="tooltip"></div>
+<canvas id="c"></canvas>
+
+<script src="geometry-presets.js"></script>
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+// Global state
+// ═══════════════════════════════════════════════════════════════════════
+
+let geo = null;  // current geometry object
+let currentLayout = null;
+let hoveredEdge = null;
+let hoveredFace = -1;
+let hoveredFacePreviewFill = undefined;
+let boundaryEdges = [];
+let glueTabMode = false;
+let tabOwnership = {};
+
+const undoStack = [];
+const redoStack = [];
+let historyIndex = 0;
+
+// ── DOM refs ──
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const geoSelect = document.getElementById('geo-select');
+const presetSelect = document.getElementById('preset-select');
+const paperFmt = document.getElementById('paper-fmt');
+const orientationSelect = document.getElementById('orientation');
+const marginSlider = document.getElementById('margin-slider');
+const marginVal = document.getElementById('margin-val');
+const scoreDiv = document.getElementById('score');
+const tooltip = document.getElementById('tooltip');
+
+// ═══════════════════════════════════════════════════════════════════════
+// Paper format & aspect helpers
+// ═══════════════════════════════════════════════════════════════════════
+
+function getMarginMM() { return parseFloat(marginSlider.value) || 0; }
+
+function getSelectedPaperDims() {
+	const key = paperFmt.value;
+	const idx = parseInt(key);
+	if (idx >= 0 && idx < PAPER_FORMATS.length) {
+		return { width: PAPER_FORMATS[idx].width, height: PAPER_FORMATS[idx].height };
+	}
+	if (!geo) return { width: 297, height: 210 };
+	const customs = loadCustomLayouts();
+	if (customs[key] && customs[key].width && customs[key].height) {
+		return { width: Math.max(customs[key].width, customs[key].height), height: Math.min(customs[key].width, customs[key].height) };
+	}
+	return { width: 297, height: 210 };
+}
+
+function getEffectiveAspect() {
+	const dims = getSelectedPaperDims();
+	const m = getMarginMM();
+	const isPortrait = orientationSelect.value === 'portrait';
+	let w = isPortrait ? dims.height : dims.width;
+	let h = isPortrait ? dims.width : dims.height;
+	const ew = Math.max(w - 2 * m, 1);
+	const eh = Math.max(h - 2 * m, 1);
+	return ew / eh;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Custom layouts (persisted in localStorage per geometry)
+// ═══════════════════════════════════════════════════════════════════════
+
+function loadCustomLayouts() {
+	if (!geo) return {};
+	try { return JSON.parse(localStorage.getItem(geo.storageKey)) || {}; } catch { return {}; }
+}
+function saveCustomLayouts(obj) {
+	if (!geo) return;
+	localStorage.setItem(geo.storageKey, JSON.stringify(obj));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Layout helpers
+// ═══════════════════════════════════════════════════════════════════════
+
+function edgeKey(i, j) { return Math.min(i, j) + '-' + Math.max(i, j); }
+function cloneTabOwnership() { return Object.assign({}, tabOwnership); }
+function seedFromParents(pp) { return pp.indexOf(-1); }
+
+function cloneLayout(layout) {
+	return {
+		res: layout.res.map(r => r ? { x: r.x, y: r.y, r: r.r } : r),
+		placed: layout.placed.slice(),
+		parent: layout.parent.slice(),
+		count: layout.count,
+		seed: layout.seed,
+		mirrored: layout.mirrored || false,
+		label: layout.label || '',
+		angle: layout.angle || 0,
+		tabOwnershipSnapshot: cloneTabOwnership()
+	};
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// BFS Unfolding (generic)
+// ═══════════════════════════════════════════════════════════════════════
+
+function guidedUnfold(startFace, predefinedParents) {
+	const N = geo.nFaces;
+	const placed = new Array(N).fill(false);
+	const parent = predefinedParents.slice();
+	const res = new Array(N);
+	res[startFace] = { x: 0, y: 0, r: geo.initialRotation || 0 };
+	placed[startFace] = true;
+	let count = 1;
+	const queue = [startFace];
+	let qi = 0;
+	while (qi < queue.length) {
+		const p = queue[qi++];
+		for (let j = 0; j < N; j++) {
+			if (placed[j] || parent[j] !== p) continue;
+			res[j] = geo.ghostPlace(p, j, res, false);
+			placed[j] = true;
+			count++;
+			queue.push(j);
+		}
+	}
+	return { res, placed, parent, count, mirrored: false };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Scoring
+// ═══════════════════════════════════════════════════════════════════════
+
+function bboxCriticalPoints(res, placed, parent, mirrored) {
+	const N = geo.nFaces;
+	const pts = [];
+	for (let i = 0; i < N; i++) {
+		if (!placed[i]) continue;
+		const verts = geo.polyVerts(res[i].x, res[i].y, res[i].r, i);
+		const fx = res[i].x, fy = res[i].y;
+		const n = geo.nSides(i);
+		for (let k = 0; k < n; k++) {
+			const v1 = verts[k], v2 = verts[(k + 1) % n];
+			pts.push(v1.x, v1.y);
+			// Find neighbor on this edge
+			let targetFace = -1;
+			for (const j of geo.adj[i]) {
+				const slot = geo.edgeSlot(i, geo.edgeIdx(i, j), mirrored);
+				if (slot === k) { targetFace = j; break; }
+			}
+			if (targetFace < 0) continue;
+			const isInternal = placed[targetFace] && (parent[targetFace] === i || parent[i] === targetFace);
+			if (isInternal) continue;
+			const isCutEdge = placed[targetFace];
+			let hasTab = true;
+			if (isCutEdge) {
+				const key = edgeKey(i, targetFace);
+				const owner = tabOwnership[key] !== undefined ? tabOwnership[key] : Math.min(i, targetFace);
+				hasTab = (owner === i);
+			}
+			if (hasTab) {
+				const emx = (v1.x + v2.x) / 2 - fx, emy = (v1.y + v2.y) / 2 - fy;
+				const eml = Math.sqrt(emx * emx + emy * emy);
+				const nx = emx / eml, ny = emy / eml;
+				const dx = v2.x - v1.x, dy = v2.y - v1.y;
+				const [ins1, ins2] = geo.tabInsets(i, k);
+				pts.push(v1.x + nx * geo.tabH + dx * ins1, v1.y + ny * geo.tabH + dy * ins1);
+				pts.push(v2.x + nx * geo.tabH - dx * ins2, v2.y + ny * geo.tabH - dy * ins2);
+			}
+		}
+	}
+	return pts;
+}
+
+function bboxDims(pts, angle) {
+	const cs = Math.cos(angle), sn = Math.sin(angle);
+	let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
+	for (let p = 0; p < pts.length; p += 2) {
+		const rx = pts[p] * cs - pts[p + 1] * sn;
+		const ry = pts[p] * sn + pts[p + 1] * cs;
+		mnX = Math.min(mnX, rx); mxX = Math.max(mxX, rx);
+		mnY = Math.min(mnY, ry); mxY = Math.max(mxY, ry);
+	}
+	return { w: mxX - mnX, h: mxY - mnY, mnX, mxX, mnY, mxY };
+}
+
+function paperScore(pts, angle) {
+	const d = bboxDims(pts, angle);
+	const aspect = getEffectiveAspect();
+	const s = Math.min(aspect / d.w, 1 / d.h);
+	return aspect / (s * s);
+}
+
+function netArea(placed, parent) {
+	const N = geo.nFaces;
+	let area = 0;
+	for (let i = 0; i < N; i++) {
+		if (!placed[i]) continue;
+		area += geo.faceArea(i);
+	}
+	for (let i = 0; i < N; i++) {
+		if (!placed[i]) continue;
+		for (const j of geo.adj[i]) {
+			if (j <= i || !placed[j]) continue;
+			if (parent[j] === i || parent[i] === j) continue;
+			area += geo.singleTabArea;
+		}
+	}
+	return area;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Tree operations
+// ═══════════════════════════════════════════════════════════════════════
+
+function getDescendants(j, parent, placed) {
+	const descs = [];
+	for (let k = 0; k < geo.nFaces; k++) {
+		if (!placed[k] || k === j) continue;
+		let p = k;
+		while (p !== -1 && p !== j) p = parent[p];
+		if (p === j) descs.push(k);
+	}
+	return descs;
+}
+
+function reparent(layout, newParent, child) {
+	const { res, placed, parent, mirrored } = layout;
+	const descs = getDescendants(child, parent, placed);
+	placed[child] = false; parent[child] = -1;
+	for (const d of descs) { placed[d] = false; parent[d] = -1; }
+	const pos = geo.ghostPlace(newParent, child, res, mirrored);
+	res[child] = pos;
+	placed[child] = true;
+	parent[child] = newParent;
+	let changed = true;
+	while (changed) {
+		changed = false;
+		for (const d of descs) {
+			if (placed[d]) continue;
+			for (const i of geo.adj[d]) {
+				if (!placed[i]) continue;
+				const p = geo.tryPlace(i, d, res, placed, mirrored);
+				if (p) {
+					res[d] = p; placed[d] = true; parent[d] = i;
+					changed = true; break;
+				}
+			}
+		}
+	}
+	layout.count = placed.filter(Boolean).length;
+}
+
+function rerootTree(parent, newRoot) {
+	const pp = parent.slice();
+	const path = [];
+	let cur = newRoot;
+	while (cur >= 0) { path.push(cur); cur = pp[cur]; }
+	for (let i = 0; i < path.length - 1; i++) pp[path[i + 1]] = path[i];
+	pp[newRoot] = -1;
+	return pp;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Rotation optimization
+// ═══════════════════════════════════════════════════════════════════════
+
+function optimizeAndApplyRotation(layout) {
+	const N = geo.nFaces;
+	const { res, placed, parent, mirrored } = layout;
+	const prevAngle = layout.angle || 0;
+	if (prevAngle !== 0) {
+		const pc = Math.cos(-prevAngle), ps = Math.sin(-prevAngle);
+		for (let i = 0; i < N; i++) {
+			if (!placed[i]) continue;
+			const x = res[i].x, y = res[i].y;
+			res[i].x = x * pc - y * ps;
+			res[i].y = x * ps + y * pc;
+			res[i].r -= prevAngle;
+		}
+	}
+	const pts = bboxCriticalPoints(res, placed, parent, mirrored || false);
+	let bestA = 0, bestAr = Infinity;
+	for (let deg = 0; deg < 180; deg += 1) {
+		const rad = deg * Math.PI / 180;
+		const ar = paperScore(pts, rad);
+		if (ar < bestAr) { bestAr = ar; bestA = rad; }
+	}
+	if (bestA > Math.PI / 2) bestA -= Math.PI;
+	layout.angle = bestA;
+	if (bestA !== 0) {
+		const cs = Math.cos(bestA), sn = Math.sin(bestA);
+		for (let i = 0; i < N; i++) {
+			if (!placed[i]) continue;
+			const x = res[i].x, y = res[i].y;
+			res[i].x = x * cs - y * sn;
+			res[i].y = x * sn + y * cs;
+			res[i].r += bestA;
+		}
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Layout computation
+// ═══════════════════════════════════════════════════════════════════════
+
+function computeLayout() {
+	if (!geo) return;
+	const presetIdx = parseInt(presetSelect.value);
+	const customs = loadCustomLayouts();
+	let preset = null;
+	if (presetIdx >= 0 && presetIdx < geo.presets.length) {
+		preset = geo.presets[presetIdx];
+	} else {
+		preset = customs[presetSelect.value];
+	}
+	if (!preset) return;
+	tabOwnership = preset.tabs ? Object.assign({}, preset.tabs) : {};
+	const seed = seedFromParents(preset.parents);
+	const layout = guidedUnfold(seed, preset.parents);
+	layout.seed = seed;
+	layout.mirrored = preset.mirrored || false;
+	layout.label = preset.label || '';
+	currentLayout = layout;
+	optimizeAndApplyRotation(currentLayout);
+	updateDeleteBtnVisibility();
+	draw();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Canvas transforms
+// ═══════════════════════════════════════════════════════════════════════
+
+let viewOX = 0, viewOY = 0, viewScale = 1;
+
+function toScreen(x, y) {
+	return [canvas.width / 2 + (x - viewOX) * viewScale, canvas.height / 2 - (y - viewOY) * viewScale];
+}
+function toWorld(sx, sy) {
+	return [(sx - canvas.width / 2) / viewScale + viewOX, -(sy - canvas.height / 2) / viewScale + viewOY];
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Edge classification
+// ═══════════════════════════════════════════════════════════════════════
+
+function classifyEdges(layout) {
+	const N = geo.nFaces;
+	const { res, placed, parent, mirrored } = layout;
+	const edgeNeighbor = [];
+	for (let i = 0; i < N; i++) {
+		const n = geo.nSides(i);
+		edgeNeighbor.push(new Array(n).fill(null));
+		if (!placed[i]) continue;
+		for (const j of geo.adj[i]) {
+			const k = geo.edgeIdx(i, j);
+			const isInternal = placed[j] && (parent[j] === i || parent[i] === j);
+			const slot = geo.edgeSlot(i, k, mirrored);
+			edgeNeighbor[i][slot] = { j, isInternal };
+		}
+	}
+	return edgeNeighbor;
+}
+
+function pointInPoly(wx, wy, verts) {
+	let pos = 0, neg = 0;
+	for (let p = 0; p < verts.length; p++) {
+		const a = verts[p], b = verts[(p + 1) % verts.length];
+		const cross = (b.x - a.x) * (wy - a.y) - (b.y - a.y) * (wx - a.x);
+		if (cross > 0) pos++; else if (cross < 0) neg++;
+		if (pos && neg) return false;
+	}
+	return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Drawing
+// ═══════════════════════════════════════════════════════════════════════
+
+function draw() {
+	if (!currentLayout || !geo) return;
+	const N = geo.nFaces;
+	const { res, placed, parent, count, seed, mirrored } = currentLayout;
+
+	canvas.width = window.innerWidth;
+	canvas.height = window.innerHeight;
+
+	const _bbPts = bboxCriticalPoints(res, placed, parent, mirrored);
+	const _bb = bboxDims(_bbPts, 0);
+	const mnX = _bb.mnX, mxX = _bb.mxX, mnY = _bb.mnY, mxY = _bb.mxY;
+
+	const bbPad = 0.5;
+	const bbW = (mxX - mnX) + 2 * bbPad;
+	const bbH = (mxY - mnY) + 2 * bbPad;
+
+	viewOX = (mnX + mxX) / 2;
+	viewOY = (mnY + mxY) / 2;
+	const margin = 20;
+	viewScale = Math.min((canvas.width - margin * 2) / bbW, (canvas.height - margin * 2) / bbH);
+
+	ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+	// ── Paper outline ──
+	{
+		const aspect = getEffectiveAspect();
+		const netW = mxX - mnX, netH = mxY - mnY;
+		const s = Math.min(aspect / netW, 1 / netH);
+		const pW = aspect / s, pH = 1 / s;
+		const [ax0, ay0] = toScreen(viewOX - pW / 2, viewOY + pH / 2);
+		const [ax1, ay1] = toScreen(viewOX + pW / 2, viewOY - pH / 2);
+		ctx.save();
+		// Printable area (inner)
+		ctx.strokeStyle = 'rgba(100, 200, 100, 0.3)';
+		ctx.lineWidth = 2;
+		ctx.setLineDash([8, 6]);
+		ctx.strokeRect(ax0, ay0, ax1 - ax0, ay1 - ay0);
+		// Outer paper (with margin)
+		const marginMM = getMarginMM();
+		if (marginMM > 0) {
+			const dims = getSelectedPaperDims();
+			const isPortrait = orientationSelect.value === 'portrait';
+			const pw = isPortrait ? dims.height : dims.width;
+			const ph = isPortrait ? dims.width : dims.height;
+			const ew = pw - 2 * marginMM, eh = ph - 2 * marginMM;
+			const mFracW = marginMM / ew, mFracH = marginMM / eh;
+			const oW = pW * (1 + 2 * mFracW), oH = pH * (1 + 2 * mFracH);
+			const [bx0, by0] = toScreen(viewOX - oW / 2, viewOY + oH / 2);
+			const [bx1, by1] = toScreen(viewOX + oW / 2, viewOY - oH / 2);
+			ctx.strokeStyle = 'rgba(200, 200, 100, 0.2)';
+			ctx.lineWidth = 1;
+			ctx.strokeRect(bx0, by0, bx1 - bx0, by1 - by0);
+		}
+		ctx.setLineDash([]);
+		ctx.restore();
+	}
+
+	const edgeNeighbor = classifyEdges(currentLayout);
+
+	// ── Build boundary edges ──
+	boundaryEdges = [];
+	for (let i = 0; i < N; i++) {
+		if (!placed[i]) continue;
+		const n = geo.nSides(i);
+		const fx = res[i].x, fy = res[i].y, rot = res[i].r;
+		const verts = geo.polyVerts(fx, fy, rot, i);
+		for (let k = 0; k < n; k++) {
+			const info = edgeNeighbor[i][k];
+			if (info && info.isInternal) continue;
+			let targetFace = -1;
+			if (info) {
+				targetFace = info.j;
+			} else {
+				for (const j of geo.adj[i]) {
+					const slot = geo.edgeSlot(i, geo.edgeIdx(i, j), mirrored);
+					if (slot === k) { targetFace = j; break; }
+				}
+			}
+			if (targetFace < 0) continue;
+			const v1 = verts[k], v2 = verts[(k + 1) % n];
+			const emx = (v1.x + v2.x) / 2 - fx, emy = (v1.y + v2.y) / 2 - fy;
+			const eml = Math.sqrt(emx * emx + emy * emy);
+			const nx = emx / eml, ny = emy / eml;
+			const dx = v2.x - v1.x, dy = v2.y - v1.y;
+			const [ins1, ins2] = geo.tabInsets(i, k);
+			const o1x = v1.x + nx * geo.tabH + dx * ins1, o1y = v1.y + ny * geo.tabH + dy * ins1;
+			const o2x = v2.x + nx * geo.tabH - dx * ins2, o2y = v2.y + ny * geo.tabH - dy * ins2;
+			const flapVerts = [
+				{ x: v1.x, y: v1.y }, { x: o1x, y: o1y },
+				{ x: o2x, y: o2y }, { x: v2.x, y: v2.y }
+			];
+			const ghostPos = geo.ghostPlace(i, targetFace, res, mirrored);
+			const ghostVerts = geo.polyVerts(ghostPos.x, ghostPos.y, ghostPos.r, targetFace);
+			const isCutEdge = placed[targetFace];
+			boundaryEdges.push({ face: i, edge: k, targetFace, flapVerts, ghostPos, ghostVerts, isCutEdge });
+		}
+	}
+
+	// ── Draw flap trapezoids (clipped outside polygons) ──
+	ctx.save();
+	ctx.beginPath();
+	ctx.rect(0, 0, canvas.width, canvas.height);
+	for (let i = 0; i < N; i++) {
+		if (!placed[i]) continue;
+		const verts = geo.polyVerts(res[i].x, res[i].y, res[i].r, i);
+		for (let k = 0; k < verts.length; k++) {
+			const [sx, sy] = toScreen(verts[k].x, verts[k].y);
+			if (k === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+		}
+		ctx.closePath();
+	}
+	ctx.clip('evenodd');
+
+	for (const edge of boundaryEdges) {
+		if (glueTabMode && edge.isCutEdge) {
+			const key = edgeKey(edge.face, edge.targetFace);
+			const owner = tabOwnership[key] !== undefined ? tabOwnership[key] : Math.min(edge.face, edge.targetFace);
+			if (owner !== edge.face) continue;
+		}
+		const isHovered = hoveredEdge && hoveredEdge.face === edge.face && hoveredEdge.edge === edge.edge;
+		const fv = edge.flapVerts;
+		ctx.beginPath();
+		let [sx, sy] = toScreen(fv[0].x, fv[0].y);
+		ctx.moveTo(sx, sy);
+		for (let p = 1; p < 4; p++) {
+			[sx, sy] = toScreen(fv[p].x, fv[p].y);
+			ctx.lineTo(sx, sy);
+		}
+		ctx.closePath();
+
+		const matchesFace = hoveredFace >= 0 && edge.targetFace === hoveredFace;
+		if (isHovered) {
+			ctx.fillStyle = 'rgba(100, 220, 255, 0.7)';
+			ctx.strokeStyle = 'rgba(50, 150, 255, 0.9)';
+			ctx.lineWidth = 2;
+		} else if (matchesFace) {
+			ctx.fillStyle = 'rgba(100, 220, 255, 0.5)';
+			ctx.strokeStyle = 'rgba(50, 150, 255, 0.7)';
+			ctx.lineWidth = 1.5;
+		} else if (!glueTabMode && edge.isCutEdge) {
+			const key = edgeKey(edge.face, edge.targetFace);
+			const owner = tabOwnership[key] !== undefined ? tabOwnership[key] : Math.min(edge.face, edge.targetFace);
+			if (owner === edge.face) {
+				ctx.fillStyle = 'rgba(255, 180, 200, 0.6)';
+				ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+			} else {
+				ctx.fillStyle = 'rgba(255, 180, 200, 0.2)';
+				ctx.strokeStyle = 'rgba(180, 100, 130, 0.3)';
+			}
+			ctx.lineWidth = 1;
+		} else {
+			ctx.fillStyle = 'rgba(255, 180, 200, 0.6)';
+			ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+			ctx.lineWidth = 1;
+		}
+		ctx.setLineDash([6, 4]);
+		ctx.fill();
+		ctx.stroke();
+		ctx.setLineDash([]);
+	}
+
+	// ── Ghost flap on opposite side (glue tab mode hover) ──
+	if (glueTabMode && hoveredEdge && hoveredEdge.isCutEdge) {
+		const opposite = boundaryEdges.find(e =>
+			e.face === hoveredEdge.targetFace && e.targetFace === hoveredEdge.face);
+		if (opposite) {
+			const fv = opposite.flapVerts;
+			ctx.beginPath();
+			let [sx, sy] = toScreen(fv[0].x, fv[0].y);
+			ctx.moveTo(sx, sy);
+			for (let p = 1; p < 4; p++) {
+				[sx, sy] = toScreen(fv[p].x, fv[p].y);
+				ctx.lineTo(sx, sy);
+			}
+			ctx.closePath();
+			ctx.fillStyle = 'rgba(255, 180, 60, 0.3)';
+			ctx.strokeStyle = 'rgba(255, 180, 60, 0.6)';
+			ctx.lineWidth = 1.5;
+			ctx.setLineDash([4, 3]);
+			ctx.fill();
+			ctx.stroke();
+			ctx.setLineDash([]);
+		}
+	}
+	ctx.restore();
+
+	// ── Ghost polygon preview on hover ──
+	if (hoveredEdge && !glueTabMode) {
+		const { ghostVerts, targetFace, ghostPos } = hoveredEdge;
+		const ghostFaces = [{ id: targetFace, verts: ghostVerts, pos: ghostPos }];
+		if (placed[targetFace]) {
+			const dx = ghostPos.x - res[targetFace].x;
+			const dy = ghostPos.y - res[targetFace].y;
+			const dr = ghostPos.r - res[targetFace].r;
+			const cs = Math.cos(dr), sn = Math.sin(dr);
+			const ox = res[targetFace].x, oy = res[targetFace].y;
+			const descs = getDescendants(targetFace, parent, placed);
+			for (const d of descs) {
+				const rx = res[d].x - ox, ry = res[d].y - oy;
+				const gx = ghostPos.x + rx * cs - ry * sn;
+				const gy = ghostPos.y + rx * sn + ry * cs;
+				const gr = res[d].r + dr;
+				ghostFaces.push({ id: d, verts: geo.polyVerts(gx, gy, gr, d), pos: { x: gx, y: gy } });
+			}
+		}
+		for (const gf of ghostFaces) {
+			ctx.beginPath();
+			for (let k = 0; k < gf.verts.length; k++) {
+				const [sx, sy] = toScreen(gf.verts[k].x, gf.verts[k].y);
+				if (k === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+			}
+			ctx.closePath();
+			ctx.fillStyle = geo.ghostColor(gf.id);
+			ctx.fill();
+			ctx.strokeStyle = 'rgba(100, 200, 255, 0.7)';
+			ctx.lineWidth = 2;
+			ctx.setLineDash([6, 4]);
+			ctx.stroke();
+			ctx.setLineDash([]);
+			const [gcx, gcy] = toScreen(gf.pos.x, gf.pos.y);
+			ctx.fillStyle = 'rgba(100, 200, 255, 0.7)';
+			ctx.font = `${Math.max(10, viewScale * 0.15)}px system-ui`;
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.fillText(gf.id, gcx, gcy);
+		}
+		if (ghostFaces.length > 1) {
+			ctx.lineWidth = 1.5;
+			ctx.strokeStyle = 'rgba(100, 200, 255, 0.5)';
+			ctx.setLineDash([4, 3]);
+			for (let gi = 1; gi < ghostFaces.length; gi++) {
+				const gf = ghostFaces[gi];
+				const gp = ghostFaces.find(g => g.id === parent[gf.id]);
+				if (!gp) continue;
+				const [sx1, sy1] = toScreen(gf.pos.x, gf.pos.y);
+				const [sx2, sy2] = toScreen(gp.pos.x, gp.pos.y);
+				ctx.beginPath(); ctx.moveTo(sx1, sy1); ctx.lineTo(sx2, sy2); ctx.stroke();
+			}
+			const [sx1, sy1] = toScreen(ghostPos.x, ghostPos.y);
+			const [sx2, sy2] = toScreen(res[hoveredEdge.face].x, res[hoveredEdge.face].y);
+			ctx.beginPath(); ctx.moveTo(sx1, sy1); ctx.lineTo(sx2, sy2); ctx.stroke();
+			ctx.setLineDash([]);
+		}
+	}
+
+	// ── Parent tree lines ──
+	ctx.lineWidth = 1.5;
+	ctx.strokeStyle = 'rgba(255, 180, 60, 0.45)';
+	for (let i = 0; i < N; i++) {
+		if (!placed[i] || parent[i] < 0) continue;
+		const p = parent[i];
+		if (!placed[p]) continue;
+		const [sx1, sy1] = toScreen(res[i].x, res[i].y);
+		const [sx2, sy2] = toScreen(res[p].x, res[p].y);
+		ctx.beginPath(); ctx.moveTo(sx1, sy1); ctx.lineTo(sx2, sy2); ctx.stroke();
+	}
+	if (seed !== undefined && placed[seed]) {
+		const [rx, ry] = toScreen(res[seed].x, res[seed].y);
+		const rr = Math.max(6, viewScale * 0.12);
+		ctx.beginPath(); ctx.arc(rx, ry, rr, 0, 2 * Math.PI);
+		ctx.fillStyle = 'rgba(255, 180, 60, 0.7)';
+		ctx.fill();
+		ctx.lineWidth = 2;
+		ctx.strokeStyle = 'rgba(255, 220, 120, 0.9)';
+		ctx.stroke();
+	}
+
+	// ── Draw polygon faces ──
+	for (let i = 0; i < N; i++) {
+		if (!placed[i]) continue;
+		const n = geo.nSides(i);
+		const verts = geo.polyVerts(res[i].x, res[i].y, res[i].r, i);
+		const isTarget = hoveredEdge && hoveredEdge.targetFace === i;
+		const isSelf = hoveredFace === i;
+
+		ctx.beginPath();
+		for (let k = 0; k < verts.length; k++) {
+			const [sx, sy] = toScreen(verts[k].x, verts[k].y);
+			if (k === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+		}
+		ctx.closePath();
+		ctx.fillStyle = geo.faceColor(i, isSelf, isTarget);
+		ctx.fill();
+
+		// Edge lines
+		for (let k = 0; k < n; k++) {
+			const info = edgeNeighbor[i][k];
+			const [sx1, sy1] = toScreen(verts[k].x, verts[k].y);
+			const [sx2, sy2] = toScreen(verts[(k + 1) % n].x, verts[(k + 1) % n].y);
+			const isHoveredEdge = hoveredEdge && hoveredEdge.face === i && hoveredEdge.edge === k;
+
+			ctx.beginPath(); ctx.moveTo(sx1, sy1); ctx.lineTo(sx2, sy2);
+			if (isHoveredEdge) {
+				ctx.strokeStyle = 'rgba(100, 220, 255, 1.0)';
+				ctx.lineWidth = 3;
+				ctx.setLineDash([]);
+			} else if (info && info.isInternal) {
+				ctx.strokeStyle = 'rgba(200, 200, 200, 0.25)';
+				ctx.lineWidth = 1;
+				ctx.setLineDash([4, 4]);
+			} else {
+				ctx.strokeStyle = 'rgba(200, 200, 200, 0.7)';
+				ctx.lineWidth = 1.5;
+				ctx.setLineDash([]);
+			}
+			ctx.stroke();
+			ctx.setLineDash([]);
+		}
+
+		// Face label
+		const [cx, cy] = toScreen(res[i].x, res[i].y);
+		ctx.fillStyle = (isSelf || isTarget) ? 'rgba(100, 200, 255, 0.9)' : '#ddd';
+		ctx.font = `${Math.max(10, viewScale * 0.15)}px system-ui`;
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.fillText(i, cx, cy);
+	}
+
+	// ── Ghost root marker ──
+	if (hoveredFace >= 0 && hoveredFace !== seed && !glueTabMode && placed[hoveredFace]) {
+		const [rx, ry] = toScreen(res[hoveredFace].x, res[hoveredFace].y);
+		const rr = Math.max(6, viewScale * 0.12);
+		ctx.beginPath(); ctx.arc(rx, ry, rr, 0, 2 * Math.PI);
+		ctx.fillStyle = 'rgba(255, 180, 60, 0.3)';
+		ctx.fill();
+		ctx.lineWidth = 2;
+		ctx.strokeStyle = 'rgba(255, 220, 120, 0.6)';
+		ctx.setLineDash([4, 3]);
+		ctx.stroke();
+		ctx.setLineDash([]);
+	}
+
+	// ── Score ──
+	const nArea = netArea(placed, parent);
+	const pArea = paperScore(_bbPts, 0);
+	const fill = (nArea / pArea * 100).toFixed(1);
+	scoreDiv.textContent = `${count}/${N} faces — Page fill: ${fill}%`;
+	currentLayout._currentFill = parseFloat(fill);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Mouse interaction
+// ═══════════════════════════════════════════════════════════════════════
+
+function hitTestEdge(mx, my) {
+	const [wx, wy] = toWorld(mx, my);
+	for (const edge of boundaryEdges) {
+		if (glueTabMode && edge.isCutEdge) {
+			const key = edgeKey(edge.face, edge.targetFace);
+			const owner = tabOwnership[key] !== undefined ? tabOwnership[key] : Math.min(edge.face, edge.targetFace);
+			if (owner !== edge.face) continue;
+		}
+		if (pointInPoly(wx, wy, edge.flapVerts)) return edge;
+	}
+	return null;
+}
+
+function hitTestFace(mx, my) {
+	if (!currentLayout || !geo) return -1;
+	const [wx, wy] = toWorld(mx, my);
+	const { res, placed } = currentLayout;
+	for (let i = 0; i < geo.nFaces; i++) {
+		if (!placed[i]) continue;
+		const verts = geo.polyVerts(res[i].x, res[i].y, res[i].r, i);
+		if (pointInPoly(wx, wy, verts)) return i;
+	}
+	return -1;
+}
+
+canvas.addEventListener('mousemove', e => {
+	const hit = hitTestEdge(e.clientX, e.clientY);
+	const face = hit ? -1 : hitTestFace(e.clientX, e.clientY);
+	if (hit !== hoveredEdge || face !== hoveredFace) {
+		hoveredEdge = hit;
+		hoveredFace = face;
+		hoveredFacePreviewFill = undefined;
+		if (face >= 0 && face !== currentLayout.seed && !glueTabMode) {
+			const newPP = rerootTree(currentLayout.parent, face);
+			const preview = guidedUnfold(face, newPP);
+			preview.mirrored = currentLayout.mirrored;
+			optimizeAndApplyRotation(preview);
+			const pts = bboxCriticalPoints(preview.res, preview.placed, preview.parent, preview.mirrored);
+			hoveredFacePreviewFill = parseFloat((netArea(preview.placed, preview.parent) / paperScore(pts, 0) * 100).toFixed(1));
+		}
+		if (hit && currentLayout) {
+			if (glueTabMode && hit.isCutEdge) {
+				const key = edgeKey(hit.face, hit.targetFace);
+				const owner = tabOwnership[key] !== undefined ? tabOwnership[key] : Math.min(hit.face, hit.targetFace);
+				const savedOwner = tabOwnership[key];
+				tabOwnership[key] = owner === hit.face ? hit.targetFace : hit.face;
+				const pts = bboxCriticalPoints(currentLayout.res, currentLayout.placed, currentLayout.parent, currentLayout.mirrored);
+				hit.previewFill = parseFloat((netArea(currentLayout.placed, currentLayout.parent) / paperScore(pts, 0) * 100).toFixed(1));
+				if (savedOwner !== undefined) tabOwnership[key] = savedOwner; else delete tabOwnership[key];
+			} else if (!glueTabMode) {
+				const preview = cloneLayout(currentLayout);
+				reparent(preview, hit.face, hit.targetFace);
+				optimizeAndApplyRotation(preview);
+				const pts = bboxCriticalPoints(preview.res, preview.placed, preview.parent, preview.mirrored);
+				hit.previewFill = parseFloat((netArea(preview.placed, preview.parent) / paperScore(pts, 0) * 100).toFixed(1));
+			}
+		}
+		draw();
+	}
+	if (hit) {
+		const tf = hit.targetFace;
+		const curFill = currentLayout._currentFill || 0;
+		const diff = hit.previewFill !== undefined ? hit.previewFill - curFill : 0;
+		const diffStr = diff > 0 ? `<span style="color:#4f4">+${diff.toFixed(1)}%</span>` : diff < 0 ? `<span style="color:#f44">${diff.toFixed(1)}%</span>` : `<span style="color:#888">±0%</span>`;
+		const fillStr = hit.previewFill !== undefined ? ` → ${hit.previewFill.toFixed(1)}% ${diffStr}` : '';
+		let label;
+		if (glueTabMode) {
+			const key = edgeKey(hit.face, tf);
+			const owner = tabOwnership[key] !== undefined ? tabOwnership[key] : Math.min(hit.face, tf);
+			label = `Tab on face ${owner} → face ${owner === hit.face ? tf : hit.face}${fillStr}`;
+		} else {
+			label = `Face ${tf} (${geo.faceLabel(tf)})${fillStr}`;
+		}
+		tooltip.style.display = 'block';
+		tooltip.style.left = (e.clientX + 14) + 'px';
+		tooltip.style.top = (e.clientY + 14) + 'px';
+		tooltip.innerHTML = label;
+		canvas.style.cursor = 'pointer';
+	} else if (face >= 0 && face !== currentLayout.seed && !glueTabMode) {
+		const curFill = currentLayout._currentFill || 0;
+		let fillStr = '';
+		if (hoveredFacePreviewFill !== undefined) {
+			const diff = hoveredFacePreviewFill - curFill;
+			const diffStr = diff > 0 ? `<span style="color:#4f4">+${diff.toFixed(1)}%</span>` : diff < 0 ? `<span style="color:#f44">${diff.toFixed(1)}%</span>` : `<span style="color:#888">±0%</span>`;
+			fillStr = ` → ${hoveredFacePreviewFill.toFixed(1)}% ${diffStr}`;
+		}
+		tooltip.style.display = 'block';
+		tooltip.style.left = (e.clientX + 14) + 'px';
+		tooltip.style.top = (e.clientY + 14) + 'px';
+		tooltip.innerHTML = `Set as root${fillStr}`;
+		canvas.style.cursor = 'pointer';
+	} else {
+		tooltip.style.display = 'none';
+		canvas.style.cursor = 'default';
+	}
+});
+
+canvas.addEventListener('mouseleave', () => {
+	hoveredEdge = null;
+	hoveredFace = -1;
+	tooltip.style.display = 'none';
+	canvas.style.cursor = 'default';
+	draw();
+});
+
+// ── Auto-reroot ──
+function autoReroot(layout) {
+	const N = geo.nFaces;
+	const { res, placed, parent, mirrored } = layout;
+	const pts = bboxCriticalPoints(res, placed, parent, mirrored || false);
+	const bb = bboxDims(pts, 0);
+	const cx = (bb.mnX + bb.mxX) / 2, cy = (bb.mnY + bb.mxY) / 2;
+	let bestFace = -1, bestDist = Infinity;
+	for (let i = 0; i < N; i++) {
+		if (!placed[i]) continue;
+		const dx = res[i].x - cx, dy = res[i].y - cy;
+		const d = dx * dx + dy * dy;
+		if (d < bestDist) { bestDist = d; bestFace = i; }
+	}
+	if (bestFace < 0 || bestFace === layout.seed) return;
+	const newPP = rerootTree(parent, bestFace);
+	const newLayout = guidedUnfold(bestFace, newPP);
+	newLayout.seed = bestFace;
+	newLayout.mirrored = layout.mirrored;
+	optimizeAndApplyRotation(newLayout);
+	let dot = 0;
+	for (let i = 0; i < N; i++) {
+		if (!placed[i] || !newLayout.placed[i]) continue;
+		dot += newLayout.res[i].x * res[i].x + newLayout.res[i].y * res[i].y;
+	}
+	if (dot < 0) {
+		for (let i = 0; i < N; i++) {
+			if (!newLayout.placed[i]) continue;
+			newLayout.res[i].x = -newLayout.res[i].x;
+			newLayout.res[i].y = -newLayout.res[i].y;
+			newLayout.res[i].r += Math.PI;
+		}
+		newLayout.angle = (newLayout.angle || 0) + Math.PI;
+	}
+	Object.assign(layout, newLayout);
+}
+
+// ── Click handler ──
+canvas.addEventListener('click', e => {
+	if (!currentLayout || !geo) return;
+	const N = geo.nFaces;
+	if (hoveredFace >= 0 && hoveredFace !== currentLayout.seed && !hoveredEdge && !glueTabMode) {
+		const oldRes = currentLayout.res;
+		const oldPlaced = currentLayout.placed;
+		undoStack.push(cloneLayout(currentLayout));
+		redoStack.length = 0;
+		historyIndex++;
+		history.pushState({ idx: historyIndex }, '');
+		const newPP = rerootTree(currentLayout.parent, hoveredFace);
+		const layout = guidedUnfold(hoveredFace, newPP);
+		layout.seed = hoveredFace;
+		layout.mirrored = currentLayout.mirrored;
+		currentLayout = layout;
+		optimizeAndApplyRotation(currentLayout);
+		let dot = 0;
+		for (let i = 0; i < N; i++) {
+			if (!oldPlaced[i] || !layout.placed[i]) continue;
+			dot += layout.res[i].x * oldRes[i].x + layout.res[i].y * oldRes[i].y;
+		}
+		if (dot < 0) {
+			for (let i = 0; i < N; i++) {
+				if (!layout.placed[i]) continue;
+				layout.res[i].x = -layout.res[i].x;
+				layout.res[i].y = -layout.res[i].y;
+				layout.res[i].r += Math.PI;
+			}
+			layout.angle = (layout.angle || 0) + Math.PI;
+		}
+		hoveredFace = -1;
+		hoveredFacePreviewFill = undefined;
+		tooltip.style.display = 'none';
+		draw();
+		return;
+	}
+	if (!hoveredEdge) return;
+	if (glueTabMode) {
+		if (!hoveredEdge.isCutEdge) return;
+		undoStack.push(cloneLayout(currentLayout));
+		redoStack.length = 0;
+		historyIndex++;
+		history.pushState({ idx: historyIndex }, '');
+		const key = edgeKey(hoveredEdge.face, hoveredEdge.targetFace);
+		const owner = tabOwnership[key] !== undefined ? tabOwnership[key] : Math.min(hoveredEdge.face, hoveredEdge.targetFace);
+		tabOwnership[key] = owner === hoveredEdge.face ? hoveredEdge.targetFace : hoveredEdge.face;
+		optimizeAndApplyRotation(currentLayout);
+		draw();
+		return;
+	}
+	undoStack.push(cloneLayout(currentLayout));
+	redoStack.length = 0;
+	historyIndex++;
+	history.pushState({ idx: historyIndex }, '');
+	const { face, targetFace } = hoveredEdge;
+	reparent(currentLayout, face, targetFace);
+	optimizeAndApplyRotation(currentLayout);
+	autoReroot(currentLayout);
+	hoveredEdge = null;
+	tooltip.style.display = 'none';
+	draw();
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Undo / Redo
+// ═══════════════════════════════════════════════════════════════════════
+
+function restoreFromSnapshot(snapshot) {
+	if (snapshot.tabOwnershipSnapshot) tabOwnership = snapshot.tabOwnershipSnapshot;
+}
+
+function performUndo() {
+	if (undoStack.length === 0) return;
+	redoStack.push(cloneLayout(currentLayout));
+	currentLayout = undoStack.pop();
+	restoreFromSnapshot(currentLayout);
+	hoveredEdge = null; hoveredFace = -1; tooltip.style.display = 'none';
+	draw();
+}
+
+function performRedo() {
+	if (redoStack.length === 0) return;
+	undoStack.push(cloneLayout(currentLayout));
+	currentLayout = redoStack.pop();
+	restoreFromSnapshot(currentLayout);
+	hoveredEdge = null; hoveredFace = -1; tooltip.style.display = 'none';
+	draw();
+}
+
+window.addEventListener('popstate', e => {
+	const newIdx = (e.state && e.state.idx) || 0;
+	if (newIdx < historyIndex) performUndo();
+	else if (newIdx > historyIndex) performRedo();
+	historyIndex = newIdx;
+});
+
+window.addEventListener('keydown', e => {
+	if (e.ctrlKey && e.key === 'z') { e.preventDefault(); history.back(); }
+	if (e.ctrlKey && e.key === 'y') { e.preventDefault(); history.forward(); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// UI Controls
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── Geometry selector (sorted by face count) ──
+for (const key of Object.keys(GEOMETRIES).sort((a, b) => GEOMETRIES[a].nFaces - GEOMETRIES[b].nFaces)) {
+	const opt = document.createElement('option');
+	opt.value = key;
+	opt.textContent = GEOMETRIES[key].name;
+	geoSelect.appendChild(opt);
+}
+
+function populatePresets() {
+	presetSelect.innerHTML = '';
+	if (!geo) return;
+	geo.presets.forEach((p, i) => {
+		const opt = document.createElement('option');
+		opt.value = i;
+		opt.textContent = p.label;
+		presetSelect.appendChild(opt);
+	});
+	const customs = loadCustomLayouts();
+	for (const key of Object.keys(customs)) {
+		const opt = document.createElement('option');
+		opt.value = key;
+		const c = customs[key];
+		const dims = (c.width && c.height) ? ` (${c.width}×${c.height})` : '';
+		opt.textContent = (c.label || key) + dims;
+		presetSelect.appendChild(opt);
+	}
+}
+
+function populatePaperFormats() {
+	paperFmt.innerHTML = '';
+	PAPER_FORMATS.forEach((p, i) => {
+		const opt = document.createElement('option');
+		opt.value = i;
+		opt.textContent = p.label;
+		paperFmt.appendChild(opt);
+	});
+}
+
+function switchGeometry(geoId) {
+	geo = GEOMETRIES[geoId];
+	if (!geo) return;
+	undoStack.length = 0;
+	redoStack.length = 0;
+	historyIndex = 0;
+	history.replaceState({ idx: 0 }, '');
+	tabOwnership = {};
+	currentLayout = null;
+	hoveredEdge = null;
+	hoveredFace = -1;
+	boundaryEdges = [];
+	populatePresets();
+	if (geo.presets.length > 0) {
+		presetSelect.value = '0';
+		computeLayout();
+	}
+}
+
+geoSelect.addEventListener('change', () => switchGeometry(geoSelect.value));
+presetSelect.addEventListener('change', computeLayout);
+
+paperFmt.addEventListener('change', () => {
+	updateDeleteBtnVisibility();
+	if (currentLayout) {
+		optimizeAndApplyRotation(currentLayout);
+		draw();
+	}
+});
+
+orientationSelect.addEventListener('change', () => {
+	if (currentLayout) {
+		optimizeAndApplyRotation(currentLayout);
+		draw();
+	}
+});
+
+marginSlider.addEventListener('input', () => {
+	marginVal.textContent = marginSlider.value + ' mm';
+	if (currentLayout) {
+		optimizeAndApplyRotation(currentLayout);
+		draw();
+	}
+});
+
+// ── Flip ──
+function flipLayout(axis) {
+	if (!currentLayout || !geo) return;
+	const { res, placed } = currentLayout;
+	for (let i = 0; i < geo.nFaces; i++) {
+		if (!placed[i]) continue;
+		if (axis === 'h') {
+			res[i].x = -res[i].x;
+			res[i].r = Math.PI - res[i].r;
+		} else {
+			res[i].y = -res[i].y;
+			res[i].r = -res[i].r;
+		}
+	}
+	currentLayout.mirrored = !currentLayout.mirrored;
+	currentLayout.angle = 0;
+	optimizeAndApplyRotation(currentLayout);
+	draw();
+}
+document.getElementById('btn-flip-h').addEventListener('click', () => flipLayout('h'));
+document.getElementById('btn-flip-v').addEventListener('click', () => flipLayout('v'));
+
+// ── Glue tab mode ──
+document.getElementById('btn-glue-tab').addEventListener('click', () => {
+	glueTabMode = !glueTabMode;
+	const btn = document.getElementById('btn-glue-tab');
+	btn.style.background = glueTabMode ? '#a06000' : '';
+	btn.style.color = glueTabMode ? '#fff' : '';
+	btn.style.borderColor = glueTabMode ? '#c80' : '';
+	hoveredEdge = null; hoveredFace = -1; tooltip.style.display = 'none';
+	draw();
+});
+
+// ── Clipboard ──
+document.getElementById('btn-export-clip').addEventListener('click', () => {
+	if (!currentLayout || !geo) return;
+	const data = {
+		geometry: geo.id,
+		label: presetSelect.options[presetSelect.selectedIndex]?.textContent || '',
+		parents: currentLayout.parent,
+		tabs: cloneTabOwnership(),
+		mirrored: currentLayout.mirrored || false,
+		angle: currentLayout.angle || 0,
+		aspect: getEffectiveAspect()
+	};
+	navigator.clipboard.writeText(JSON.stringify(data)).then(() => {
+		const btn = document.getElementById('btn-export-clip');
+		btn.textContent = '✅ Copied!';
+		setTimeout(() => btn.textContent = '📋 Copy', 1500);
+	});
+});
+
+document.getElementById('btn-import-clip').addEventListener('click', async () => {
+	const btn = document.getElementById('btn-import-clip');
+	if (!geo) return;
+	try {
+		const text = await navigator.clipboard.readText();
+		const data = JSON.parse(text);
+		let pp, tabs = {}, mirrored = false, label = '';
+		if (Array.isArray(data) && data.length === geo.nFaces) {
+			pp = data;
+		} else if (data.parents && Array.isArray(data.parents)) {
+			pp = data.parents;
+			if (data.tabs) tabs = data.tabs;
+			if (data.mirrored) mirrored = true;
+			if (data.label || data.name) label = data.label || data.name;
+		} else throw new Error('Invalid format');
+		if (pp.length !== geo.nFaces) throw new Error(`Expected ${geo.nFaces} parents, got ${pp.length}`);
+		const seed = pp.indexOf(-1);
+		const layout = guidedUnfold(seed, pp);
+		layout.seed = seed;
+		layout.mirrored = mirrored;
+		layout.label = label;
+		undoStack.push(cloneLayout(currentLayout));
+		redoStack.length = 0;
+		historyIndex++;
+		history.pushState({ idx: historyIndex }, '');
+		tabOwnership = tabs;
+		currentLayout = layout;
+		optimizeAndApplyRotation(currentLayout);
+		hoveredEdge = null; hoveredFace = -1;
+		updateDeleteBtnVisibility();
+		draw();
+		btn.textContent = '✅ Loaded!';
+		setTimeout(() => btn.textContent = '📥 Paste', 1500);
+	} catch (e) {
+		btn.textContent = '❌ Failed';
+		setTimeout(() => btn.textContent = '📥 Paste', 1500);
+		console.error('Import failed:', e);
+	}
+});
+
+// ── Custom layout management ──
+function updateDeleteBtnVisibility() {
+	const customs = loadCustomLayouts();
+	document.getElementById('btn-delete-custom').style.display =
+		customs[presetSelect.value] ? '' : 'none';
+}
+
+document.getElementById('btn-save-custom').addEventListener('click', () => {
+	if (!currentLayout || !geo) return;
+	const name = prompt('Layout name:', currentLayout.label || '');
+	if (!name) return;
+	const sizeStr = prompt('Paper size (width × height in mm, e.g. 297x210):');
+	if (!sizeStr) return;
+	const parts = sizeStr.split(/[x×,\s]+/).map(Number).filter(n => n > 0);
+	if (parts.length < 2) { alert('Invalid size. Use e.g. 297x210'); return; }
+	const w = Math.max(parts[0], parts[1]), h = Math.min(parts[0], parts[1]);
+	const aspect = w / h;
+	const key = 'custom_' + Date.now();
+	const customs = loadCustomLayouts();
+	customs[key] = {
+		label: name, width: parts[0], height: parts[1], aspect,
+		parents: currentLayout.parent.slice(),
+		tabs: cloneTabOwnership(),
+		mirrored: currentLayout.mirrored || false,
+		angle: currentLayout.angle || 0
+	};
+	saveCustomLayouts(customs);
+	currentLayout.label = name;
+	populatePresets();
+	presetSelect.value = key;
+	optimizeAndApplyRotation(currentLayout);
+	updateDeleteBtnVisibility();
+	draw();
+});
+
+document.getElementById('btn-delete-custom').addEventListener('click', () => {
+	const key = presetSelect.value;
+	const customs = loadCustomLayouts();
+	if (!customs[key]) return;
+	const name = customs[key].label || key;
+	if (!confirm('Delete custom layout "' + name + '"?')) return;
+	delete customs[key];
+	saveCustomLayouts(customs);
+	populatePresets();
+	presetSelect.value = '0';
+	updateDeleteBtnVisibility();
+	computeLayout();
+});
+
+window.addEventListener('resize', () => { if (currentLayout) draw(); });
+
+// ═══════════════════════════════════════════════════════════════════════
+// Initialization
+// ═══════════════════════════════════════════════════════════════════════
+
+// Support ?geo=xxx URL parameter
+const urlParams = new URLSearchParams(window.location.search);
+const geoParam = urlParams.get('geo');
+if (geoParam && GEOMETRIES[geoParam]) {
+	geoSelect.value = geoParam;
+}
+
+populatePaperFormats();
+history.replaceState({ idx: 0 }, '');
+switchGeometry(geoSelect.value);
+</script>
+</body>
+</html>

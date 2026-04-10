@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-04-10
+
+### Added
+- **Unified net layouter** — new `net-layouter.html` replaces the per-polyhedron layouter files; a single geometry selector dynamically loads any polyhedron from `geometry-presets.js`
+- **Shared geometry presets** (`geometry-presets.js`) — extracted all polyhedron definitions (vertices, adjacency, frames, edge pairing, ghost placement, collision checks, presets) into a standalone JS module loaded by the unified layouter
+- **Rhombic-12 geometry** — rhombic dodecahedron (12 congruent rhombi, dual of cuboctahedron); acute angle ≈ 70.53°, obtuse angle ≈ 109.47°, diagonal ratio 1:√2
+- **Pentahex-60 geometry** — pentagonal hexecontahedron (60 congruent irregular pentagons, dual of snub dodecahedron via polar reciprocal); bilateral mirror symmetry, two edge lengths (ratio 1.75:1), three edge-pairing types (0↔4, 1↔1, 2↔3)
+- **Deltoidal-60 geometry** — deltoidal hexecontahedron (60 congruent kite faces, dual of rhombicosidodecahedron); correct polar-reciprocal kite vertex distances and edge direction angles
+- **Rhombicosi-62 geometry** — rhombicosidodecahedron (62 faces: 20 triangles + 30 squares + 12 pentagons); mixed regular polygon faces with per-face side count
+- **Truncoct-14 geometry** — truncated octahedron (14 faces: 8 hexagons + 6 squares); mixed regular polygon faces
+- **Auto-generated presets** — rhombic-12, pentahex-60, and deltoidal-60 auto-generate optimised presets for DIN A, US Letter, US Legal, US Tabloid, and B5 JIS paper formats at load time
+- **Rhombicosi-62 DIN A preset** — hand-tuned layout (custom parent tree, 18 tab overrides, angle −0.489 rad) for better page fill
+
 ## [0.22.0] - 2026-04-04
 
 ### Added
