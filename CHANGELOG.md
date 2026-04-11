@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-04-11
+
+### Added
+- **Dodecahedron-12 geometry** — regular dodecahedron (12 congruent regular pentagons, dual of icosahedron); 5 hand-crafted presets for all paper formats
+- **Icosahedron-20 geometry** — regular icosahedron (20 congruent equilateral triangles); face normals from vertex triplet centroids, adjacency via dot product threshold (√5/3 ≈ 0.7454); 5 hand-crafted presets for all paper formats
+- **Default poles on all presets** — new `defaultPoles(c3)` helper picks the two most-antipodal face centers; all auto-generated presets now ship with north/south pole markers
+- **Paper format drives preset selection** — changing the paper format dropdown automatically selects the matching preset (DIN A sizes → DIN A preset, US Letter/Legal/Tabloid/B5 JIS → matching preset)
+- **Pole edit-mode highlight ring** — dashed ring drawn around pole markers when pole editing mode is active
+- **Click-on-pole exits edit mode** — clicking an existing pole marker during edit mode now deselects it (exits edit mode)
+
+### Changed
+- **Meridian line solid** — the meridian great-circle segment is now drawn as a solid line instead of dashed
+- **Preset dropdown hidden** — the preset selector is no longer visible in the UI; presets are selected automatically via the paper format dropdown
+- **Hand-crafted presets** — replaced auto-generated presets with hand-tuned layouts (optimised parent trees, tab assignments, pole positions) across all 9 geometries for all 5 paper formats
+
+### Removed
+- **Tree visualization** — removed "Set as root" tooltip, `rerootTree()`, `autoReroot()`, parent tree lines, ghost root marker, and reroot click/preview logic
+
 ## [0.23.0] - 2026-04-10
 
 ### Added

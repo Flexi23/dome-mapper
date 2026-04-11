@@ -672,6 +672,8 @@ A standalone HTML tool (`net-layouter.html`) backed by a shared geometry definit
 | **Truncoct-14** | 14 | 8 hexagons + 6 squares | — (truncated octahedron) |
 | **Rhombic-30** | 30 | congruent golden rhombi | icosahedron |
 | **Buckyball-32** | 32 | 20 hexagons + 12 pentagons | — (truncated icosahedron) |
+| **Dodecahedron-12** | 12 | congruent regular pentagons | icosahedron |
+| **Icosahedron-20** | 20 | congruent equilateral triangles | regular dodecahedron |
 | **Deltoidal-60** | 60 | congruent kites | rhombicosidodecahedron |
 | **Pentahex-60** | 60 | congruent irregular pentagons | snub dodecahedron |
 | **Rhombicosi-62** | 62 | 20 triangles + 30 squares + 12 pentagons | — (rhombicosidodecahedron) |
@@ -686,6 +688,8 @@ A standalone HTML tool (`net-layouter.html`) backed by a shared geometry definit
 - **Tooltip fill preview** — hovering a face or flap shows projected page fill with a colored +/− delta
 - **Undo / Redo** — browser history-based undo/redo for all layout and tab ownership changes
 - **Copy / Paste** — exports `{ geometry, parents, tabs, mirrored, angle, aspect }` JSON to clipboard
+- **Pole markers (N/S)** — place north and south pole markers on face centers or shared vertices; great-circle equator and meridian lines visualise the graticule on the net
+- **Paper-format-driven preset selection** — switching paper format automatically loads the matching hand-tuned preset
 - **Configurable paper margins** — adjustable margin slider affects effective aspect ratio and paper outline
 
 ### Legacy Net Layouters

@@ -52,6 +52,20 @@ function buildFrames(c3, nFaces) {
 	return frames;
 }
 
+// Pick two most-antipodal face centers as default poles
+function defaultPoles(c3) {
+	let bestI = 0, bestJ = 1, bestDot = 2;
+	for (let i = 0; i < c3.length; i++)
+		for (let j = i + 1; j < c3.length; j++) {
+			const d = dot3(c3[i], c3[j]);
+			if (d < bestDot) { bestDot = d; bestI = i; bestJ = j; }
+		}
+	return {
+		northPole: { type: 'center', face: bestI, dir: c3[bestI].slice() },
+		southPole: { type: 'center', face: bestJ, dir: c3[bestJ].slice() }
+	};
+}
+
 // Round-based edge index for regular polygon faces (buckyball, truncoct, rhombicosi)
 function regularEdgeIdx(c3, frames, nSides, i, j) {
 	const N = c3[i], [T1, T2] = frames[i], M = c3[j];
@@ -152,12 +166,13 @@ GEOMETRIES.buckyball32 = (function() {
 	function circumR(i) { return nSides(i) === 5 ? cr5 : cr6; }
 
 	const presets = [
-		{label:'DIN A (1:√2)',aspect:1.41421,parents:[12,13,14,15,13,15,21,23,28,-1,30,19,4,9,5,9,20,1,2,3,4,13,5,15,12,9,0,25,9,9,6,19],tabs:{"18-31":31,"10-31":31,"30-31":31,"18-26":26,"2-26":26,"10-26":26,"22-23":23,"5-23":23,"19-23":23,"3-23":23,"5-29":29,"14-29":29,"8-29":29,"28-29":29,"15-29":29,"2-22":22,"18-22":22,"2-24":24,"0-24":24,"4-28":28,"12-28":12,"13-28":28,"3-25":25,"1-25":25,"13-25":25,"15-25":25,"17-21":21,"20-21":21,"4-21":21,"0-20":20,"12-20":20,"14-22":22,"1-21":21,"14-24":24,"17-30":17,"17-27":27,"1-27":1,"11-31":31,"6-17":17,"6-20":20,"7-19":19,"7-22":22,"7-18":18,"8-12":8,"10-18":18,"19-27":27,"11-17":17},mirrored:false,angle:0.715584993317675},
-		{label:'US Letter (8.5×11 in)',aspect:1.29412,parents:[20,13,24,25,-1,29,20,31,24,28,16,17,0,4,29,5,20,6,26,3,4,4,18,15,0,13,0,1,4,28,6,30],tabs:{"7-22":7,"22-23":23,"11-30":30,"11-31":11,"11-19":19,"6-21":21,"17-21":21,"20-21":21,"1-21":21,"13-21":21,"9-13":13,"9-25":25,"9-15":9,"9-29":29,"14-22":22,"8-12":12,"4-12":12,"6-16":16,"0-16":16,"17-30":30,"17-27":17,"1-25":25,"19-27":27,"5-23":23,"2-26":26,"2-18":18,"2-22":22,"8-14":8,"8-29":8,"8-28":28,"5-14":14,"1-17":17,"7-23":23,"15-25":25,"7-18":18,"15-29":29},mirrored:false,angle:1.0995574287564276},
-		{label:'US Legal (8.5×14 in)',aspect:1.64706,parents:[12,21,14,27,12,14,20,22,12,28,18,30,-1,1,8,5,0,1,2,11,12,20,14,22,8,1,24,1,8,8,6,18],tabs:{"19-23":23,"10-30":30,"10-16":16,"9-25":25,"15-25":25,"3-23":23,"17-21":17,"13-25":25,"3-25":25,"4-28":28,"12-28":28,"13-21":13,"9-29":29,"5-29":29,"16-20":20,"0-20":20,"0-24":24,"2-24":24,"18-22":22,"7-23":23,"15-29":29,"9-15":15,"6-17":17,"11-17":17,"6-21":21,"28-29":29,"14-29":29,"10-31":31},mirrored:false,angle:1.4835298641951802},
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[12,13,14,15,13,15,21,23,28,-1,30,19,4,9,5,9,20,1,2,3,4,13,5,15,12,9,0,25,9,9,6,19],tabs:{"18-31":31,"10-31":31,"30-31":31,"18-26":26,"2-26":26,"10-26":26,"22-23":23,"5-23":23,"19-23":23,"3-23":23,"5-29":29,"14-29":29,"8-29":29,"28-29":29,"15-29":29,"2-22":22,"18-22":22,"2-24":24,"0-24":24,"4-28":28,"12-28":12,"13-28":28,"3-25":25,"1-25":25,"13-25":25,"15-25":25,"17-21":21,"20-21":21,"4-21":21,"0-20":20,"12-20":20,"14-22":22,"1-21":21,"14-24":24,"17-30":17,"17-27":27,"1-27":1,"11-31":31,"6-17":17,"6-20":20,"7-19":19,"7-22":22,"7-18":18,"8-12":8,"10-18":10,"19-27":27,"11-17":17},mirrored:false,angle:0.715584993317675,northPole:{type:'center',face:8,dir:[0.85065080835204,0,0.5257311121191336]},southPole:{type:'center',face:11,dir:[-0.85065080835204,0,-0.5257311121191336]}},
+		{label:'US Letter (8.5×11 in)',aspect:1.2941176470588234,parents:[20,13,24,25,-1,29,20,31,24,28,16,17,0,4,29,5,20,6,26,3,4,4,18,15,0,13,0,1,4,28,6,30],tabs:{"7-22":7,"22-23":23,"11-30":30,"11-31":11,"11-19":19,"6-21":21,"17-21":21,"20-21":21,"1-21":21,"13-21":21,"9-13":13,"9-25":25,"9-15":9,"9-29":29,"14-22":22,"8-12":12,"4-12":12,"6-16":16,"0-16":16,"17-30":30,"17-27":17,"1-25":25,"19-27":27,"5-23":23,"2-26":26,"2-18":18,"2-22":22,"8-14":8,"8-29":8,"8-28":28,"5-14":14,"1-17":17,"7-23":23,"15-25":25,"7-18":18,"15-29":29},mirrored:false,angle:1.0995574287564276,northPole:{type:'center',face:14,dir:[0.5773502691896258,-0.5773502691896258,0.5773502691896258]},southPole:{type:'center',face:17,dir:[-0.5773502691896258,0.5773502691896258,-0.5773502691896258]}},
+		{label:'US Legal (8.5×14 in)',aspect:1.647058823529412,parents:[12,21,14,27,12,14,20,22,12,28,18,30,-1,1,8,5,0,1,2,11,12,20,14,22,8,1,24,1,8,8,6,18],tabs:{"19-23":23,"10-30":30,"10-16":16,"9-25":25,"15-25":25,"3-23":23,"17-21":17,"13-25":25,"3-25":25,"4-28":28,"12-28":28,"13-21":13,"9-29":29,"5-29":29,"16-20":20,"0-20":20,"0-24":24,"2-24":24,"18-22":22,"7-23":23,"15-29":29,"9-15":15,"6-17":17,"11-17":17,"6-21":21,"28-29":29,"14-29":29,"10-31":31},mirrored:false,angle:1.4835298641951802,northPole:{type:'center',face:10,dir:[-0.85065080835204,0,0.5257311121191336]},southPole:{type:'center',face:9,dir:[0.85065080835204,0,-0.5257311121191336]}},
 		{label:'US Tabloid (11×17 in)',aspect:1.54362,parents:[24,25,14,15,12,-1,16,22,14,15,26,19,0,21,5,5,0,1,2,3,0,4,5,5,14,15,24,25,8,5,16,19],tabs:{"11-30":30,"17-30":30,"10-31":31,"10-30":10,"3-23":23,"19-23":23,"7-23":23,"22-23":23,"15-23":23,"2-22":22,"18-22":22,"14-22":22,"2-26":2,"16-26":26,"10-16":16,"11-17":17,"9-29":29,"8-29":29,"28-29":29,"4-20":20,"6-20":20,"0-26":26,"17-27":27,"1-27":27},mirrored:false,angle:0.17453292519943295},
 		{label:'B5 JIS (182×257 mm)',aspect:1.2987,parents:[24,21,24,27,12,29,21,18,12,29,30,17,-1,9,24,9,20,21,2,27,4,4,14,15,12,1,16,1,29,8,6,31],tabs:{"13-28":28,"12-28":28,"4-28":28,"8-28":28,"4-13":13,"13-21":21,"5-15":15,"5-23":5,"5-14":14,"6-20":20,"11-27":27,"19-31":31,"10-31":10,"10-26":10,"24-26":26,"7-22":7,"22-23":23,"3-25":25,"3-19":19,"19-23":19,"9-28":28,"1-13":13,"18-22":22,"18-31":31,"18-26":26,"10-18":18},mirrored:false,angle:1.4660765716752369}
 	];
+	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
 
 	return {
 		id: 'buckyball32',
@@ -323,12 +338,13 @@ GEOMETRIES.rhombic30 = (function() {
 	}
 
 	const presets = [
-		{label:'DIN A (1:√2)',aspect:1.41421,parents:[-1,0,4,1,0,0,7,0,5,10,1,5,7,6,15,12,10,11,17,16,3,4,23,21,16,12,17,29,15,23],tabs:{"22-24":24,"3-10":10,"6-12":12,"8-11":8,"15-25":25,"22-29":22,"27-28":28,"2-3":3,"9-16":16},mirrored:false,angle:0.017453292519943295},
-		{label:'US Letter (8.5×11 in)',aspect:11/8.5,parents:[-1,0,4,1,0,0,7,0,5,10,1,5,7,6,15,12,10,11,17,16,3,4,23,21,16,12,17,29,15,23],tabs:{"22-24":24,"3-10":10,"6-12":12,"8-11":8,"15-25":25,"22-29":22,"27-28":28,"2-3":3,"9-16":16},mirrored:false,angle:0.08726646259971647},
-		{label:'US Legal (8.5×14 in)',aspect:14/8.5,parents:[4,0,4,1,-1,0,7,0,5,10,1,5,7,8,28,12,10,11,17,16,3,4,23,21,16,12,17,29,29,23],tabs:{"13-14":14,"9-16":16,"3-10":10,"4-7":7,"15-25":25,"14-15":15,"19-27":27},mirrored:false,angle:1.064650843716541},
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[-1,0,4,1,0,0,7,0,5,10,1,5,7,6,15,12,10,11,17,16,3,4,23,21,16,12,17,29,15,23],tabs:{"22-24":24,"3-10":10,"6-12":12,"8-11":8,"15-25":25,"22-29":22,"27-28":28,"2-3":3,"9-16":16},mirrored:false,angle:0.017453292519943295,northPole:{type:'vertex',dir:[-1.3051454412604205e-17,-0.5257311121191336,0.8506508083520399]},southPole:{type:'vertex',dir:[0,0.5257311121191336,-0.8506508083520399]}},
+		{label:'US Letter (8.5×11 in)',aspect:1.2941176470588234,parents:[-1,0,4,1,0,0,7,0,5,10,1,5,7,6,15,12,10,11,17,16,3,4,23,21,16,12,17,29,15,23],tabs:{"22-24":24,"3-10":10,"6-12":12,"8-11":8,"15-25":25,"22-29":22,"27-28":28,"2-3":3,"9-16":16},mirrored:false,angle:0.08726646259971647,northPole:{type:'vertex',dir:[-0.8506508083520399,0,0.5257311121191336]},southPole:{type:'vertex',dir:[0.8506508083520399,0,-0.5257311121191336]}},
+		{label:'US Legal (8.5×14 in)',aspect:1.647058823529412,parents:[4,0,4,1,-1,0,7,0,5,10,1,5,7,8,28,12,10,11,17,16,3,4,23,21,16,12,17,29,29,23],tabs:{"13-14":14,"9-16":16,"3-10":10,"4-7":7,"15-25":25,"14-15":15,"19-27":27},mirrored:false,angle:1.064650843716541,northPole:{type:'vertex',dir:[-0.8506508083520399,0,0.5257311121191336]},southPole:{type:'vertex',dir:[0.8506508083520399,0,-0.5257311121191336]}},
 		{label:'US Tabloid (11×17 in)',aspect:17/11,parents:[4,0,4,1,-1,0,7,0,5,10,1,5,7,8,28,12,10,11,17,16,3,4,23,21,16,12,17,29,29,23],tabs:{"13-14":14,"9-16":16,"3-10":10,"4-7":7,"15-25":15,"14-15":14,"19-27":27,"18-27":27,"18-19":19,"18-26":18,"8-11":11,"2-3":3,"19-24":24,"23-25":25},mirrored:false,angle:1.0821041362364843},
 		{label:'B5 JIS (182×257 mm)',aspect:257/182,parents:[-1,0,4,1,0,0,7,0,5,10,1,5,7,6,15,12,10,11,17,16,3,4,23,21,16,12,17,29,15,23],tabs:{},mirrored:false,angle:0},
 	];
+	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
 
 	return {
 		id: 'rhombic30',
@@ -463,12 +479,13 @@ GEOMETRIES.truncoct14 = (function() {
 	}
 
 	const presets = [
-		generatePreset(Math.sqrt(2), 'DIN A (1:√2)'),
-		generatePreset(11 / 8.5, 'US Letter (8.5×11 in)'),
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[1,3,3,-1,0,1,7,3,1,5,0,7,2,3],tabs:{"4-9":9,"6-9":6,"4-6":6},mirrored:false,angle:1.1868238913561442,northPole:{type:'center',face:2,dir:[0.5773502691896258,-0.5773502691896258,0.5773502691896258]},southPole:{type:'center',face:5,dir:[-0.5773502691896258,0.5773502691896258,-0.5773502691896258]}},
+		{"label":"US Letter (8.5×11 in)","parents":[1,3,3,-1,10,1,2,13,1,7,1,2,2,1],"tabs":{"4-12":12,"4-6":6,"7-11":11},"mirrored":false,"angle":-1.308996938995747,"aspect":1.2941176470588234,"northPole":{"type":"center","face":7,"dir":[-0.5773502691896258,-0.5773502691896258,-0.5773502691896258]},"southPole":{"type":"center","face":0,"dir":[0.5773502691896258,0.5773502691896258,0.5773502691896258]}},
 		generatePreset(14 / 8.5, 'US Legal (8.5×14 in)'),
 		generatePreset(17 / 11, 'US Tabloid (11×17 in)'),
 		generatePreset(257 / 182, 'B5 JIS (182×257 mm)'),
 	].filter(Boolean);
+	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
 
 	return {
 		id: 'truncoct14',
@@ -654,12 +671,13 @@ GEOMETRIES.rhombicosi62 = (function() {
 	}
 
 	const presets = [
-		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[20,24,21,22,41,31,32,26,30,31,45,33,35,36,37,38,40,-1,43,48,1,50,4,3,4,0,6,6,7,8,56,58,10,53,12,10,56,58,59,13,55,17,18,17,16,17,11,19,12,18,22,26,21,32,36,41,40,32,33,34,42,35],tabs:{"37-54":54,"14-38":38,"31-52":52,"46-58":58,"14-46":46,"46-59":59,"48-59":59,"47-59":59,"15-47":47,"48-61":61,"45-61":61,"43-61":61,"49-61":61,"49-60":60,"13-44":44,"2-23":23,"23-50":50,"22-55":55},mirrored:false,angle:-0.4886921905584125},
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[20,24,23,22,41,31,27,26,30,37,45,33,35,36,46,38,40,-1,43,48,1,50,4,3,4,52,51,57,58,52,2,58,10,53,12,10,56,58,59,15,55,17,18,17,16,17,59,59,12,18,22,27,21,32,38,41,40,45,33,34,42,35],tabs:{"37-54":54,"14-38":38,"31-52":52,"46-58":58,"14-46":46,"46-59":59,"48-59":59,"47-59":59,"15-47":47,"48-61":61,"45-61":61,"43-61":61,"49-61":61,"49-60":60,"13-44":44,"2-23":23,"23-50":50,"22-55":55,"29-54":54},mirrored:false,angle:-0.3141592653589793,northPole:{type:'center',face:60,dir:[-0.5257311121191336,-0.85065080835204,0]},southPole:{type:'center',face:51,dir:[0.5257311121191336,0.85065080835204,0]}},
 		generatePreset(11 / 8.5, 'US Letter (8.5×11 in)'),
-		generatePreset(14 / 8.5, 'US Legal (8.5×14 in)'),
-		generatePreset(17 / 11, 'US Tabloid (11×17 in)'),
+		{"label":"US Legal (8.5×14 in)","parents":[20,20,21,22,22,28,26,26,29,29,35,34,48,39,38,47,42,43,49,49,50,50,55,3,4,0,53,57,58,54,56,58,10,11,12,12,13,14,15,15,16,17,18,18,16,17,59,19,19,-1,22,20,21,34,38,42,40,41,46,47,42,43],"tabs":{},"mirrored":false,"angle":0.03490658503988659,"aspect":1.647058823529412,"northPole":{"type":"center","face":36,"dir":[0.3090169943749474,-0.8090169943749473,0.5]},"southPole":{"type":"center","face":32,"dir":[-0.3090169943749474,0.8090169943749473,-0.5]}},
+		{"label":"US Tabloid (11×17 in)","parents":[20,20,21,22,22,25,26,26,29,29,35,34,48,39,38,47,42,43,49,49,50,50,55,3,4,0,53,57,5,54,56,5,10,53,12,12,13,14,15,15,16,17,18,18,16,17,11,19,19,-1,22,20,21,34,38,42,40,41,28,48,42,43],"tabs":{"37-58":58,"9-31":31,"7-28":28},"mirrored":false,"angle":0,"aspect":1.5454545454545456,"northPole":{"type":"center","face":36,"dir":[0.3090169943749474,-0.8090169943749473,0.5]},"southPole":{"type":"center","face":32,"dir":[-0.3090169943749474,0.8090169943749473,-0.5]}},
 		generatePreset(257 / 182, 'B5 JIS (182×257 mm)'),
 	].filter(Boolean);
+	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
 
 	return {
 		id: 'rhombicosi62',
@@ -918,12 +936,13 @@ GEOMETRIES.deltoidal60 = (function() {
 	}
 
 	const presets = [
-		generatePreset(Math.sqrt(2), 'DIN A (1:√2)'),
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[56,58,0,1,0,1,2,3,32,33,8,9,8,9,10,11,-1,41,16,17,16,17,18,19,0,1,2,3,4,5,6,7,24,28,25,53,26,30,27,15,16,26,18,30,20,27,22,31,24,25,28,29,16,18,36,39,40,2,44,3],tabs:{},mirrored:false,angle:1.361356816555577,northPole:{type:'vertex',dir:[-0.8506508083520399,0.5257311121191335,0]},southPole:{type:'vertex',dir:[0.8506508083520399,-0.5257311121191335,0]}},
 		generatePreset(11 / 8.5, 'US Letter (8.5×11 in)'),
 		generatePreset(14 / 8.5, 'US Legal (8.5×14 in)'),
 		generatePreset(17 / 11, 'US Tabloid (11×17 in)'),
 		generatePreset(257 / 182, 'B5 JIS (182×257 mm)'),
 	].filter(Boolean);
+	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
 
 	return {
 		id: 'deltoidal60',
@@ -1190,12 +1209,13 @@ GEOMETRIES.pentahex60 = (function() {
 	}
 
 	const presets = [
-		generatePreset(Math.sqrt(2), 'DIN A (1:√2)'),
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[48,0,30,15,16,17,4,5,20,21,9,8,0,1,18,27,12,13,6,7,12,13,10,11,12,13,22,11,0,1,18,19,16,17,6,7,24,25,57,44,28,29,30,55,32,33,37,36,-1,0,2,30,40,5,6,7,44,9,25,24],tabs:{"3-15":15,"3-31":31,"31-50":31,"43-50":43,"44-54":54,"32-54":54,"20-32":32,"35-53":53,"7-53":53,"16-28":28,"12-28":28,"4-52":52,"6-52":52,"34-52":52,"46-52":46,"46-58":58,"10-58":58,"9-58":9,"9-25":25,"21-25":25,"31-43":43,"15-31":31,"15-19":19,"3-50":50},mirrored:false,angle:1.53588974175501,northPole:{type:'vertex',dir:[0.8506508083520399,-0.5257311121191336,-1.208259388534423e-17]},southPole:{type:'vertex',dir:[-0.8506508083520399,0.5257311121191336,-1.208259388534423e-17]}},
 		generatePreset(11 / 8.5, 'US Letter (8.5×11 in)'),
-		generatePreset(14 / 8.5, 'US Legal (8.5×14 in)'),
+		{"label":"US Legal (8.5×14 in)","parents":[12,0,14,15,16,17,4,5,20,21,9,8,-1,1,26,27,12,13,6,7,12,13,10,11,12,13,10,11,0,1,18,19,16,17,6,53,24,25,26,27,28,29,30,31,32,33,37,36,0,0,31,39,40,41,32,7,8,9,25,24],"tabs":{},"mirrored":false,"angle":0.7330382858376184,"aspect":1.647058823529412,"northPole":{"type":"vertex","dir":[-0.35682208977308993,0.9341723589627157,-1.9205239728688042e-17]},"southPole":{"type":"vertex","dir":[0.35682208977308993,-0.9341723589627157,-1.9205239728688042e-17]}},
 		generatePreset(17 / 11, 'US Tabloid (11×17 in)'),
 		generatePreset(257 / 182, 'B5 JIS (182×257 mm)'),
 	].filter(Boolean);
+	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
 
 	return {
 		id: 'pentahex60',
@@ -1398,12 +1418,13 @@ GEOMETRIES.rhombic12 = (function() {
 	}
 
 	const presets = [
-		generatePreset(Math.sqrt(2), 'DIN A (1:√2)'),
-		generatePreset(11 / 8.5, 'US Letter (8.5×11 in)'),
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[4,6,9,9,9,2,3,3,6,-1,7,3],tabs:{"1-10":10},mirrored:false,angle:1.5009831567151233,northPole:{type:'vertex',dir:[-0.5773502691896257,-0.5773502691896257,0.5773502691896257]},southPole:{type:'vertex',dir:[0.5773502691896257,0.5773502691896257,-0.5773502691896257]}},
+		{"label":"US Letter (8.5×11 in)","parents":[8,8,4,6,0,0,8,1,-1,4,0,5],"tabs":{},"mirrored":false,"angle":1.5533430342749535,"aspect":1.2941176470588234,"northPole":{"type":"vertex","dir":[-0.5773502691896257,0.5773502691896257,-0.5773502691896257]},"southPole":{"type":"vertex","dir":[0.5773502691896257,-0.5773502691896257,0.5773502691896257]}},
 		generatePreset(14 / 8.5, 'US Legal (8.5×14 in)'),
-		generatePreset(17 / 11, 'US Tabloid (11×17 in)'),
-		generatePreset(257 / 182, 'B5 JIS (182×257 mm)'),
+		{"label":"US Tabloid (11×17 in)","parents":[4,8,4,9,-1,2,8,1,0,2,0,2],"tabs":{"7-11":11,"3-7":7,"4-9":4,"4-8":8,"6-9":9,"1-6":6,"5-11":11,"0-5":5,"3-6":6},"mirrored":false,"angle":1.361356816555577,"aspect":1.5454545454545456,"northPole":{"type":"vertex","dir":[-0.5773502691896257,0.5773502691896257,0.5773502691896257]},"southPole":{"type":"vertex","dir":[0.5773502691896257,-0.5773502691896257,-0.5773502691896257]}},
+		{"label":"B5 JIS (182×257 mm)","parents":[4,6,9,9,2,2,9,3,4,-1,5,2],"tabs":{},"mirrored":false,"angle":-1.5009831567151233,"aspect":1.4120879120879122,"northPole":{"type":"vertex","dir":[0.5773502691896257,0.5773502691896257,0.5773502691896257]},"southPole":{"type":"vertex","dir":[-0.5773502691896257,-0.5773502691896257,-0.5773502691896257]}},
 	].filter(Boolean);
+	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
 
 	return {
 		id: 'rhombic12',
@@ -1445,6 +1466,296 @@ GEOMETRIES.rhombic12 = (function() {
 			return 'rgba(50, 70, 30, 0.85)';
 		},
 		ghostColor() { return 'rgba(160, 200, 80, 0.25)'; },
+		presets,
+	};
+})();
+
+// ─────────────────────────────────────────────────────────────────────
+// Dodecahedron-12 (12 regular pentagons)
+// ─────────────────────────────────────────────────────────────────────
+GEOMETRIES.dodecahedron12 = (function() {
+	const N_FACES = 12;
+	const PHI = (1 + Math.sqrt(5)) / 2;
+
+	// Face normals of a regular dodecahedron (normalised)
+	const rawC3 = [
+		[0, 1, PHI], [0, 1, -PHI], [0, -1, PHI], [0, -1, -PHI],
+		[1, PHI, 0], [1, -PHI, 0], [-1, PHI, 0], [-1, -PHI, 0],
+		[PHI, 0, 1], [PHI, 0, -1], [-PHI, 0, 1], [-PHI, 0, -1]
+	];
+	const c3 = rawC3.map(norm3);
+
+	// Adjacency: pentagonal faces share an edge when angle ≈ 41.8° (dot ≈ 0.447)
+	const adj = Array.from({ length: N_FACES }, () => []);
+	for (let i = 0; i < N_FACES; i++)
+		for (let j = i + 1; j < N_FACES; j++) {
+			const d = dot3(c3[i], c3[j]);
+			if (d > 0.4 && d < 0.5) { adj[i].push(j); adj[j].push(i); }
+		}
+
+	const frames = buildFrames(c3, N_FACES);
+
+	const ap5 = regularApothem(5);
+	const cr5 = regularCircumR(5);
+	const tabH = ap5 * 0.3;
+	const tabInset = 0.15;
+	const singleTabArea = (1 - tabInset) * tabH;
+
+	function nSides() { return 5; }
+	function edgeIdx(i, j) { return regularEdgeIdx(c3, frames, nSides, i, j); }
+	function apothem() { return ap5; }
+	function circumR() { return cr5; }
+
+	function generatePreset(aspect, label) {
+		let best = null, bestScore = Infinity;
+		for (const s of Array.from({ length: N_FACES }, (_, i) => i)) {
+			const placed = new Array(N_FACES).fill(false);
+			const parent = new Array(N_FACES).fill(-1);
+			const res = new Array(N_FACES);
+			res[s] = { x: 0, y: 0, r: 0 };
+			placed[s] = true;
+			let count = 1, changed = true;
+			while (changed) {
+				changed = false;
+				for (let j = 0; j < N_FACES; j++) {
+					if (placed[j]) continue;
+					for (const i of adj[j]) {
+						if (!placed[i]) continue;
+						const pos = regularGhostPlace(nSides, apothem, edgeIdx, i, j, res, false);
+						if (!regularCollisionCheck(N_FACES, apothem, placed, res, j, pos.x, pos.y)) {
+							res[j] = pos; placed[j] = true; parent[j] = i; count++; changed = true; break;
+						}
+					}
+				}
+			}
+			let bestA = 0, bestAr = Infinity;
+			for (let deg = 0; deg < 180; deg += 2) {
+				const rad = deg * Math.PI / 180;
+				const cs = Math.cos(rad), sn = Math.sin(rad);
+				let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
+				for (let ii = 0; ii < N_FACES; ii++) {
+					if (!placed[ii]) continue;
+					const rx = res[ii].x * cs - res[ii].y * sn;
+					const ry = res[ii].x * sn + res[ii].y * cs;
+					mnX = Math.min(mnX, rx - cr5); mxX = Math.max(mxX, rx + cr5);
+					mnY = Math.min(mnY, ry - cr5); mxY = Math.max(mxY, ry + cr5);
+				}
+				const w = mxX - mnX, h = mxY - mnY;
+				const sc = Math.min(aspect / w, 1 / h);
+				const ar = aspect / (sc * sc);
+				if (ar < bestAr) { bestAr = ar; bestA = rad; }
+			}
+			const penalty = (N_FACES - count) * 100;
+			const score = bestAr + penalty;
+			if (score < bestScore) { bestScore = score; best = { parents: parent.slice(), angle: bestA, count }; }
+		}
+		if (!best) return null;
+		return { label, aspect, parents: best.parents, tabs: {}, mirrored: false, angle: best.angle };
+	}
+
+	const presets = [
+		{"label":"DIN A (1:√2)","parents":[4,4,0,1,-1,8,1,2,0,1,0,1],"tabs":{"10-11":11,"3-5":5,"4-6":4},"mirrored":false,"angle":-0.7330382858376185,"aspect":1.4142857142857144,"northPole":{"type":"vertex","dir":[0.9341723589627157,-0.3568220897730899,0]},"southPole":{"type":"vertex","dir":[-0.9341723589627157,0.3568220897730899,0]}},
+		{"label":"US Letter (8.5×11 in)","parents":[4,-1,0,1,1,8,1,2,0,1,2,1],"tabs":{"3-5":5,"10-11":11,"5-7":7},"mirrored":false,"angle":0.9948376736367678,"aspect":1.2941176470588234,"northPole":{"type":"vertex","dir":[0.9341723589627157,-0.3568220897730899,0]},"southPole":{"type":"vertex","dir":[-0.9341723589627157,0.3568220897730899,0]}},
+		generatePreset(14 / 8.5, 'US Legal (8.5×14 in)'),
+		generatePreset(17 / 11, 'US Tabloid (11×17 in)'),
+		generatePreset(257 / 182, 'B5 JIS (182×257 mm)'),
+	].filter(Boolean);
+	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
+
+	return {
+		id: 'dodecahedron12',
+		name: 'Dodecahedron-12',
+		nFaces: N_FACES,
+		storageKey: 'dodecahedron12-custom-layouts',
+		c3, adj, frames,
+		nSides,
+		edgeIdx,
+		apothem,
+		circumR,
+		tabH,
+		tabInset,
+		singleTabArea,
+		initialRotation: 0,
+
+		ghostPlace(i, j, res, mirrored) {
+			return regularGhostPlace(nSides, apothem, edgeIdx, i, j, res, mirrored);
+		},
+		tryPlace(i, j, res, placed, mirrored) {
+			return regularTryPlace(this, i, j, res, placed, mirrored);
+		},
+		polyVerts(fx, fy, rot) {
+			return regularPolyVerts(fx, fy, rot, 5, cr5);
+		},
+		faceArea() { return regularArea(5); },
+		tabInsets() { return [tabInset, tabInset]; },
+		edgeSlot(i, k, mirrored) { return regularEdgeSlot(5, k, mirrored); },
+		faceLabel() { return 'pent'; },
+		faceColor(i, isSelf, isTarget) {
+			if (isSelf) return 'rgba(140, 80, 160, 0.9)';
+			if (isTarget) return 'rgba(160, 100, 200, 0.45)';
+			return 'rgba(65, 40, 75, 0.85)';
+		},
+		ghostColor() { return 'rgba(160, 100, 200, 0.25)'; },
+		presets,
+	};
+})();
+
+// ─────────────────────────────────────────────────────────────────────
+// Icosahedron-20 (20 equilateral triangles)
+// ─────────────────────────────────────────────────────────────────────
+GEOMETRIES.icosahedron20 = (function() {
+	const N_FACES = 20;
+	const PHI = (1 + Math.sqrt(5)) / 2;
+
+	// 12 icosahedron vertices
+	const icoV = [];
+	for (const s1 of [1, -1])
+		for (const s2 of [1, -1]) {
+			icoV.push(norm3([0, s1, s2 * PHI]));
+			icoV.push(norm3([s1, s2 * PHI, 0]));
+			icoV.push(norm3([s2 * PHI, 0, s1]));
+		}
+
+	// Find minimum edge length between adjacent vertices
+	let minDist = Infinity;
+	for (let a = 0; a < 12; a++)
+		for (let b = a + 1; b < 12; b++) {
+			const d = Math.sqrt(sub3(icoV[a], icoV[b]).reduce((s, v) => s + v * v, 0));
+			if (d < minDist) minDist = d;
+		}
+
+	// Find 20 triangular faces (triplets of vertices at edge distance)
+	const faceNormals = [];
+	for (let a = 0; a < 12; a++)
+		for (let b = a + 1; b < 12; b++) {
+			const dab = Math.sqrt(sub3(icoV[a], icoV[b]).reduce((s, v) => s + v * v, 0));
+			if (Math.abs(dab - minDist) > 0.01) continue;
+			for (let c = b + 1; c < 12; c++) {
+				const dac = Math.sqrt(sub3(icoV[a], icoV[c]).reduce((s, v) => s + v * v, 0));
+				const dbc = Math.sqrt(sub3(icoV[b], icoV[c]).reduce((s, v) => s + v * v, 0));
+				if (Math.abs(dac - minDist) < 0.01 && Math.abs(dbc - minDist) < 0.01) {
+					faceNormals.push(norm3([
+						icoV[a][0] + icoV[b][0] + icoV[c][0],
+						icoV[a][1] + icoV[b][1] + icoV[c][1],
+						icoV[a][2] + icoV[b][2] + icoV[c][2]
+					]));
+				}
+			}
+		}
+
+	const c3 = faceNormals;
+
+	// Adjacency: adjacent triangles share an edge → dot ≈ 0.7454 (√5/3)
+	const adj = Array.from({ length: N_FACES }, () => []);
+	for (let i = 0; i < N_FACES; i++)
+		for (let j = i + 1; j < N_FACES; j++) {
+			const d = dot3(c3[i], c3[j]);
+			if (d > 0.74 && d < 0.76) { adj[i].push(j); adj[j].push(i); }
+		}
+
+	const frames = buildFrames(c3, N_FACES);
+
+	const ap3 = regularApothem(3);
+	const cr3 = regularCircumR(3);
+	const tabH = ap3 * 0.3;
+	const tabInset = 0.15;
+	const singleTabArea = (1 - tabInset) * tabH;
+
+	function nSides() { return 3; }
+	function edgeIdx(i, j) { return regularEdgeIdx(c3, frames, nSides, i, j); }
+	function apothem() { return ap3; }
+	function circumR() { return cr3; }
+
+	function generatePreset(aspect, label) {
+		let best = null, bestScore = Infinity;
+		for (let s = 0; s < N_FACES; s++) {
+			const placed = new Array(N_FACES).fill(false);
+			const parent = new Array(N_FACES).fill(-1);
+			const res = new Array(N_FACES);
+			res[s] = { x: 0, y: 0, r: 0 };
+			placed[s] = true;
+			let count = 1, changed = true;
+			while (changed) {
+				changed = false;
+				for (let j = 0; j < N_FACES; j++) {
+					if (placed[j]) continue;
+					for (const i of adj[j]) {
+						if (!placed[i]) continue;
+						const pos = regularGhostPlace(nSides, apothem, edgeIdx, i, j, res, false);
+						if (!regularCollisionCheck(N_FACES, apothem, placed, res, j, pos.x, pos.y)) {
+							res[j] = pos; placed[j] = true; parent[j] = i; count++; changed = true; break;
+						}
+					}
+				}
+			}
+			let bestA = 0, bestAr = Infinity;
+			for (let deg = 0; deg < 180; deg += 2) {
+				const rad = deg * Math.PI / 180;
+				const cs = Math.cos(rad), sn = Math.sin(rad);
+				let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
+				for (let ii = 0; ii < N_FACES; ii++) {
+					if (!placed[ii]) continue;
+					const rx = res[ii].x * cs - res[ii].y * sn;
+					const ry = res[ii].x * sn + res[ii].y * cs;
+					mnX = Math.min(mnX, rx - cr3); mxX = Math.max(mxX, rx + cr3);
+					mnY = Math.min(mnY, ry - cr3); mxY = Math.max(mxY, ry + cr3);
+				}
+				const w = mxX - mnX, h = mxY - mnY;
+				const sc = Math.min(aspect / w, 1 / h);
+				const ar = aspect / (sc * sc);
+				if (ar < bestAr) { bestAr = ar; bestA = rad; }
+			}
+			const penalty = (N_FACES - count) * 100;
+			const score = bestAr + penalty;
+			if (score < bestScore) { bestScore = score; best = { parents: parent.slice(), angle: bestA, count }; }
+		}
+		if (!best) return null;
+		return { label, aspect, parents: best.parents, tabs: {}, mirrored: false, angle: best.angle };
+	}
+
+	const presets = [
+		{"label":"DIN A (1:√2)","parents":[1,4,3,16,3,9,1,6,13,8,6,14,11,15,15,-1,13,4,16,15],"tabs":{"7-11":11},"mirrored":false,"angle":-0.8552113334772211,"aspect":1.4142857142857144,"northPole":{"type":"vertex","dir":[-0.85065080835204,2.794228342850189e-17,-0.5257311121191336]},"southPole":{"type":"vertex","dir":[0.85065080835204,1.3971141714250944e-17,0.5257311121191336]}},
+		{"label":"US Letter (8.5×11 in)","parents":[1,4,3,16,3,7,1,6,2,8,6,7,10,16,11,13,-1,4,16,15],"tabs":{},"mirrored":false,"angle":1.1868238913561442,"aspect":1.2941176470588234,"northPole":{"type":"vertex","dir":[-0.85065080835204,2.794228342850189e-17,-0.5257311121191336]},"southPole":{"type":"vertex","dir":[0.85065080835204,1.3971141714250944e-17,0.5257311121191336]}},
+		{"label":"US Legal (8.5×14 in)","parents":[1,4,0,4,17,0,1,5,9,14,12,12,-1,15,11,14,13,10,17,12],"tabs":{"2-8":8,"5-9":9,"5-7":7},"mirrored":false,"angle":-1.0471975511965979,"aspect":1.647058823529412,"northPole":{"type":"vertex","dir":[-0.5257311121191336,-0.85065080835204,0]},"southPole":{"type":"vertex","dir":[0.5257311121191336,0.8506508083520399,2.794228342850189e-17]}},
+		{"label":"US Tabloid (11×17 in)","parents":[1,4,0,4,17,0,10,6,9,14,12,12,-1,15,11,14,13,10,17,12],"tabs":{"2-8":8,"5-9":9},"mirrored":false,"angle":-1.0471975511965979,"aspect":1.5454545454545456,"northPole":{"type":"vertex","dir":[-0.5257311121191336,-0.85065080835204,0]},"southPole":{"type":"vertex","dir":[0.5257311121191336,0.8506508083520399,2.794228342850189e-17]}},
+		{"label":"B5 JIS (182×257 mm)","parents":[1,4,3,16,3,0,1,5,13,8,17,14,11,15,15,-1,13,4,16,15],"tabs":{"5-9":9},"mirrored":false,"angle":-0.7679448708775047,"aspect":1.4120879120879122,"northPole":{"type":"vertex","dir":[-0.85065080835204,2.794228342850189e-17,-0.5257311121191336]},"southPole":{"type":"vertex","dir":[0.85065080835204,1.3971141714250944e-17,0.5257311121191336]}},
+	].filter(Boolean);
+	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
+
+	return {
+		id: 'icosahedron20',
+		name: 'Icosahedron-20',
+		nFaces: N_FACES,
+		storageKey: 'icosahedron20-custom-layouts',
+		c3, adj, frames,
+		nSides,
+		edgeIdx,
+		apothem,
+		circumR,
+		tabH,
+		tabInset,
+		singleTabArea,
+		initialRotation: 0,
+
+		ghostPlace(i, j, res, mirrored) {
+			return regularGhostPlace(nSides, apothem, edgeIdx, i, j, res, mirrored);
+		},
+		tryPlace(i, j, res, placed, mirrored) {
+			return regularTryPlace(this, i, j, res, placed, mirrored);
+		},
+		polyVerts(fx, fy, rot) {
+			return regularPolyVerts(fx, fy, rot, 3, cr3);
+		},
+		faceArea() { return regularArea(3); },
+		tabInsets() { return [tabInset, tabInset]; },
+		edgeSlot(i, k, mirrored) { return regularEdgeSlot(3, k, mirrored); },
+		faceLabel() { return 'tri'; },
+		faceColor(i, isSelf, isTarget) {
+			if (isSelf) return 'rgba(60, 150, 130, 0.9)';
+			if (isTarget) return 'rgba(80, 200, 170, 0.45)';
+			return 'rgba(30, 65, 55, 0.85)';
+		},
+		ghostColor() { return 'rgba(80, 200, 170, 0.25)'; },
 		presets,
 	};
 })();

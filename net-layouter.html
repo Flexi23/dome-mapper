@@ -41,9 +41,21 @@ canvas { display: block; }
 
 	<hr>
 
-	<label>Preset:
+	<label style="display:none">Preset:
 		<select id="preset-select"></select>
 	</label>
+
+	<hr>
+
+	<div class="label-row" style="margin-bottom:2px"><span>Poles:</span></div>
+	<div class="row" style="margin:2px 0">
+		<span style="flex:1; font-size:12px">N: <span id="north-pole-label" style="color:#e66">—</span></span>
+		<button id="btn-edit-north" style="width:auto; padding:1px 8px; font-size:11px" title="Edit North Pole">✎ N</button>
+	</div>
+	<div class="row" style="margin:2px 0">
+		<span style="flex:1; font-size:12px">S: <span id="south-pole-label" style="color:#68f">—</span></span>
+		<button id="btn-edit-south" style="width:auto; padding:1px 8px; font-size:11px" title="Edit South Pole">✎ S</button>
+	</div>
 
 	<hr>
 
@@ -98,10 +110,12 @@ let geo = null;  // current geometry object
 let currentLayout = null;
 let hoveredEdge = null;
 let hoveredFace = -1;
-let hoveredFacePreviewFill = undefined;
 let boundaryEdges = [];
 let glueTabMode = false;
 let tabOwnership = {};
+let vertexMap = null;
+let poleEditMode = null;   // null | 'north' | 'south'
+let hoveredSnap = null;    // { type, id/face/vertexId, positions }
 
 const undoStack = [];
 const redoStack = [];
@@ -118,6 +132,8 @@ const marginSlider = document.getElementById('margin-slider');
 const marginVal = document.getElementById('margin-val');
 const scoreDiv = document.getElementById('score');
 const tooltip = document.getElementById('tooltip');
+const northPoleLabel = document.getElementById('north-pole-label');
+const southPoleLabel = document.getElementById('south-pole-label');
 
 // ═══════════════════════════════════════════════════════════════════════
 // Paper format & aspect helpers
@@ -181,8 +197,324 @@ function cloneLayout(layout) {
 		mirrored: layout.mirrored || false,
 		label: layout.label || '',
 		angle: layout.angle || 0,
+		northPole: layout.northPole ? Object.assign({}, layout.northPole) : null,
+		southPole: layout.southPole ? Object.assign({}, layout.southPole) : null,
 		tabOwnershipSnapshot: cloneTabOwnership()
 	};
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Vertex Map & Pole System
+// ═══════════════════════════════════════════════════════════════════════
+
+function rebuildVertexMap() {
+	if (!geo) { vertexMap = null; return; }
+	const mirrored = currentLayout ? currentLayout.mirrored : false;
+	const nFaces = geo.nFaces;
+	let maxSides = 0;
+	for (let i = 0; i < nFaces; i++) maxSides = Math.max(maxSides, geo.nSides(i));
+
+	const total = nFaces * maxSides;
+	const uf = new Int32Array(total).fill(-1);
+
+	function find(x) {
+		let r = x;
+		while (uf[r] >= 0) r = uf[r];
+		while (x !== r) { const nx = uf[x]; uf[x] = r; x = nx; }
+		return r;
+	}
+	function union(a, b) {
+		a = find(a); b = find(b);
+		if (a === b) return;
+		if (uf[a] > uf[b]) { const t = a; a = b; b = t; }
+		uf[a] += uf[b]; uf[b] = a;
+	}
+	function vkey(face, vi) { return face * maxSides + vi; }
+
+	for (let i = 0; i < nFaces; i++) {
+		for (const j of geo.adj[i]) {
+			if (j <= i) continue;
+			const ki = geo.edgeIdx(i, j), kj = geo.edgeIdx(j, i);
+			const si = geo.edgeSlot(i, ki, mirrored);
+			const sj = geo.edgeSlot(j, kj, mirrored);
+			const ni = geo.nSides(i), nj = geo.nSides(j);
+			union(vkey(i, si), vkey(j, (sj + 1) % nj));
+			union(vkey(i, (si + 1) % ni), vkey(j, sj));
+		}
+	}
+
+	const classMap = new Map();
+	for (let i = 0; i < nFaces; i++) {
+		const n = geo.nSides(i);
+		for (let k = 0; k < n; k++) {
+			const root = find(vkey(i, k));
+			if (!classMap.has(root)) classMap.set(root, []);
+			classMap.get(root).push({ face: i, vi: k });
+		}
+	}
+
+	const vertexClasses = [...classMap.values()];
+	const vertexIdArr = new Int32Array(total).fill(-1);
+	const dirs = [];
+
+	vertexClasses.forEach((cls, id) => {
+		for (const { face, vi } of cls) vertexIdArr[vkey(face, vi)] = id;
+		let sx = 0, sy = 0, sz = 0;
+		for (const { face } of cls) {
+			sx += geo.c3[face][0]; sy += geo.c3[face][1]; sz += geo.c3[face][2];
+		}
+		const l = Math.sqrt(sx * sx + sy * sy + sz * sz);
+		dirs.push(l > 0 ? [sx / l, sy / l, sz / l] : [0, 1, 0]);
+	});
+
+	vertexMap = { vertexClasses, vertexId: vertexIdArr, maxSides, dirs, vkey };
+}
+
+function getPolePositions2D(pole, layout) {
+	if (!pole || !layout || !geo) return [];
+	const { res, placed } = layout;
+	const positions = [];
+	if (pole.type === 'center') {
+		const f = pole.face;
+		if (f >= 0 && f < geo.nFaces && placed[f])
+			positions.push({ x: res[f].x, y: res[f].y, face: f });
+	} else if (pole.type === 'vertex' && vertexMap) {
+		const vid = pole.vertexId;
+		if (vid >= 0 && vid < vertexMap.vertexClasses.length) {
+			const seen = new Set();
+			for (const { face, vi } of vertexMap.vertexClasses[vid]) {
+				if (!placed[face]) continue;
+				const verts = geo.polyVerts(res[face].x, res[face].y, res[face].r, face);
+				const px = verts[vi].x, py = verts[vi].y;
+				const pk = Math.round(px * 1e4) + ',' + Math.round(py * 1e4);
+				if (!seen.has(pk)) { seen.add(pk); positions.push({ x: px, y: py, face }); }
+			}
+		}
+	}
+	return positions;
+}
+
+function resolvePole(stored) {
+	if (!stored || !geo || !vertexMap) return null;
+	if (stored.type === 'center') {
+		if (stored.face !== undefined && stored.face >= 0 && stored.face < geo.nFaces)
+			return { type: 'center', face: stored.face };
+		if (stored.dir) {
+			let best = -1, bestDot = -Infinity;
+			for (let i = 0; i < geo.nFaces; i++) {
+				const d = dot3(stored.dir, geo.c3[i]);
+				if (d > bestDot) { bestDot = d; best = i; }
+			}
+			return { type: 'center', face: best };
+		}
+		return null;
+	}
+	if (stored.type === 'vertex' && stored.dir) {
+		let best = -1, bestDot = -Infinity;
+		for (let v = 0; v < vertexMap.dirs.length; v++) {
+			const d = dot3(stored.dir, vertexMap.dirs[v]);
+			if (d > bestDot) { bestDot = d; best = v; }
+		}
+		return { type: 'vertex', vertexId: best, dir: vertexMap.dirs[best] };
+	}
+	return null;
+}
+
+function serializePole(pole) {
+	if (!pole || !geo) return null;
+	if (pole.type === 'center')
+		return { type: 'center', face: pole.face, dir: geo.c3[pole.face].slice() };
+	if (pole.type === 'vertex' && vertexMap)
+		return { type: 'vertex', dir: vertexMap.dirs[pole.vertexId].slice() };
+	return null;
+}
+
+function poleLabel(pole) {
+	if (!pole) return '—';
+	if (pole.type === 'center') return `⬡ ${pole.face}`;
+	if (pole.type === 'vertex' && vertexMap) {
+		const cls = vertexMap.vertexClasses[pole.vertexId];
+		if (!cls) return '—';
+		const faces = [...new Set(cls.map(c => c.face))].sort((a, b) => a - b);
+		return `◇ ${faces.join('·')}`;
+	}
+	return '—';
+}
+
+function updatePoleLabels() {
+	if (!currentLayout) {
+		northPoleLabel.textContent = '—';
+		southPoleLabel.textContent = '—';
+		return;
+	}
+	northPoleLabel.textContent = poleLabel(currentLayout.northPole);
+	southPoleLabel.textContent = poleLabel(currentLayout.southPole);
+}
+
+function findNearestSnap(wx, wy) {
+	if (!currentLayout || !geo || !vertexMap) return null;
+	const { res, placed } = currentLayout;
+	let bestDist = Infinity, best = null;
+	const snapThresh = 20 / viewScale;
+
+	for (let i = 0; i < geo.nFaces; i++) {
+		if (!placed[i]) continue;
+		const dx = wx - res[i].x, dy = wy - res[i].y;
+		const d = Math.sqrt(dx * dx + dy * dy);
+		if (d < bestDist && d < snapThresh) {
+			bestDist = d;
+			best = { type: 'center', face: i };
+		}
+	}
+	for (let i = 0; i < geo.nFaces; i++) {
+		if (!placed[i]) continue;
+		const verts = geo.polyVerts(res[i].x, res[i].y, res[i].r, i);
+		const n = geo.nSides(i);
+		for (let k = 0; k < n; k++) {
+			const dx = wx - verts[k].x, dy = wy - verts[k].y;
+			const d = Math.sqrt(dx * dx + dy * dy);
+			if (d < bestDist) {
+				bestDist = d;
+				const vid = vertexMap.vertexId[vertexMap.vkey(i, k)];
+				best = { type: 'vertex', vertexId: vid };
+			}
+		}
+	}
+	return best;
+}
+
+function poleDir(pole) {
+	if (!pole || !geo) return null;
+	if (pole.type === 'center') return geo.c3[pole.face];
+	if (pole.type === 'vertex' && vertexMap) return vertexMap.dirs[pole.vertexId];
+	return null;
+}
+
+function findAntipode(pole) {
+	if (!pole || !geo || !vertexMap) return null;
+	const dir = poleDir(pole);
+	if (!dir) return null;
+	const anti = [-dir[0], -dir[1], -dir[2]];
+	let bestFace = -1, bestFaceDot = -Infinity;
+	for (let i = 0; i < geo.nFaces; i++) {
+		const d = dot3(anti, geo.c3[i]);
+		if (d > bestFaceDot) { bestFaceDot = d; bestFace = i; }
+	}
+	let bestVert = -1, bestVertDot = -Infinity;
+	for (let v = 0; v < vertexMap.dirs.length; v++) {
+		const d = dot3(anti, vertexMap.dirs[v]);
+		if (d > bestVertDot) { bestVertDot = d; bestVert = v; }
+	}
+	if (bestVertDot > bestFaceDot)
+		return { type: 'vertex', vertexId: bestVert, dir: vertexMap.dirs[bestVert] };
+	return { type: 'center', face: bestFace };
+}
+
+function getGreatCircleSegments(planeNormal, layout) {
+	if (!layout || !geo || !vertexMap) return [];
+	const { res, placed } = layout;
+	const segments = [];
+	for (let i = 0; i < geo.nFaces; i++) {
+		if (!placed[i]) continue;
+		const n = geo.nSides(i);
+		const verts2D = geo.polyVerts(res[i].x, res[i].y, res[i].r, i);
+		const h = [];
+		for (let k = 0; k < n; k++) {
+			const vid = vertexMap.vertexId[vertexMap.vkey(i, k)];
+			h.push(dot3(vertexMap.dirs[vid], planeNormal));
+		}
+		const crossings = [];
+		for (let k = 0; k < n; k++) {
+			const k2 = (k + 1) % n;
+			if (h[k] * h[k2] < 0) {
+				const t = h[k] / (h[k] - h[k2]);
+				crossings.push({
+					x: verts2D[k].x + t * (verts2D[k2].x - verts2D[k].x),
+					y: verts2D[k].y + t * (verts2D[k2].y - verts2D[k].y)
+				});
+			} else if (Math.abs(h[k]) < 1e-9) {
+				crossings.push({ x: verts2D[k].x, y: verts2D[k].y });
+			}
+		}
+		if (crossings.length >= 2) segments.push([crossings[0], crossings[1]]);
+	}
+	return segments;
+}
+
+function getEquatorAndMeridian() {
+	if (!currentLayout || !geo || !vertexMap) return { equator: [], meridian: [] };
+	const axis = poleDir(currentLayout.northPole);
+	if (!axis) return { equator: [], meridian: [] };
+	const equator = getGreatCircleSegments(axis, currentLayout);
+	let ref = [1, 0, 0];
+	if (Math.abs(dot3(axis, ref)) > 0.9) ref = [0, 0, 1];
+	const meridianNormal = norm3(cross3(axis, ref));
+	const meridian = getGreatCircleSegments(meridianNormal, currentLayout);
+	return { equator, meridian };
+}
+
+function chainSegments(segments) {
+	if (segments.length === 0) return [];
+	const eps = 1e-6;
+	const used = new Uint8Array(segments.length);
+	const chains = [];
+	function near(a, b) { return Math.abs(a.x - b.x) < eps && Math.abs(a.y - b.y) < eps; }
+	for (let start = 0; start < segments.length; start++) {
+		if (used[start]) continue;
+		used[start] = 1;
+		const chain = [segments[start][0], segments[start][1]];
+		let changed = true;
+		while (changed) {
+			changed = false;
+			for (let i = 0; i < segments.length; i++) {
+				if (used[i]) continue;
+				const tail = chain[chain.length - 1], head = chain[0];
+				if (near(tail, segments[i][0])) { chain.push(segments[i][1]); used[i] = 1; changed = true; }
+				else if (near(tail, segments[i][1])) { chain.push(segments[i][0]); used[i] = 1; changed = true; }
+				else if (near(head, segments[i][1])) { chain.unshift(segments[i][0]); used[i] = 1; changed = true; }
+				else if (near(head, segments[i][0])) { chain.unshift(segments[i][1]); used[i] = 1; changed = true; }
+			}
+		}
+		chains.push(chain);
+	}
+	return chains;
+}
+
+function drawGreatCircle(segments, color, alpha, lineWidth, dash) {
+	const chains = chainSegments(segments);
+	ctx.save();
+	ctx.strokeStyle = color.replace('ALPHA', alpha);
+	ctx.lineWidth = lineWidth;
+	ctx.setLineDash(dash);
+	for (const chain of chains) {
+		ctx.beginPath();
+		for (let i = 0; i < chain.length; i++) {
+			const [sx, sy] = toScreen(chain[i].x, chain[i].y);
+			if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+		}
+		ctx.stroke();
+	}
+	ctx.setLineDash([]);
+	ctx.restore();
+}
+
+function drawPoleMarker(x, y, isNorth, alpha) {
+	const r = Math.max(6, viewScale * 0.09);
+	const [sx, sy] = toScreen(x, y);
+	ctx.save();
+	ctx.beginPath();
+	ctx.arc(sx, sy, r, 0, 2 * Math.PI);
+	ctx.fillStyle = isNorth ? `rgba(220, 60, 60, ${alpha})` : `rgba(60, 100, 220, ${alpha})`;
+	ctx.fill();
+	ctx.strokeStyle = isNorth ? `rgba(255, 120, 120, ${alpha})` : `rgba(120, 160, 255, ${alpha})`;
+	ctx.lineWidth = 1.5;
+	ctx.stroke();
+	ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+	ctx.font = `bold ${Math.max(8, r * 0.85)}px system-ui`;
+	ctx.textAlign = 'center';
+	ctx.textBaseline = 'middle';
+	ctx.fillText(isNorth ? 'N' : 'S', sx, sy);
+	ctx.restore();
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -300,10 +632,11 @@ function netArea(placed, parent) {
 
 function getDescendants(j, parent, placed) {
 	const descs = [];
-	for (let k = 0; k < geo.nFaces; k++) {
+	const N = geo.nFaces;
+	for (let k = 0; k < N; k++) {
 		if (!placed[k] || k === j) continue;
-		let p = k;
-		while (p !== -1 && p !== j) p = parent[p];
+		let p = k, steps = 0;
+		while (p !== -1 && p !== j && steps < N) { p = parent[p]; steps++; }
 		if (p === j) descs.push(k);
 	}
 	return descs;
@@ -334,16 +667,6 @@ function reparent(layout, newParent, child) {
 		}
 	}
 	layout.count = placed.filter(Boolean).length;
-}
-
-function rerootTree(parent, newRoot) {
-	const pp = parent.slice();
-	const path = [];
-	let cur = newRoot;
-	while (cur >= 0) { path.push(cur); cur = pp[cur]; }
-	for (let i = 0; i < path.length - 1; i++) pp[path[i + 1]] = path[i];
-	pp[newRoot] = -1;
-	return pp;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -407,8 +730,12 @@ function computeLayout() {
 	layout.mirrored = preset.mirrored || false;
 	layout.label = preset.label || '';
 	currentLayout = layout;
+	rebuildVertexMap();
+	layout.northPole = preset.northPole ? resolvePole(preset.northPole) : null;
+	layout.southPole = preset.southPole ? resolvePole(preset.southPole) : null;
 	optimizeAndApplyRotation(currentLayout);
 	updateDeleteBtnVisibility();
+	updatePoleLabels();
 	draw();
 }
 
@@ -707,28 +1034,6 @@ function draw() {
 		}
 	}
 
-	// ── Parent tree lines ──
-	ctx.lineWidth = 1.5;
-	ctx.strokeStyle = 'rgba(255, 180, 60, 0.45)';
-	for (let i = 0; i < N; i++) {
-		if (!placed[i] || parent[i] < 0) continue;
-		const p = parent[i];
-		if (!placed[p]) continue;
-		const [sx1, sy1] = toScreen(res[i].x, res[i].y);
-		const [sx2, sy2] = toScreen(res[p].x, res[p].y);
-		ctx.beginPath(); ctx.moveTo(sx1, sy1); ctx.lineTo(sx2, sy2); ctx.stroke();
-	}
-	if (seed !== undefined && placed[seed]) {
-		const [rx, ry] = toScreen(res[seed].x, res[seed].y);
-		const rr = Math.max(6, viewScale * 0.12);
-		ctx.beginPath(); ctx.arc(rx, ry, rr, 0, 2 * Math.PI);
-		ctx.fillStyle = 'rgba(255, 180, 60, 0.7)';
-		ctx.fill();
-		ctx.lineWidth = 2;
-		ctx.strokeStyle = 'rgba(255, 220, 120, 0.9)';
-		ctx.stroke();
-	}
-
 	// ── Draw polygon faces ──
 	for (let i = 0; i < N; i++) {
 		if (!placed[i]) continue;
@@ -780,18 +1085,66 @@ function draw() {
 		ctx.fillText(i, cx, cy);
 	}
 
-	// ── Ghost root marker ──
-	if (hoveredFace >= 0 && hoveredFace !== seed && !glueTabMode && placed[hoveredFace]) {
-		const [rx, ry] = toScreen(res[hoveredFace].x, res[hoveredFace].y);
-		const rr = Math.max(6, viewScale * 0.12);
-		ctx.beginPath(); ctx.arc(rx, ry, rr, 0, 2 * Math.PI);
-		ctx.fillStyle = 'rgba(255, 180, 60, 0.3)';
-		ctx.fill();
-		ctx.lineWidth = 2;
-		ctx.strokeStyle = 'rgba(255, 220, 120, 0.6)';
-		ctx.setLineDash([4, 3]);
-		ctx.stroke();
-		ctx.setLineDash([]);
+	// ── Equator & Meridian ──
+	if (currentLayout.northPole) {
+		const { equator, meridian } = getEquatorAndMeridian();
+		drawGreatCircle(equator, 'rgba(80, 220, 80, ALPHA)', 0.7, 2, []);
+		drawGreatCircle(meridian, 'rgba(220, 180, 60, ALPHA)', 0.7, 2, []);
+	}
+
+	// ── Ghost equator/meridian preview ──
+	if (poleEditMode && hoveredSnap) {
+		const hDir = hoveredSnap.type === 'center' ? geo.c3[hoveredSnap.face]
+			: vertexMap.dirs[hoveredSnap.vertexId];
+		if (hDir) {
+			const ghostEq = getGreatCircleSegments(hDir, currentLayout);
+			drawGreatCircle(ghostEq, 'rgba(80, 220, 80, ALPHA)', 0.3, 2, []);
+			let ref = [1, 0, 0];
+			if (Math.abs(dot3(hDir, ref)) > 0.9) ref = [0, 0, 1];
+			const ghostMN = norm3(cross3(hDir, ref));
+			const ghostMer = getGreatCircleSegments(ghostMN, currentLayout);
+			drawGreatCircle(ghostMer, 'rgba(220, 180, 60, ALPHA)', 0.3, 2, []);
+		}
+	}
+
+	// ── Pole markers ──
+	if (currentLayout.northPole) {
+		const positions = getPolePositions2D(currentLayout.northPole, currentLayout);
+		for (const pos of positions) drawPoleMarker(pos.x, pos.y, true, 0.9);
+		if (poleEditMode === 'north') {
+			const hr = Math.max(10, viewScale * 0.14);
+			for (const pos of positions) {
+				const [sx, sy] = toScreen(pos.x, pos.y);
+				ctx.beginPath(); ctx.arc(sx, sy, hr, 0, 2 * Math.PI);
+				ctx.strokeStyle = 'rgba(255, 120, 120, 0.8)';
+				ctx.lineWidth = 2; ctx.setLineDash([4, 3]); ctx.stroke(); ctx.setLineDash([]);
+			}
+		}
+	}
+	if (currentLayout.southPole) {
+		const positions = getPolePositions2D(currentLayout.southPole, currentLayout);
+		for (const pos of positions) drawPoleMarker(pos.x, pos.y, false, 0.9);
+		if (poleEditMode === 'south') {
+			const hr = Math.max(10, viewScale * 0.14);
+			for (const pos of positions) {
+				const [sx, sy] = toScreen(pos.x, pos.y);
+				ctx.beginPath(); ctx.arc(sx, sy, hr, 0, 2 * Math.PI);
+				ctx.strokeStyle = 'rgba(120, 160, 255, 0.8)';
+				ctx.lineWidth = 2; ctx.setLineDash([4, 3]); ctx.stroke(); ctx.setLineDash([]);
+			}
+		}
+	}
+
+	// ── Ghost pole preview ──
+	if (poleEditMode && hoveredSnap) {
+		const isNorth = poleEditMode === 'north';
+		const positions = getPolePositions2D(hoveredSnap, currentLayout);
+		for (const pos of positions) drawPoleMarker(pos.x, pos.y, isNorth, 0.4);
+		const antiPole = findAntipode(hoveredSnap);
+		if (antiPole) {
+			const antiPos = getPolePositions2D(antiPole, currentLayout);
+			for (const pos of antiPos) drawPoleMarker(pos.x, pos.y, !isNorth, 0.3);
+		}
 	}
 
 	// ── Score ──
@@ -832,20 +1185,39 @@ function hitTestFace(mx, my) {
 }
 
 canvas.addEventListener('mousemove', e => {
+	// ── Pole edit mode ──
+	if (poleEditMode) {
+		const [wx, wy] = toWorld(e.clientX, e.clientY);
+		const snap = findNearestSnap(wx, wy);
+		const changed = JSON.stringify(snap) !== JSON.stringify(hoveredSnap);
+		hoveredSnap = snap;
+		if (changed) draw();
+		if (snap) {
+			const isNorth = poleEditMode === 'north';
+			const pLabel = poleLabel(snap);
+			const anti = findAntipode(snap);
+			const aLabel = anti ? poleLabel(anti) : '?';
+			const label = isNorth
+				? `N: ${pLabel} · S: ${aLabel}`
+				: `S: ${pLabel} · N: ${aLabel}`;
+			tooltip.style.display = 'block';
+			tooltip.style.left = (e.clientX + 14) + 'px';
+			tooltip.style.top = (e.clientY + 14) + 'px';
+			tooltip.innerHTML = label;
+			canvas.style.cursor = 'pointer';
+		} else {
+			tooltip.style.display = 'none';
+			canvas.style.cursor = 'crosshair';
+		}
+		return;
+	}
+	hoveredSnap = null;
+
 	const hit = hitTestEdge(e.clientX, e.clientY);
 	const face = hit ? -1 : hitTestFace(e.clientX, e.clientY);
 	if (hit !== hoveredEdge || face !== hoveredFace) {
 		hoveredEdge = hit;
 		hoveredFace = face;
-		hoveredFacePreviewFill = undefined;
-		if (face >= 0 && face !== currentLayout.seed && !glueTabMode) {
-			const newPP = rerootTree(currentLayout.parent, face);
-			const preview = guidedUnfold(face, newPP);
-			preview.mirrored = currentLayout.mirrored;
-			optimizeAndApplyRotation(preview);
-			const pts = bboxCriticalPoints(preview.res, preview.placed, preview.parent, preview.mirrored);
-			hoveredFacePreviewFill = parseFloat((netArea(preview.placed, preview.parent) / paperScore(pts, 0) * 100).toFixed(1));
-		}
 		if (hit && currentLayout) {
 			if (glueTabMode && hit.isCutEdge) {
 				const key = edgeKey(hit.face, hit.targetFace);
@@ -884,19 +1256,26 @@ canvas.addEventListener('mousemove', e => {
 		tooltip.style.top = (e.clientY + 14) + 'px';
 		tooltip.innerHTML = label;
 		canvas.style.cursor = 'pointer';
-	} else if (face >= 0 && face !== currentLayout.seed && !glueTabMode) {
-		const curFill = currentLayout._currentFill || 0;
-		let fillStr = '';
-		if (hoveredFacePreviewFill !== undefined) {
-			const diff = hoveredFacePreviewFill - curFill;
-			const diffStr = diff > 0 ? `<span style="color:#4f4">+${diff.toFixed(1)}%</span>` : diff < 0 ? `<span style="color:#f44">${diff.toFixed(1)}%</span>` : `<span style="color:#888">±0%</span>`;
-			fillStr = ` → ${hoveredFacePreviewFill.toFixed(1)}% ${diffStr}`;
+	} else if (!poleEditMode && !glueTabMode && currentLayout.northPole) {
+		const [wx, wy] = toWorld(e.clientX, e.clientY);
+		const hitR = 12 / viewScale;
+		let overPole = null;
+		const nPos = getPolePositions2D(currentLayout.northPole, currentLayout);
+		for (const pos of nPos) { if (Math.hypot(wx - pos.x, wy - pos.y) < hitR) { overPole = 'N'; break; } }
+		if (!overPole) {
+			const sPos = getPolePositions2D(currentLayout.southPole, currentLayout);
+			for (const pos of sPos) { if (Math.hypot(wx - pos.x, wy - pos.y) < hitR) { overPole = 'S'; break; } }
 		}
-		tooltip.style.display = 'block';
-		tooltip.style.left = (e.clientX + 14) + 'px';
-		tooltip.style.top = (e.clientY + 14) + 'px';
-		tooltip.innerHTML = `Set as root${fillStr}`;
-		canvas.style.cursor = 'pointer';
+		if (overPole) {
+			tooltip.style.display = 'block';
+			tooltip.style.left = (e.clientX + 14) + 'px';
+			tooltip.style.top = (e.clientY + 14) + 'px';
+			tooltip.innerHTML = `Edit ${overPole === 'N' ? 'North' : 'South'} pole`;
+			canvas.style.cursor = 'pointer';
+		} else {
+			tooltip.style.display = 'none';
+			canvas.style.cursor = 'default';
+		}
 	} else {
 		tooltip.style.display = 'none';
 		canvas.style.cursor = 'default';
@@ -906,85 +1285,62 @@ canvas.addEventListener('mousemove', e => {
 canvas.addEventListener('mouseleave', () => {
 	hoveredEdge = null;
 	hoveredFace = -1;
+	hoveredSnap = null;
 	tooltip.style.display = 'none';
 	canvas.style.cursor = 'default';
 	draw();
 });
 
-// ── Auto-reroot ──
-function autoReroot(layout) {
-	const N = geo.nFaces;
-	const { res, placed, parent, mirrored } = layout;
-	const pts = bboxCriticalPoints(res, placed, parent, mirrored || false);
-	const bb = bboxDims(pts, 0);
-	const cx = (bb.mnX + bb.mxX) / 2, cy = (bb.mnY + bb.mxY) / 2;
-	let bestFace = -1, bestDist = Infinity;
-	for (let i = 0; i < N; i++) {
-		if (!placed[i]) continue;
-		const dx = res[i].x - cx, dy = res[i].y - cy;
-		const d = dx * dx + dy * dy;
-		if (d < bestDist) { bestDist = d; bestFace = i; }
-	}
-	if (bestFace < 0 || bestFace === layout.seed) return;
-	const newPP = rerootTree(parent, bestFace);
-	const newLayout = guidedUnfold(bestFace, newPP);
-	newLayout.seed = bestFace;
-	newLayout.mirrored = layout.mirrored;
-	optimizeAndApplyRotation(newLayout);
-	let dot = 0;
-	for (let i = 0; i < N; i++) {
-		if (!placed[i] || !newLayout.placed[i]) continue;
-		dot += newLayout.res[i].x * res[i].x + newLayout.res[i].y * res[i].y;
-	}
-	if (dot < 0) {
-		for (let i = 0; i < N; i++) {
-			if (!newLayout.placed[i]) continue;
-			newLayout.res[i].x = -newLayout.res[i].x;
-			newLayout.res[i].y = -newLayout.res[i].y;
-			newLayout.res[i].r += Math.PI;
-		}
-		newLayout.angle = (newLayout.angle || 0) + Math.PI;
-	}
-	Object.assign(layout, newLayout);
-}
-
 // ── Click handler ──
 canvas.addEventListener('click', e => {
 	if (!currentLayout || !geo) return;
 	const N = geo.nFaces;
-	if (hoveredFace >= 0 && hoveredFace !== currentLayout.seed && !hoveredEdge && !glueTabMode) {
-		const oldRes = currentLayout.res;
-		const oldPlaced = currentLayout.placed;
+
+	// ── Click on existing pole marker to toggle edit ──
+	if (!glueTabMode && currentLayout.northPole) {
+		const [wx, wy] = toWorld(e.clientX, e.clientY);
+		const clickR = 12 / viewScale;
+		const nPositions = getPolePositions2D(currentLayout.northPole, currentLayout);
+		for (const pos of nPositions) {
+			if (Math.hypot(wx - pos.x, wy - pos.y) < clickR) {
+				togglePoleEdit('north'); return;
+			}
+		}
+		const sPositions = getPolePositions2D(currentLayout.southPole, currentLayout);
+		for (const pos of sPositions) {
+			if (Math.hypot(wx - pos.x, wy - pos.y) < clickR) {
+				togglePoleEdit('south'); return;
+			}
+		}
+	}
+
+	// ── Pole edit click ──
+	if (poleEditMode && hoveredSnap) {
 		undoStack.push(cloneLayout(currentLayout));
 		redoStack.length = 0;
 		historyIndex++;
 		history.pushState({ idx: historyIndex }, '');
-		const newPP = rerootTree(currentLayout.parent, hoveredFace);
-		const layout = guidedUnfold(hoveredFace, newPP);
-		layout.seed = hoveredFace;
-		layout.mirrored = currentLayout.mirrored;
-		currentLayout = layout;
-		optimizeAndApplyRotation(currentLayout);
-		let dot = 0;
-		for (let i = 0; i < N; i++) {
-			if (!oldPlaced[i] || !layout.placed[i]) continue;
-			dot += layout.res[i].x * oldRes[i].x + layout.res[i].y * oldRes[i].y;
+		const pole = hoveredSnap.type === 'center'
+			? { type: 'center', face: hoveredSnap.face }
+			: { type: 'vertex', vertexId: hoveredSnap.vertexId, dir: vertexMap.dirs[hoveredSnap.vertexId] };
+		const anti = findAntipode(pole);
+		if (poleEditMode === 'north') {
+			currentLayout.northPole = pole;
+			currentLayout.southPole = anti;
+		} else {
+			currentLayout.southPole = pole;
+			currentLayout.northPole = anti;
 		}
-		if (dot < 0) {
-			for (let i = 0; i < N; i++) {
-				if (!layout.placed[i]) continue;
-				layout.res[i].x = -layout.res[i].x;
-				layout.res[i].y = -layout.res[i].y;
-				layout.res[i].r += Math.PI;
-			}
-			layout.angle = (layout.angle || 0) + Math.PI;
-		}
-		hoveredFace = -1;
-		hoveredFacePreviewFill = undefined;
-		tooltip.style.display = 'none';
+		updatePoleLabels();
 		draw();
 		return;
 	}
+	if (poleEditMode && !hoveredSnap) {
+		exitPoleEditMode();
+		draw();
+		return;
+	}
+
 	if (!hoveredEdge) return;
 	if (glueTabMode) {
 		if (!hoveredEdge.isCutEdge) return;
@@ -1006,7 +1362,6 @@ canvas.addEventListener('click', e => {
 	const { face, targetFace } = hoveredEdge;
 	reparent(currentLayout, face, targetFace);
 	optimizeAndApplyRotation(currentLayout);
-	autoReroot(currentLayout);
 	hoveredEdge = null;
 	tooltip.style.display = 'none';
 	draw();
@@ -1026,6 +1381,7 @@ function performUndo() {
 	currentLayout = undoStack.pop();
 	restoreFromSnapshot(currentLayout);
 	hoveredEdge = null; hoveredFace = -1; tooltip.style.display = 'none';
+	updatePoleLabels();
 	draw();
 }
 
@@ -1035,6 +1391,7 @@ function performRedo() {
 	currentLayout = redoStack.pop();
 	restoreFromSnapshot(currentLayout);
 	hoveredEdge = null; hoveredFace = -1; tooltip.style.display = 'none';
+	updatePoleLabels();
 	draw();
 }
 
@@ -1048,6 +1405,7 @@ window.addEventListener('popstate', e => {
 window.addEventListener('keydown', e => {
 	if (e.ctrlKey && e.key === 'z') { e.preventDefault(); history.back(); }
 	if (e.ctrlKey && e.key === 'y') { e.preventDefault(); history.forward(); }
+	if (e.key === 'Escape' && poleEditMode) { exitPoleEditMode(); draw(); }
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1103,7 +1461,10 @@ function switchGeometry(geoId) {
 	currentLayout = null;
 	hoveredEdge = null;
 	hoveredFace = -1;
+	hoveredSnap = null;
 	boundaryEdges = [];
+	vertexMap = null;
+	exitPoleEditMode();
 	populatePresets();
 	if (geo.presets.length > 0) {
 		presetSelect.value = '0';
@@ -1115,6 +1476,22 @@ geoSelect.addEventListener('change', () => switchGeometry(geoSelect.value));
 presetSelect.addEventListener('change', computeLayout);
 
 paperFmt.addEventListener('change', () => {
+	// Select matching preset for chosen paper format
+	if (geo) {
+		const fmtLabel = PAPER_FORMATS[paperFmt.value]?.label || '';
+		const isDIN = fmtLabel.startsWith('DIN ');
+		let bestIdx = -1;
+		for (let i = 0; i < geo.presets.length; i++) {
+			const pl = geo.presets[i].label;
+			if (isDIN && pl.startsWith('DIN ')) { bestIdx = i; break; }
+			if (!isDIN && fmtLabel.startsWith(pl.split(' (')[0])) { bestIdx = i; break; }
+		}
+		if (bestIdx >= 0) {
+			presetSelect.value = bestIdx;
+			computeLayout();
+			return;
+		}
+	}
 	updateDeleteBtnVisibility();
 	if (currentLayout) {
 		optimizeAndApplyRotation(currentLayout);
@@ -1153,7 +1530,12 @@ function flipLayout(axis) {
 	}
 	currentLayout.mirrored = !currentLayout.mirrored;
 	currentLayout.angle = 0;
+	rebuildVertexMap();
+	// Re-resolve poles for new mirrored state
+	if (currentLayout.northPole) currentLayout.northPole = resolvePole(serializePole(currentLayout.northPole));
+	if (currentLayout.southPole) currentLayout.southPole = resolvePole(serializePole(currentLayout.southPole));
 	optimizeAndApplyRotation(currentLayout);
+	updatePoleLabels();
 	draw();
 }
 document.getElementById('btn-flip-h').addEventListener('click', () => flipLayout('h'));
@@ -1162,6 +1544,7 @@ document.getElementById('btn-flip-v').addEventListener('click', () => flipLayout
 // ── Glue tab mode ──
 document.getElementById('btn-glue-tab').addEventListener('click', () => {
 	glueTabMode = !glueTabMode;
+	if (glueTabMode) exitPoleEditMode();
 	const btn = document.getElementById('btn-glue-tab');
 	btn.style.background = glueTabMode ? '#a06000' : '';
 	btn.style.color = glueTabMode ? '#fff' : '';
@@ -1169,6 +1552,41 @@ document.getElementById('btn-glue-tab').addEventListener('click', () => {
 	hoveredEdge = null; hoveredFace = -1; tooltip.style.display = 'none';
 	draw();
 });
+
+// ── Pole edit mode ──
+function exitPoleEditMode() {
+	poleEditMode = null;
+	hoveredSnap = null;
+	const btnN = document.getElementById('btn-edit-north');
+	const btnS = document.getElementById('btn-edit-south');
+	btnN.style.background = ''; btnN.style.color = ''; btnN.style.borderColor = '';
+	btnS.style.background = ''; btnS.style.color = ''; btnS.style.borderColor = '';
+}
+
+function togglePoleEdit(which) {
+	if (poleEditMode === which) {
+		exitPoleEditMode();
+	} else {
+		glueTabMode = false;
+		const gBtn = document.getElementById('btn-glue-tab');
+		gBtn.style.background = ''; gBtn.style.color = ''; gBtn.style.borderColor = '';
+		poleEditMode = which;
+		hoveredSnap = null;
+		const btnN = document.getElementById('btn-edit-north');
+		const btnS = document.getElementById('btn-edit-south');
+		btnN.style.background = which === 'north' ? '#8b0000' : '';
+		btnN.style.color = which === 'north' ? '#fff' : '';
+		btnN.style.borderColor = which === 'north' ? '#c44' : '';
+		btnS.style.background = which === 'south' ? '#003080' : '';
+		btnS.style.color = which === 'south' ? '#fff' : '';
+		btnS.style.borderColor = which === 'south' ? '#48c' : '';
+	}
+	hoveredEdge = null; hoveredFace = -1; tooltip.style.display = 'none';
+	draw();
+}
+
+document.getElementById('btn-edit-north').addEventListener('click', () => togglePoleEdit('north'));
+document.getElementById('btn-edit-south').addEventListener('click', () => togglePoleEdit('south'));
 
 // ── Clipboard ──
 document.getElementById('btn-export-clip').addEventListener('click', () => {
@@ -1180,7 +1598,9 @@ document.getElementById('btn-export-clip').addEventListener('click', () => {
 		tabs: cloneTabOwnership(),
 		mirrored: currentLayout.mirrored || false,
 		angle: currentLayout.angle || 0,
-		aspect: getEffectiveAspect()
+		aspect: getEffectiveAspect(),
+		northPole: serializePole(currentLayout.northPole),
+		southPole: serializePole(currentLayout.southPole)
 	};
 	navigator.clipboard.writeText(JSON.stringify(data)).then(() => {
 		const btn = document.getElementById('btn-export-clip');
@@ -1216,9 +1636,13 @@ document.getElementById('btn-import-clip').addEventListener('click', async () =>
 		history.pushState({ idx: historyIndex }, '');
 		tabOwnership = tabs;
 		currentLayout = layout;
+		rebuildVertexMap();
+		layout.northPole = data.northPole ? resolvePole(data.northPole) : null;
+		layout.southPole = data.southPole ? resolvePole(data.southPole) : null;
 		optimizeAndApplyRotation(currentLayout);
 		hoveredEdge = null; hoveredFace = -1;
 		updateDeleteBtnVisibility();
+		updatePoleLabels();
 		draw();
 		btn.textContent = '✅ Loaded!';
 		setTimeout(() => btn.textContent = '📥 Paste', 1500);
@@ -1253,7 +1677,9 @@ document.getElementById('btn-save-custom').addEventListener('click', () => {
 		parents: currentLayout.parent.slice(),
 		tabs: cloneTabOwnership(),
 		mirrored: currentLayout.mirrored || false,
-		angle: currentLayout.angle || 0
+		angle: currentLayout.angle || 0,
+		northPole: serializePole(currentLayout.northPole),
+		southPole: serializePole(currentLayout.southPole)
 	};
 	saveCustomLayouts(customs);
 	currentLayout.label = name;
