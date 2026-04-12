@@ -671,7 +671,7 @@ GEOMETRIES.rhombicosi62 = (function() {
 	}
 
 	const presets = [
-		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[20,24,23,22,41,31,27,26,30,37,45,33,35,36,46,38,40,-1,43,48,1,50,4,3,4,52,51,57,58,52,2,58,10,53,12,10,56,58,59,15,55,17,18,17,16,17,59,59,12,18,22,27,21,32,38,41,40,45,33,34,42,35],tabs:{"37-54":54,"14-38":38,"31-52":52,"46-58":58,"14-46":46,"46-59":59,"48-59":59,"47-59":59,"15-47":47,"48-61":61,"45-61":61,"43-61":61,"49-61":61,"49-60":60,"13-44":44,"2-23":23,"23-50":50,"22-55":55,"29-54":54},mirrored:false,angle:-0.3141592653589793,northPole:{type:'center',face:60,dir:[-0.5257311121191336,-0.85065080835204,0]},southPole:{type:'center',face:51,dir:[0.5257311121191336,0.85065080835204,0]}},
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[20,24,23,22,41,31,27,26,36,29,45,33,35,44,46,38,40,-1,43,48,1,50,4,3,4,52,51,57,58,52,2,58,10,53,12,10,13,14,59,15,55,17,18,17,16,17,59,59,12,18,22,27,21,32,38,41,40,45,33,34,42,35],tabs:{"37-54":54,"14-38":38,"31-52":52,"46-58":58,"14-46":46,"46-59":59,"48-59":59,"47-59":59,"15-47":47,"48-61":61,"45-61":61,"43-61":61,"49-61":61,"49-60":60,"13-44":44,"2-23":23,"23-50":50,"22-55":55,"29-54":54},mirrored:false,angle:-0.33161255787892285,northPole:{type:'center',face:60,dir:[-0.5257311121191336,-0.85065080835204,0]},southPole:{type:'center',face:51,dir:[0.5257311121191336,0.85065080835204,0]}},
 		generatePreset(11 / 8.5, 'US Letter (8.5×11 in)'),
 		{"label":"US Legal (8.5×14 in)","parents":[20,20,21,22,22,28,26,26,29,29,35,34,48,39,38,47,42,43,49,49,50,50,55,3,4,0,53,57,58,54,56,58,10,11,12,12,13,14,15,15,16,17,18,18,16,17,59,19,19,-1,22,20,21,34,38,42,40,41,46,47,42,43],"tabs":{},"mirrored":false,"angle":0.03490658503988659,"aspect":1.647058823529412,"northPole":{"type":"center","face":36,"dir":[0.3090169943749474,-0.8090169943749473,0.5]},"southPole":{"type":"center","face":32,"dir":[-0.3090169943749474,0.8090169943749473,-0.5]}},
 		{"label":"US Tabloid (11×17 in)","parents":[20,20,21,22,22,25,26,26,29,29,35,34,48,39,38,47,42,43,49,49,50,50,55,3,4,0,53,57,5,54,56,5,10,53,12,12,13,14,15,15,16,17,18,18,16,17,11,19,19,-1,22,20,21,34,38,42,40,41,28,48,42,43],"tabs":{"37-58":58,"9-31":31,"7-28":28},"mirrored":false,"angle":0,"aspect":1.5454545454545456,"northPole":{"type":"center","face":36,"dir":[0.3090169943749474,-0.8090169943749473,0.5]},"southPole":{"type":"center","face":32,"dir":[-0.3090169943749474,0.8090169943749473,-0.5]}},
@@ -1263,6 +1263,273 @@ GEOMETRIES.pentahex60 = (function() {
 })();
 
 // ─────────────────────────────────────────────────────────────────────
+// Pentagonal-24 (Pentagonal Icositetrahedron: 24 congruent irregular pentagons)
+// Dual of the snub cube (polar reciprocal via midsphere).
+// Each face is a convex pentagon with bilateral symmetry:
+//   V0 = oct-type vertex (80.752°, pointy tip), V1–V4 = tri-type (114.812° each).
+// Edge pairing: 0↔4 (long), 1↔1 mirror (short), 2↔3 (short).
+// ─────────────────────────────────────────────────────────────────────
+GEOMETRIES.pentagonal24 = (function() {
+	const N_FACES = 24;
+
+	// Tribonacci constant: t³ = t² + t + 1
+	let t = 1.8;
+	for (let i = 0; i < 100; i++) t -= (t * t * t - t * t - t - 1) / (3 * t * t - 2 * t - 1);
+	const t2 = t * t;
+
+	// Snub cube vertices: even permutations of (±1, ±1/t, ±t) with even # of plus signs,
+	// odd permutations with odd # of plus signs
+	const evenP = [[0, 1, 2], [1, 2, 0], [2, 0, 1]];
+	const oddP = [[0, 2, 1], [2, 1, 0], [1, 0, 2]];
+	const rawVerts = [];
+	for (const [a, b, c] of evenP)
+		for (const s1 of [1, -1]) for (const s2 of [1, -1]) for (const s3 of [1, -1]) {
+			if (((s1 > 0 ? 1 : 0) + (s2 > 0 ? 1 : 0) + (s3 > 0 ? 1 : 0)) % 2 === 0) {
+				const v = [0, 0, 0]; v[a] = s1; v[b] = s2 / t; v[c] = s3 * t; rawVerts.push(v);
+			}
+		}
+	for (const [a, b, c] of oddP)
+		for (const s1 of [1, -1]) for (const s2 of [1, -1]) for (const s3 of [1, -1]) {
+			if (((s1 > 0 ? 1 : 0) + (s2 > 0 ? 1 : 0) + (s3 > 0 ? 1 : 0)) % 2 === 1) {
+				const v = [0, 0, 0]; v[a] = s1; v[b] = s2 / t; v[c] = s3 * t; rawVerts.push(v);
+			}
+		}
+
+	const c3 = rawVerts.map(norm3);
+
+	// Adjacency: snub cube edge length² = 2 + 4t − 2t²
+	const alpha2 = 2 + 4 * t - 2 * t2;
+	const adj = Array.from({ length: N_FACES }, () => []);
+	for (let i = 0; i < N_FACES; i++)
+		for (let j = i + 1; j < N_FACES; j++) {
+			const d = sub3(rawVerts[i], rawVerts[j]);
+			if (Math.abs(dot3(d, d) - alpha2) < 0.01) { adj[i].push(j); adj[j].push(i); }
+		}
+
+	const frames = buildFrames(c3, N_FACES);
+
+	// Canonical pentagon shape (short edge = 1, V0=oct at +Y, bilateral symmetry about Y)
+	// Computed via polar reciprocal of snub cube face centers through midsphere.
+	const pentVtx = [
+		[0.000000, 1.228276],      // V0: oct-type (pointy tip, 80.752°)
+		[-0.919643, 0.146776],     // V1: tri-type (upper-left, 114.812°)
+		[-0.500000, -0.760914],    // V2: tri-type (lower-left, 114.812°)
+		[0.500000, -0.760914],     // V3: tri-type (lower-right, 114.812°)
+		[0.919643, 0.146776]       // V4: tri-type (upper-right, 114.812°)
+	];
+
+	// Edge direction angles: atan2(V[(k+1)%5] - V[k])
+	const edgeDirAngles = [];
+	for (let k = 0; k < 5; k++) {
+		const a = pentVtx[k], b = pentVtx[(k + 1) % 5];
+		edgeDirAngles.push(Math.atan2(b[1] - a[1], b[0] - a[0]));
+	}
+
+	// Sector boundaries for edgeIdx (vertex angles relative to V0 direction)
+	let _a1 = Math.atan2(pentVtx[1][1], pentVtx[1][0]) - Math.PI / 2;
+	if (_a1 < 0) _a1 += 2 * Math.PI;
+	const SECT_1 = _a1;
+	let _a2 = Math.atan2(pentVtx[2][1], pentVtx[2][0]) - Math.PI / 2;
+	if (_a2 < 0) _a2 += 2 * Math.PI;
+	const SECT_2 = _a2;
+	const SECT_3 = 2 * Math.PI - SECT_2;
+	const SECT_4 = 2 * Math.PI - SECT_1;
+
+	// Face offsets: direction to the oct vertex (largest angular gap midpoint between neighbors)
+	const faceOffsets = [];
+	for (let fi = 0; fi < N_FACES; fi++) {
+		const N = c3[fi], [T1, T2] = frames[fi];
+		const nAngles = adj[fi].map(j => {
+			const d = sub3(c3[j], scale3(N, dot3(c3[j], N)));
+			const pn = norm3(d);
+			return Math.atan2(dot3(pn, T2), dot3(pn, T1));
+		});
+		nAngles.sort((a, b) => a - b);
+		let maxGap = 0, maxK = 0;
+		for (let k = 0; k < 5; k++) {
+			let gap = nAngles[(k + 1) % 5] - nAngles[k];
+			if (gap < 0) gap += 2 * Math.PI;
+			if (gap > maxGap) { maxGap = gap; maxK = k; }
+		}
+		let octDir = (nAngles[maxK] + nAngles[(maxK + 1) % 5]) / 2;
+		if (maxK === 4) octDir += Math.PI;
+		faceOffsets.push(octDir);
+	}
+
+	function edgeIdx(i, j) {
+		const N = c3[i], [T1, T2] = frames[i];
+		const d = sub3(c3[j], scale3(N, dot3(c3[j], N)));
+		const pn = norm3(d);
+		let a = Math.atan2(dot3(pn, T2), dot3(pn, T1));
+		let rel = a - faceOffsets[i];
+		if (rel < 0) rel += 2 * Math.PI;
+		if (rel >= 2 * Math.PI) rel -= 2 * Math.PI;
+		if (rel < SECT_1) return 0;
+		if (rel < SECT_2) return 1;
+		if (rel < SECT_3) return 2;
+		if (rel < SECT_4) return 3;
+		return 4;
+	}
+
+	// Pentagon metrics
+	const shortEdge = 1;
+	const longEdgeActual = Math.sqrt((pentVtx[0][0] - pentVtx[1][0]) ** 2 +
+		(pentVtx[0][1] - pentVtx[1][1]) ** 2);
+	let pentArea = 0;
+	for (let k = 0; k < 5; k++) {
+		const a = pentVtx[k], b = pentVtx[(k + 1) % 5];
+		pentArea += a[0] * b[1] - b[0] * a[1];
+	}
+	pentArea = Math.abs(pentArea) / 2;
+
+	const INRADIUS = 0.760914; // min inradius (distance from center to closest edge)
+	const dOct = pentVtx[0][1]; // circumradius = oct vertex distance from center
+	const halfW = pentVtx[4][0]; // half-width at widest point
+
+	const _tabH = INRADIUS * 0.3;
+	const tabInsetLong = 0.12;
+	const tabInsetShort = 0.15;
+	const singleTabArea = ((shortEdge + longEdgeActual) / 2) * _tabH * 0.5;
+
+	function _ghostPlace(i, j, res, mirrored) {
+		const ki = edgeIdx(i, j), kj = edgeIdx(j, i);
+		const s = mirrored ? -1 : 1;
+		const r2 = res[i].r + s * edgeDirAngles[ki] - s * edgeDirAngles[kj] + Math.PI;
+		const qi = mirrored ? ki : (ki + 1) % 5;
+		const cr1 = Math.cos(res[i].r * s), sr1 = Math.sin(res[i].r * s);
+		const Qx = res[i].x + (pentVtx[qi][0] * cr1 - pentVtx[qi][1] * sr1) * s;
+		const Qy = res[i].y + pentVtx[qi][0] * sr1 + pentVtx[qi][1] * cr1;
+		const cr2 = Math.cos(r2 * s), sr2 = Math.sin(r2 * s);
+		const qj = mirrored ? (kj + 1) % 5 : kj;
+		const vjx = (pentVtx[qj][0] * cr2 - pentVtx[qj][1] * sr2) * s;
+		const vjy = pentVtx[qj][0] * sr2 + pentVtx[qj][1] * cr2;
+		return { x: Qx - vjx, y: Qy - vjy, r: r2 };
+	}
+
+	function _collisionCheck(j, px, py, pr, placed, res) {
+		const threshold = INRADIUS * 1.7;
+		for (let k = 0; k < N_FACES; k++) {
+			if (!placed[k]) continue;
+			const dx = px - res[k].x, dy = py - res[k].y;
+			const d = Math.sqrt(dx * dx + dy * dy);
+			if (d < threshold) {
+				const crk = Math.cos(-res[k].r), srk = Math.sin(-res[k].r);
+				const lx = dx * crk - dy * srk, ly = dx * srk + dy * crk;
+				if (Math.abs(lx) / halfW + Math.abs(ly) / dOct < 1.7) return true;
+			}
+		}
+		return false;
+	}
+
+	// Auto-generate presets
+	function generatePreset(aspect, label) {
+		let best = null, bestScore = Infinity;
+		for (let s = 0; s < N_FACES; s++) {
+			const placed = new Array(N_FACES).fill(false);
+			const parent = new Array(N_FACES).fill(-1);
+			const res = new Array(N_FACES);
+			res[s] = { x: 0, y: 0, r: 0 };
+			placed[s] = true;
+			let count = 1, changed = true;
+			while (changed) {
+				changed = false;
+				for (let j = 0; j < N_FACES; j++) {
+					if (placed[j]) continue;
+					for (const i of adj[j]) {
+						if (!placed[i]) continue;
+						const pos = _ghostPlace(i, j, res, false);
+						if (!_collisionCheck(j, pos.x, pos.y, pos.r, placed, res)) {
+							res[j] = pos; placed[j] = true; parent[j] = i; count++; changed = true; break;
+						}
+					}
+				}
+			}
+			let bestA = 0, bestAr = Infinity;
+			for (let deg = 0; deg < 180; deg += 2) {
+				const rad = deg * Math.PI / 180;
+				const cs = Math.cos(rad), sn = Math.sin(rad);
+				let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
+				for (let ii = 0; ii < N_FACES; ii++) {
+					if (!placed[ii]) continue;
+					const cr = dOct;
+					const rx = res[ii].x * cs - res[ii].y * sn;
+					const ry = res[ii].x * sn + res[ii].y * cs;
+					mnX = Math.min(mnX, rx - cr); mxX = Math.max(mxX, rx + cr);
+					mnY = Math.min(mnY, ry - cr); mxY = Math.max(mxY, ry + cr);
+				}
+				const w = mxX - mnX, h = mxY - mnY;
+				const sc = Math.min(aspect / w, 1 / h);
+				const ar = aspect / (sc * sc);
+				if (ar < bestAr) { bestAr = ar; bestA = rad; }
+			}
+			const penalty = (N_FACES - count) * 100;
+			const score = bestAr + penalty;
+			if (score < bestScore) {
+				bestScore = score;
+				best = { parents: parent.slice(), angle: bestA, count };
+			}
+		}
+		if (!best) return null;
+		return { label, aspect, parents: best.parents, tabs: {}, mirrored: false, angle: best.angle };
+	}
+
+	const presets = [
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[19,8,23,21,17,0,13,17,14,15,0,13,10,8,-1,10,6,14,21,13,1,0,13,8],tabs:{"10-12":12,"10-15":10,"12-20":20,"15-21":21,"9-20":20,"6-8":6,"1-6":6,"1-20":20,"2-17":17,"7-17":17,"4-18":18,"11-14":11,"3-11":3,"3-18":3,"9-15":15,"2-4":4,"2-9":9,"4-9":4,"4-15":15,"12-16":16,"7-18":18,"17-23":23,"14-23":23,"7-14":14,"11-22":11,"3-22":22,"19-22":19,"0-22":22,"10-21":10,"9-12":12},mirrored:false,angle:0,northPole:{type:'vertex',dir:[-0.5773502691896257,-0.5773502691896257,-0.5773502691896257]},southPole:{type:'vertex',dir:[0.5773502691896257,0.5773502691896257,0.5773502691896257]}},
+		generatePreset(11 / 8.5, 'US Letter (8.5×11 in)'),
+		generatePreset(14 / 8.5, 'US Legal (8.5×14 in)'),
+		generatePreset(17 / 11, 'US Tabloid (11×17 in)'),
+		generatePreset(257 / 182, 'B5 JIS (182×257 mm)'),
+	].filter(Boolean);
+	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
+
+	return {
+		id: 'pentagonal24',
+		name: 'Pentagonal-24',
+		nFaces: N_FACES,
+		storageKey: 'pentagonal24-custom-layouts',
+		c3, adj, frames,
+		nSides() { return 5; },
+		edgeIdx,
+		apothem() { return INRADIUS; },
+		circumR() { return dOct; },
+		tabH: _tabH,
+		tabInset: tabInsetLong,
+		singleTabArea,
+		initialRotation: 0,
+
+		ghostPlace: _ghostPlace,
+		tryPlace(i, j, res, placed, mirrored) {
+			const pos = _ghostPlace(i, j, res, mirrored);
+			if (_collisionCheck(j, pos.x, pos.y, pos.r, placed, res)) return null;
+			return pos;
+		},
+		irregularFace: true,
+		polyVerts(fx, fy, rot, face, mirrored) {
+			const cr = Math.cos(rot), sr = Math.sin(rot);
+			const m = mirrored ? -1 : 1;
+			return pentVtx.map(([lx, ly]) => ({
+				x: fx + m * lx * cr - ly * sr,
+				y: fy + m * lx * sr + ly * cr
+			}));
+		},
+		faceArea() { return pentArea; },
+		tabInsets(i, k) {
+			// Edges 0,4 are long (oct↔tri), edges 1,2,3 are short (tri↔tri)
+			return (k === 0 || k === 4) ? [tabInsetLong, tabInsetLong] : [tabInsetShort, tabInsetShort];
+		},
+		edgeSlot(i, k) { return k; },
+		faceLabel() { return 'pentagon'; },
+		faceColor(i, isSelf, isTarget) {
+			if (isSelf) return 'rgba(80, 140, 180, 0.9)';
+			if (isTarget) return 'rgba(100, 170, 220, 0.45)';
+			return 'rgba(35, 55, 70, 0.85)';
+		},
+		ghostColor() { return 'rgba(100, 170, 220, 0.25)'; },
+		presets,
+	};
+})();
+
+// ─────────────────────────────────────────────────────────────────────
 // Rhombic-12 (Rhombic Dodecahedron: 12 congruent rhombi)
 // Dual of the cuboctahedron (polar reciprocal via midsphere).
 // Each face is a rhombus: acute angle = arccos(1/3) ≈ 70.53° (oct-type vertex, degree 4),
@@ -1418,7 +1685,7 @@ GEOMETRIES.rhombic12 = (function() {
 	}
 
 	const presets = [
-		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[4,6,9,9,9,2,3,3,6,-1,7,3],tabs:{"1-10":10},mirrored:false,angle:1.5009831567151233,northPole:{type:'vertex',dir:[-0.5773502691896257,-0.5773502691896257,0.5773502691896257]},southPole:{type:'vertex',dir:[0.5773502691896257,0.5773502691896257,-0.5773502691896257]}},
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[4,6,9,9,9,2,3,3,6,-1,7,3],tabs:{"1-10":10},mirrored:false,angle:1.5009831567151233,lonOffset:1.5707963267948966,northPole:{type:'vertex',dir:[-0.5773502691896257,-0.5773502691896257,0.5773502691896257]},southPole:{type:'vertex',dir:[0.5773502691896257,0.5773502691896257,-0.5773502691896257]}},
 		{"label":"US Letter (8.5×11 in)","parents":[8,8,4,6,0,0,8,1,-1,4,0,5],"tabs":{},"mirrored":false,"angle":1.5533430342749535,"aspect":1.2941176470588234,"northPole":{"type":"vertex","dir":[-0.5773502691896257,0.5773502691896257,-0.5773502691896257]},"southPole":{"type":"vertex","dir":[0.5773502691896257,-0.5773502691896257,0.5773502691896257]}},
 		generatePreset(14 / 8.5, 'US Legal (8.5×14 in)'),
 		{"label":"US Tabloid (11×17 in)","parents":[4,8,4,9,-1,2,8,1,0,2,0,2],"tabs":{"7-11":11,"3-7":7,"4-9":4,"4-8":8,"6-9":9,"1-6":6,"5-11":11,"0-5":5,"3-6":6},"mirrored":false,"angle":1.361356816555577,"aspect":1.5454545454545456,"northPole":{"type":"vertex","dir":[-0.5773502691896257,0.5773502691896257,0.5773502691896257]},"southPole":{"type":"vertex","dir":[0.5773502691896257,-0.5773502691896257,-0.5773502691896257]}},

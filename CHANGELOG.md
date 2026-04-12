@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-04-12
+
+### Added
+- **Pentagonal-24 geometry** — pentagonal icositetrahedron (24 congruent irregular pentagons, dual of snub cube via polar reciprocal); tribonacci constant vertex construction, chiral face with 4×114.8° + 1×80.8° angles, two edge lengths (ratio ≈ 1:1.42), sector-based edge pairing; hand-crafted DIN A preset
+- **Null meridian editing** — `lonOffset` layout property stores meridian rotation around the pole axis; new "0°" button next to the S pole button enters meridian edit mode; clicking a snap point (face center or vertex) on the equator sets the 0° reference direction
+- **Interactive 0° marker on net** — gold circle markers with "0" label rendered at positions where the meridian reference direction projects onto placed faces (gnomonic projection per face with affine interpolation to 2D); clicking a marker enters meridian edit mode; hover shows "Edit null meridian" tooltip
+- **Ghost 0° marker** — semi-transparent 0° markers shown during both pole edit and meridian edit mode previews, reflecting the candidate pole/meridian position
+- **Marker mode switching** — clicking any pole or 0° marker during an active edit mode switches directly to that marker's edit mode (e.g. clicking "N" while editing the meridian switches to north pole editing, and vice versa); hover tooltips shown for switchable markers during all edit modes
+- **Irregular face flip support** — `irregularFace` geometry flag; `polyVerts` accepts a 5th `mirrored` parameter that negates local x for irregular polygons; `flipLayout` uses swapped rotation formulas (V-flip: `r = π − r`, H-flip: `r = −r`) for irregular geometries
+
+### Changed
+- **Ghost preview clipping** — ghost polygon preview is no longer shown when the cursor is outside the paper rectangle (printable area); `hitTestEdge` checks mouse world position against stored paper bounds
+- **Flip H/V negates `lonOffset`** — flipping the net toggles chirality, so the meridian angle is negated to keep the 0° marker visually consistent
+- **Rhombic-12 DIN A preset** — updated with `lonOffset: π/2`
+
+### Fixed
+- **Great circle vertex-on-plane crossing** — robust handling when a great circle plane passes exactly through a polygon vertex; on-plane vertices are now classified as crossings only when neighbours are on opposite sides or also on the plane; edge interpolation is skipped when the next vertex is on the plane, preventing duplicate crossings that caused missing meridian segments (visible in icosahedron-20 face 2)
+
 ## [0.24.0] - 2026-04-11
 
 ### Added

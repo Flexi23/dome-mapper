@@ -55,6 +55,7 @@ canvas { display: block; }
 	<div class="row" style="margin:2px 0">
 		<span style="flex:1; font-size:12px">S: <span id="south-pole-label" style="color:#68f">—</span></span>
 		<button id="btn-edit-south" style="width:auto; padding:1px 8px; font-size:11px" title="Edit South Pole">✎ S</button>
+		<button id="btn-edit-meridian" style="width:auto; padding:1px 8px; font-size:11px" title="Move null meridian along equator">0°</button>
 	</div>
 
 	<hr>
@@ -115,6 +116,7 @@ let glueTabMode = false;
 let tabOwnership = {};
 let vertexMap = null;
 let poleEditMode = null;   // null | 'north' | 'south'
+let merEditMode = false;   // true when editing null meridian
 let hoveredSnap = null;    // { type, id/face/vertexId, positions }
 
 const undoStack = [];
@@ -197,6 +199,7 @@ function cloneLayout(layout) {
 		mirrored: layout.mirrored || false,
 		label: layout.label || '',
 		angle: layout.angle || 0,
+		lonOffset: layout.lonOffset || 0,
 		northPole: layout.northPole ? Object.assign({}, layout.northPole) : null,
 		southPole: layout.southPole ? Object.assign({}, layout.southPole) : null,
 		tabOwnershipSnapshot: cloneTabOwnership()
@@ -284,7 +287,7 @@ function getPolePositions2D(pole, layout) {
 			const seen = new Set();
 			for (const { face, vi } of vertexMap.vertexClasses[vid]) {
 				if (!placed[face]) continue;
-				const verts = geo.polyVerts(res[face].x, res[face].y, res[face].r, face);
+				const verts = geo.polyVerts(res[face].x, res[face].y, res[face].r, face, layout.mirrored);
 				const px = verts[vi].x, py = verts[vi].y;
 				const pk = Math.round(px * 1e4) + ',' + Math.round(py * 1e4);
 				if (!seen.has(pk)) { seen.add(pk); positions.push({ x: px, y: py, face }); }
@@ -368,7 +371,7 @@ function findNearestSnap(wx, wy) {
 	}
 	for (let i = 0; i < geo.nFaces; i++) {
 		if (!placed[i]) continue;
-		const verts = geo.polyVerts(res[i].x, res[i].y, res[i].r, i);
+		const verts = geo.polyVerts(res[i].x, res[i].y, res[i].r, i, currentLayout.mirrored);
 		const n = geo.nSides(i);
 		for (let k = 0; k < n; k++) {
 			const dx = wx - verts[k].x, dy = wy - verts[k].y;
@@ -417,7 +420,7 @@ function getGreatCircleSegments(planeNormal, layout) {
 	for (let i = 0; i < geo.nFaces; i++) {
 		if (!placed[i]) continue;
 		const n = geo.nSides(i);
-		const verts2D = geo.polyVerts(res[i].x, res[i].y, res[i].r, i);
+		const verts2D = geo.polyVerts(res[i].x, res[i].y, res[i].r, i, layout.mirrored);
 		const h = [];
 		for (let k = 0; k < n; k++) {
 			const vid = vertexMap.vertexId[vertexMap.vkey(i, k)];
@@ -426,14 +429,19 @@ function getGreatCircleSegments(planeNormal, layout) {
 		const crossings = [];
 		for (let k = 0; k < n; k++) {
 			const k2 = (k + 1) % n;
-			if (h[k] * h[k2] < 0) {
+			if (Math.abs(h[k]) < 1e-9) {
+				// Vertex on the plane — count as crossing if neighbours are strictly
+				// on opposite sides, or if either neighbour is also on the plane
+				const prev = (k - 1 + n) % n;
+				if (h[prev] * h[k2] < 0 || Math.abs(h[k2]) < 1e-9 || Math.abs(h[prev]) < 1e-9) {
+					crossings.push({ x: verts2D[k].x, y: verts2D[k].y });
+				}
+			} else if (Math.abs(h[k2]) > 1e-9 && h[k] * h[k2] < 0) {
 				const t = h[k] / (h[k] - h[k2]);
 				crossings.push({
 					x: verts2D[k].x + t * (verts2D[k2].x - verts2D[k].x),
 					y: verts2D[k].y + t * (verts2D[k2].y - verts2D[k].y)
 				});
-			} else if (Math.abs(h[k]) < 1e-9) {
-				crossings.push({ x: verts2D[k].x, y: verts2D[k].y });
 			}
 		}
 		if (crossings.length >= 2) segments.push([crossings[0], crossings[1]]);
@@ -442,15 +450,93 @@ function getGreatCircleSegments(planeNormal, layout) {
 }
 
 function getEquatorAndMeridian() {
-	if (!currentLayout || !geo || !vertexMap) return { equator: [], meridian: [] };
+	if (!currentLayout || !geo || !vertexMap) return { equator: [], meridian: [], eqRef: null };
 	const axis = poleDir(currentLayout.northPole);
-	if (!axis) return { equator: [], meridian: [] };
+	if (!axis) return { equator: [], meridian: [], eqRef: null };
 	const equator = getGreatCircleSegments(axis, currentLayout);
 	let ref = [1, 0, 0];
 	if (Math.abs(dot3(axis, ref)) > 0.9) ref = [0, 0, 1];
-	const meridianNormal = norm3(cross3(axis, ref));
+	// Project ref onto equatorial plane and normalize
+	let eqRef = sub3(ref, scale3(axis, dot3(ref, axis)));
+	eqRef = norm3(eqRef);
+	const lonOff = currentLayout.lonOffset || 0;
+	if (lonOff !== 0) {
+		const perp = norm3(cross3(axis, eqRef));
+		const c = Math.cos(lonOff), s = Math.sin(lonOff);
+		eqRef = [eqRef[0] * c + perp[0] * s, eqRef[1] * c + perp[1] * s, eqRef[2] * c + perp[2] * s];
+	}
+	const meridianNormal = norm3(cross3(axis, eqRef));
 	const meridian = getGreatCircleSegments(meridianNormal, currentLayout);
-	return { equator, meridian };
+	return { equator, meridian, eqRef };
+}
+
+// Find 2D positions where a 3D direction projects onto the unfolded net
+function getDirectionPositions2D(dir, layout) {
+	if (!dir || !layout || !geo || !vertexMap) return [];
+	const { res, placed } = layout;
+	const positions = [];
+	const seen = new Set();
+	for (let i = 0; i < geo.nFaces; i++) {
+		if (!placed[i]) continue;
+		const n = geo.nSides(i);
+		const verts2D = geo.polyVerts(res[i].x, res[i].y, res[i].r, i, layout.mirrored);
+		// Get 3D directions for each vertex
+		const vDirs = [];
+		for (let k = 0; k < n; k++) {
+			const vid = vertexMap.vertexId[vertexMap.vkey(i, k)];
+			vDirs.push(vertexMap.dirs[vid]);
+		}
+		// Check if dir is inside the face's spherical polygon using winding
+		// Project dir and vertices into face tangent plane
+		const N = geo.c3[i];
+		const dp = dot3(dir, N);
+		if (dp < 0.01) continue; // direction is on the far side of this face
+		// Gnomonic projection into face plane: p = dir / dp
+		// For each vertex: v_proj = vDir / dot(vDir, N)
+		// Check if projected dir is inside the polygon of projected vertices
+		const px = dot3(dir, geo.frames[i][0]) / dp;
+		const py = dot3(dir, geo.frames[i][1]) / dp;
+		let inside = true;
+		for (let k = 0; k < n; k++) {
+			const k2 = (k + 1) % n;
+			const dpk = dot3(vDirs[k], N), dpk2 = dot3(vDirs[k2], N);
+			if (dpk < 1e-9 || dpk2 < 1e-9) { inside = false; break; }
+			const ax = dot3(vDirs[k], geo.frames[i][0]) / dpk;
+			const ay = dot3(vDirs[k], geo.frames[i][1]) / dpk;
+			const bx = dot3(vDirs[k2], geo.frames[i][0]) / dpk2;
+			const by = dot3(vDirs[k2], geo.frames[i][1]) / dpk2;
+			// Cross product of (b-a) × (p-a) should be positive (CCW winding)
+			const cross = (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+			if (cross < -1e-9) { inside = false; break; }
+		}
+		if (!inside) continue;
+		// Interpolate 2D position using barycentric-like projection
+		// Use the face tangent frame to map from gnomonic coords to 2D
+		// The face center in gnomonic coords is at (0,0), maps to (res[i].x, res[i].y)
+		// Vertex k at gnomonic (gx,gy) maps to verts2D[k]
+		// Use least-squares affine from first 3 verts
+		const gVerts = [];
+		for (let k = 0; k < n; k++) {
+			const dpk = dot3(vDirs[k], N);
+			gVerts.push([dot3(vDirs[k], geo.frames[i][0]) / dpk, dot3(vDirs[k], geo.frames[i][1]) / dpk]);
+		}
+		// Affine transform: 2D = A * gnomonic + b, solve from 3 points
+		const g0 = gVerts[0], g1 = gVerts[1], g2 = gVerts[2];
+		const v0 = verts2D[0], v1 = verts2D[1], v2 = verts2D[2];
+		const det = (g1[0] - g0[0]) * (g2[1] - g0[1]) - (g2[0] - g0[0]) * (g1[1] - g0[1]);
+		if (Math.abs(det) < 1e-12) continue;
+		const invDet = 1 / det;
+		const a11 = ((v1.x - v0.x) * (g2[1] - g0[1]) - (v2.x - v0.x) * (g1[1] - g0[1])) * invDet;
+		const a12 = ((v2.x - v0.x) * (g1[0] - g0[0]) - (v1.x - v0.x) * (g2[0] - g0[0])) * invDet;
+		const a21 = ((v1.y - v0.y) * (g2[1] - g0[1]) - (v2.y - v0.y) * (g1[1] - g0[1])) * invDet;
+		const a22 = ((v2.y - v0.y) * (g1[0] - g0[0]) - (v1.y - v0.y) * (g2[0] - g0[0])) * invDet;
+		const dx = px - g0[0], dy = py - g0[1];
+		const fx = v0.x + a11 * dx + a12 * dy;
+		const fy = v0.y + a21 * dx + a22 * dy;
+		const pk = Math.round(fx * 1e4) + ',' + Math.round(fy * 1e4);
+		if (!seen.has(pk)) { seen.add(pk); positions.push({ x: fx, y: fy, face: i }); }
+	}
+	return positions;
 }
 
 function chainSegments(segments) {
@@ -553,7 +639,7 @@ function bboxCriticalPoints(res, placed, parent, mirrored) {
 	const pts = [];
 	for (let i = 0; i < N; i++) {
 		if (!placed[i]) continue;
-		const verts = geo.polyVerts(res[i].x, res[i].y, res[i].r, i);
+		const verts = geo.polyVerts(res[i].x, res[i].y, res[i].r, i, mirrored);
 		const fx = res[i].x, fy = res[i].y;
 		const n = geo.nSides(i);
 		for (let k = 0; k < n; k++) {
@@ -733,6 +819,7 @@ function computeLayout() {
 	rebuildVertexMap();
 	layout.northPole = preset.northPole ? resolvePole(preset.northPole) : null;
 	layout.southPole = preset.southPole ? resolvePole(preset.southPole) : null;
+	layout.lonOffset = preset.lonOffset || 0;
 	optimizeAndApplyRotation(currentLayout);
 	updateDeleteBtnVisibility();
 	updatePoleLabels();
@@ -744,6 +831,7 @@ function computeLayout() {
 // ═══════════════════════════════════════════════════════════════════════
 
 let viewOX = 0, viewOY = 0, viewScale = 1;
+let paperMinX = -Infinity, paperMaxX = Infinity, paperMinY = -Infinity, paperMaxY = Infinity;
 
 function toScreen(x, y) {
 	return [canvas.width / 2 + (x - viewOX) * viewScale, canvas.height / 2 - (y - viewOY) * viewScale];
@@ -818,8 +906,10 @@ function draw() {
 		const netW = mxX - mnX, netH = mxY - mnY;
 		const s = Math.min(aspect / netW, 1 / netH);
 		const pW = aspect / s, pH = 1 / s;
-		const [ax0, ay0] = toScreen(viewOX - pW / 2, viewOY + pH / 2);
-		const [ax1, ay1] = toScreen(viewOX + pW / 2, viewOY - pH / 2);
+		paperMinX = viewOX - pW / 2; paperMaxX = viewOX + pW / 2;
+		paperMinY = viewOY - pH / 2; paperMaxY = viewOY + pH / 2;
+		const [ax0, ay0] = toScreen(paperMinX, paperMaxY);
+		const [ax1, ay1] = toScreen(paperMaxX, paperMinY);
 		ctx.save();
 		// Printable area (inner)
 		ctx.strokeStyle = 'rgba(100, 200, 100, 0.3)';
@@ -854,7 +944,7 @@ function draw() {
 		if (!placed[i]) continue;
 		const n = geo.nSides(i);
 		const fx = res[i].x, fy = res[i].y, rot = res[i].r;
-		const verts = geo.polyVerts(fx, fy, rot, i);
+		const verts = geo.polyVerts(fx, fy, rot, i, mirrored);
 		for (let k = 0; k < n; k++) {
 			const info = edgeNeighbor[i][k];
 			if (info && info.isInternal) continue;
@@ -881,7 +971,7 @@ function draw() {
 				{ x: o2x, y: o2y }, { x: v2.x, y: v2.y }
 			];
 			const ghostPos = geo.ghostPlace(i, targetFace, res, mirrored);
-			const ghostVerts = geo.polyVerts(ghostPos.x, ghostPos.y, ghostPos.r, targetFace);
+			const ghostVerts = geo.polyVerts(ghostPos.x, ghostPos.y, ghostPos.r, targetFace, mirrored);
 			const isCutEdge = placed[targetFace];
 			boundaryEdges.push({ face: i, edge: k, targetFace, flapVerts, ghostPos, ghostVerts, isCutEdge });
 		}
@@ -893,7 +983,7 @@ function draw() {
 	ctx.rect(0, 0, canvas.width, canvas.height);
 	for (let i = 0; i < N; i++) {
 		if (!placed[i]) continue;
-		const verts = geo.polyVerts(res[i].x, res[i].y, res[i].r, i);
+		const verts = geo.polyVerts(res[i].x, res[i].y, res[i].r, i, mirrored);
 		for (let k = 0; k < verts.length; k++) {
 			const [sx, sy] = toScreen(verts[k].x, verts[k].y);
 			if (k === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
@@ -991,7 +1081,7 @@ function draw() {
 				const gx = ghostPos.x + rx * cs - ry * sn;
 				const gy = ghostPos.y + rx * sn + ry * cs;
 				const gr = res[d].r + dr;
-				ghostFaces.push({ id: d, verts: geo.polyVerts(gx, gy, gr, d), pos: { x: gx, y: gy } });
+				ghostFaces.push({ id: d, verts: geo.polyVerts(gx, gy, gr, d, mirrored), pos: { x: gx, y: gy } });
 			}
 		}
 		for (const gf of ghostFaces) {
@@ -1038,7 +1128,7 @@ function draw() {
 	for (let i = 0; i < N; i++) {
 		if (!placed[i]) continue;
 		const n = geo.nSides(i);
-		const verts = geo.polyVerts(res[i].x, res[i].y, res[i].r, i);
+		const verts = geo.polyVerts(res[i].x, res[i].y, res[i].r, i, mirrored);
 		const isTarget = hoveredEdge && hoveredEdge.targetFace === i;
 		const isSelf = hoveredFace === i;
 
@@ -1087,9 +1177,37 @@ function draw() {
 
 	// ── Equator & Meridian ──
 	if (currentLayout.northPole) {
-		const { equator, meridian } = getEquatorAndMeridian();
+		const { equator, meridian, eqRef } = getEquatorAndMeridian();
 		drawGreatCircle(equator, 'rgba(80, 220, 80, ALPHA)', 0.7, 2, []);
 		drawGreatCircle(meridian, 'rgba(220, 180, 60, ALPHA)', 0.7, 2, []);
+		// ── 0° marker on equator ──
+		if (eqRef) {
+			const zeroPositions = getDirectionPositions2D(eqRef, currentLayout);
+			for (const pos of zeroPositions) {
+				const r = Math.max(6, viewScale * 0.09);
+				const [sx, sy] = toScreen(pos.x, pos.y);
+				ctx.save();
+				ctx.beginPath();
+				ctx.arc(sx, sy, r, 0, 2 * Math.PI);
+				ctx.fillStyle = merEditMode ? 'rgba(220, 180, 60, 0.95)' : 'rgba(220, 180, 60, 0.8)';
+				ctx.fill();
+				ctx.strokeStyle = 'rgba(255, 220, 100, 0.9)';
+				ctx.lineWidth = 1.5;
+				ctx.stroke();
+				ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+				ctx.font = `bold ${Math.max(7, r * 0.8)}px system-ui`;
+				ctx.textAlign = 'center';
+				ctx.textBaseline = 'middle';
+				ctx.fillText('0', sx, sy);
+				if (merEditMode) {
+					const hr = Math.max(10, viewScale * 0.14);
+					ctx.beginPath(); ctx.arc(sx, sy, hr, 0, 2 * Math.PI);
+					ctx.strokeStyle = 'rgba(220, 180, 60, 0.8)';
+					ctx.lineWidth = 2; ctx.setLineDash([4, 3]); ctx.stroke(); ctx.setLineDash([]);
+				}
+				ctx.restore();
+			}
+		}
 	}
 
 	// ── Ghost equator/meridian preview ──
@@ -1104,6 +1222,61 @@ function draw() {
 			const ghostMN = norm3(cross3(hDir, ref));
 			const ghostMer = getGreatCircleSegments(ghostMN, currentLayout);
 			drawGreatCircle(ghostMer, 'rgba(220, 180, 60, ALPHA)', 0.3, 2, []);
+			// Ghost 0° marker
+			let ghostEqRef = sub3(ref, scale3(hDir, dot3(ref, hDir)));
+			ghostEqRef = norm3(ghostEqRef);
+			const lonOff = currentLayout.lonOffset || 0;
+			if (lonOff !== 0) {
+				const perp = norm3(cross3(hDir, ghostEqRef));
+				const c = Math.cos(lonOff), s = Math.sin(lonOff);
+				ghostEqRef = [ghostEqRef[0]*c+perp[0]*s, ghostEqRef[1]*c+perp[1]*s, ghostEqRef[2]*c+perp[2]*s];
+			}
+			const ghostZeroPos = getDirectionPositions2D(ghostEqRef, currentLayout);
+			for (const gzp of ghostZeroPos) {
+				const r = Math.max(6, viewScale * 0.09);
+				const [sx, sy] = toScreen(gzp.x, gzp.y);
+				ctx.beginPath(); ctx.arc(sx, sy, r, 0, 2 * Math.PI);
+				ctx.fillStyle = 'rgba(220, 180, 60, 0.3)';
+				ctx.fill();
+				ctx.strokeStyle = 'rgba(255, 220, 100, 0.4)';
+				ctx.lineWidth = 1.5; ctx.stroke();
+				ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+				ctx.font = `bold ${Math.max(7, r * 0.8)}px system-ui`;
+				ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+				ctx.fillText('0', sx, sy);
+			}
+		}
+	}
+
+	// ── Ghost meridian preview (meridian edit mode) ──
+	if (merEditMode && hoveredSnap && currentLayout.northPole) {
+		const axis = poleDir(currentLayout.northPole);
+		const snapDir = hoveredSnap.type === 'center' ? geo.c3[hoveredSnap.face]
+			: vertexMap.dirs[hoveredSnap.vertexId];
+		if (axis && snapDir) {
+			const proj = sub3(snapDir, scale3(axis, dot3(snapDir, axis)));
+			const pl = Math.sqrt(dot3(proj, proj));
+			if (pl > 1e-6) {
+				const target = scale3(proj, 1 / pl);
+				const ghostMN = norm3(cross3(axis, target));
+				const ghostMer = getGreatCircleSegments(ghostMN, currentLayout);
+				drawGreatCircle(ghostMer, 'rgba(220, 180, 60, ALPHA)', 0.3, 2, []);
+				// Ghost 0° marker
+				const ghostZeroPos = getDirectionPositions2D(target, currentLayout);
+				for (const gzp of ghostZeroPos) {
+					const r = Math.max(6, viewScale * 0.09);
+					const [sx, sy] = toScreen(gzp.x, gzp.y);
+					ctx.beginPath(); ctx.arc(sx, sy, r, 0, 2 * Math.PI);
+					ctx.fillStyle = 'rgba(220, 180, 60, 0.3)';
+					ctx.fill();
+					ctx.strokeStyle = 'rgba(255, 220, 100, 0.4)';
+					ctx.lineWidth = 1.5; ctx.stroke();
+					ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+					ctx.font = `bold ${Math.max(7, r * 0.8)}px system-ui`;
+					ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+					ctx.fillText('0', sx, sy);
+				}
+			}
 		}
 	}
 
@@ -1161,6 +1334,7 @@ function draw() {
 
 function hitTestEdge(mx, my) {
 	const [wx, wy] = toWorld(mx, my);
+	if (wx < paperMinX || wx > paperMaxX || wy < paperMinY || wy > paperMaxY) return null;
 	for (const edge of boundaryEdges) {
 		if (glueTabMode && edge.isCutEdge) {
 			const key = edgeKey(edge.face, edge.targetFace);
@@ -1178,16 +1352,84 @@ function hitTestFace(mx, my) {
 	const { res, placed } = currentLayout;
 	for (let i = 0; i < geo.nFaces; i++) {
 		if (!placed[i]) continue;
-		const verts = geo.polyVerts(res[i].x, res[i].y, res[i].r, i);
+		const verts = geo.polyVerts(res[i].x, res[i].y, res[i].r, i, currentLayout.mirrored);
 		if (pointInPoly(wx, wy, verts)) return i;
 	}
 	return -1;
 }
 
 canvas.addEventListener('mousemove', e => {
+	// ── Meridian edit mode ──
+	if (merEditMode) {
+		const [wx, wy] = toWorld(e.clientX, e.clientY);
+		const hitR = 12 / viewScale;
+		// Check if hovering pole markers for mode switching
+		let overMarker = null;
+		if (currentLayout.northPole) {
+			const nPos = getPolePositions2D(currentLayout.northPole, currentLayout);
+			for (const pos of nPos) { if (Math.hypot(wx - pos.x, wy - pos.y) < hitR) { overMarker = 'N'; break; } }
+		}
+		if (!overMarker && currentLayout.southPole) {
+			const sPos = getPolePositions2D(currentLayout.southPole, currentLayout);
+			for (const pos of sPos) { if (Math.hypot(wx - pos.x, wy - pos.y) < hitR) { overMarker = 'S'; break; } }
+		}
+		if (overMarker) {
+			if (hoveredSnap) { hoveredSnap = null; draw(); }
+			tooltip.style.display = 'block';
+			tooltip.style.left = (e.clientX + 14) + 'px';
+			tooltip.style.top = (e.clientY + 14) + 'px';
+			tooltip.innerHTML = `Edit ${overMarker === 'N' ? 'North' : 'South'} pole`;
+			canvas.style.cursor = 'pointer';
+			return;
+		}
+		const snap = findNearestSnap(wx, wy);
+		const changed = JSON.stringify(snap) !== JSON.stringify(hoveredSnap);
+		hoveredSnap = snap;
+		if (changed) draw();
+		if (snap) {
+			const pLabel = poleLabel(snap);
+			tooltip.style.display = 'block';
+			tooltip.style.left = (e.clientX + 14) + 'px';
+			tooltip.style.top = (e.clientY + 14) + 'px';
+			tooltip.innerHTML = `0° → ${pLabel}`;
+			canvas.style.cursor = 'pointer';
+		} else {
+			tooltip.style.display = 'none';
+			canvas.style.cursor = 'crosshair';
+		}
+		return;
+	}
 	// ── Pole edit mode ──
 	if (poleEditMode) {
 		const [wx, wy] = toWorld(e.clientX, e.clientY);
+		const hitR = 12 / viewScale;
+		// Check if hovering 0° or other pole markers for mode switching
+		let overMarker = null;
+		if (currentLayout.northPole) {
+			const { eqRef } = getEquatorAndMeridian();
+			if (eqRef) {
+				const zeroPos = getDirectionPositions2D(eqRef, currentLayout);
+				for (const pos of zeroPos) { if (Math.hypot(wx - pos.x, wy - pos.y) < hitR) { overMarker = '0'; break; } }
+			}
+		}
+		if (!overMarker && poleEditMode !== 'north' && currentLayout.northPole) {
+			const nPos = getPolePositions2D(currentLayout.northPole, currentLayout);
+			for (const pos of nPos) { if (Math.hypot(wx - pos.x, wy - pos.y) < hitR) { overMarker = 'N'; break; } }
+		}
+		if (!overMarker && poleEditMode !== 'south' && currentLayout.southPole) {
+			const sPos = getPolePositions2D(currentLayout.southPole, currentLayout);
+			for (const pos of sPos) { if (Math.hypot(wx - pos.x, wy - pos.y) < hitR) { overMarker = 'S'; break; } }
+		}
+		if (overMarker) {
+			if (hoveredSnap) { hoveredSnap = null; draw(); }
+			tooltip.style.display = 'block';
+			tooltip.style.left = (e.clientX + 14) + 'px';
+			tooltip.style.top = (e.clientY + 14) + 'px';
+			tooltip.innerHTML = overMarker === '0' ? 'Edit null meridian'
+				: `Edit ${overMarker === 'N' ? 'North' : 'South'} pole`;
+			canvas.style.cursor = 'pointer';
+			return;
+		}
 		const snap = findNearestSnap(wx, wy);
 		const changed = JSON.stringify(snap) !== JSON.stringify(hoveredSnap);
 		hoveredSnap = snap;
@@ -1256,12 +1498,20 @@ canvas.addEventListener('mousemove', e => {
 		tooltip.style.top = (e.clientY + 14) + 'px';
 		tooltip.innerHTML = label;
 		canvas.style.cursor = 'pointer';
-	} else if (!poleEditMode && !glueTabMode && currentLayout.northPole) {
+	} else if (!poleEditMode && !merEditMode && !glueTabMode && currentLayout.northPole) {
 		const [wx, wy] = toWorld(e.clientX, e.clientY);
 		const hitR = 12 / viewScale;
 		let overPole = null;
-		const nPos = getPolePositions2D(currentLayout.northPole, currentLayout);
-		for (const pos of nPos) { if (Math.hypot(wx - pos.x, wy - pos.y) < hitR) { overPole = 'N'; break; } }
+		// Check 0° marker
+		const { eqRef } = getEquatorAndMeridian();
+		if (eqRef) {
+			const zeroPos = getDirectionPositions2D(eqRef, currentLayout);
+			for (const pos of zeroPos) { if (Math.hypot(wx - pos.x, wy - pos.y) < hitR) { overPole = '0'; break; } }
+		}
+		if (!overPole) {
+			const nPos = getPolePositions2D(currentLayout.northPole, currentLayout);
+			for (const pos of nPos) { if (Math.hypot(wx - pos.x, wy - pos.y) < hitR) { overPole = 'N'; break; } }
+		}
 		if (!overPole) {
 			const sPos = getPolePositions2D(currentLayout.southPole, currentLayout);
 			for (const pos of sPos) { if (Math.hypot(wx - pos.x, wy - pos.y) < hitR) { overPole = 'S'; break; } }
@@ -1270,7 +1520,8 @@ canvas.addEventListener('mousemove', e => {
 			tooltip.style.display = 'block';
 			tooltip.style.left = (e.clientX + 14) + 'px';
 			tooltip.style.top = (e.clientY + 14) + 'px';
-			tooltip.innerHTML = `Edit ${overPole === 'N' ? 'North' : 'South'} pole`;
+			tooltip.innerHTML = overPole === '0' ? 'Edit null meridian'
+				: `Edit ${overPole === 'N' ? 'North' : 'South'} pole`;
 			canvas.style.cursor = 'pointer';
 		} else {
 			tooltip.style.display = 'none';
@@ -1296,10 +1547,20 @@ canvas.addEventListener('click', e => {
 	if (!currentLayout || !geo) return;
 	const N = geo.nFaces;
 
-	// ── Click on existing pole marker to toggle edit ──
+	// ── Click on existing pole marker or 0° marker to toggle edit ──
 	if (!glueTabMode && currentLayout.northPole) {
 		const [wx, wy] = toWorld(e.clientX, e.clientY);
 		const clickR = 12 / viewScale;
+		// Check 0° marker first
+		const { eqRef } = getEquatorAndMeridian();
+		if (eqRef) {
+			const zeroPos = getDirectionPositions2D(eqRef, currentLayout);
+			for (const pos of zeroPos) {
+				if (Math.hypot(wx - pos.x, wy - pos.y) < clickR) {
+					toggleMeridianEdit(); return;
+				}
+			}
+		}
 		const nPositions = getPolePositions2D(currentLayout.northPole, currentLayout);
 		for (const pos of nPositions) {
 			if (Math.hypot(wx - pos.x, wy - pos.y) < clickR) {
@@ -1312,6 +1573,39 @@ canvas.addEventListener('click', e => {
 				togglePoleEdit('south'); return;
 			}
 		}
+	}
+
+	// ── Meridian edit click ──
+	if (merEditMode && hoveredSnap) {
+		const axis = poleDir(currentLayout.northPole);
+		if (axis) {
+			const snapDir = hoveredSnap.type === 'center' ? geo.c3[hoveredSnap.face]
+				: vertexMap.dirs[hoveredSnap.vertexId];
+			// Project snap direction onto equatorial plane
+			const proj = sub3(snapDir, scale3(axis, dot3(snapDir, axis)));
+			const pl = Math.sqrt(dot3(proj, proj));
+			if (pl > 1e-6) {
+				undoStack.push(cloneLayout(currentLayout));
+				redoStack.length = 0;
+				historyIndex++;
+				history.pushState({ idx: historyIndex }, '');
+				const target = scale3(proj, 1 / pl);
+				// Compute angle from default ref
+				let ref = [1, 0, 0];
+				if (Math.abs(dot3(axis, ref)) > 0.9) ref = [0, 0, 1];
+				let eqRef = sub3(ref, scale3(axis, dot3(ref, axis)));
+				eqRef = norm3(eqRef);
+				const perp = norm3(cross3(axis, eqRef));
+				currentLayout.lonOffset = Math.atan2(dot3(target, perp), dot3(target, eqRef));
+				draw();
+			}
+		}
+		return;
+	}
+	if (merEditMode && !hoveredSnap) {
+		exitPoleEditMode();
+		draw();
+		return;
 	}
 
 	// ── Pole edit click ──
@@ -1522,14 +1816,15 @@ function flipLayout(axis) {
 		if (!placed[i]) continue;
 		if (axis === 'h') {
 			res[i].x = -res[i].x;
-			res[i].r = Math.PI - res[i].r;
+			res[i].r = geo.irregularFace ? -res[i].r : (Math.PI - res[i].r);
 		} else {
 			res[i].y = -res[i].y;
-			res[i].r = -res[i].r;
+			res[i].r = geo.irregularFace ? (Math.PI - res[i].r) : -res[i].r;
 		}
 	}
 	currentLayout.mirrored = !currentLayout.mirrored;
 	currentLayout.angle = 0;
+	if (currentLayout.lonOffset) currentLayout.lonOffset = -currentLayout.lonOffset;
 	rebuildVertexMap();
 	// Re-resolve poles for new mirrored state
 	if (currentLayout.northPole) currentLayout.northPole = resolvePole(serializePole(currentLayout.northPole));
@@ -1556,30 +1851,57 @@ document.getElementById('btn-glue-tab').addEventListener('click', () => {
 // ── Pole edit mode ──
 function exitPoleEditMode() {
 	poleEditMode = null;
+	merEditMode = false;
 	hoveredSnap = null;
 	const btnN = document.getElementById('btn-edit-north');
 	const btnS = document.getElementById('btn-edit-south');
+	const btnM = document.getElementById('btn-edit-meridian');
 	btnN.style.background = ''; btnN.style.color = ''; btnN.style.borderColor = '';
 	btnS.style.background = ''; btnS.style.color = ''; btnS.style.borderColor = '';
+	btnM.style.background = ''; btnM.style.color = ''; btnM.style.borderColor = '';
 }
 
 function togglePoleEdit(which) {
-	if (poleEditMode === which) {
+	if (poleEditMode === which && !merEditMode) {
 		exitPoleEditMode();
 	} else {
 		glueTabMode = false;
+		merEditMode = false;
 		const gBtn = document.getElementById('btn-glue-tab');
 		gBtn.style.background = ''; gBtn.style.color = ''; gBtn.style.borderColor = '';
 		poleEditMode = which;
 		hoveredSnap = null;
 		const btnN = document.getElementById('btn-edit-north');
 		const btnS = document.getElementById('btn-edit-south');
+		const btnM = document.getElementById('btn-edit-meridian');
 		btnN.style.background = which === 'north' ? '#8b0000' : '';
 		btnN.style.color = which === 'north' ? '#fff' : '';
 		btnN.style.borderColor = which === 'north' ? '#c44' : '';
 		btnS.style.background = which === 'south' ? '#003080' : '';
 		btnS.style.color = which === 'south' ? '#fff' : '';
 		btnS.style.borderColor = which === 'south' ? '#48c' : '';
+		btnM.style.background = ''; btnM.style.color = ''; btnM.style.borderColor = '';
+	}
+	hoveredEdge = null; hoveredFace = -1; tooltip.style.display = 'none';
+	draw();
+}
+
+function toggleMeridianEdit() {
+	if (merEditMode) {
+		exitPoleEditMode();
+	} else {
+		glueTabMode = false;
+		poleEditMode = null;
+		merEditMode = true;
+		hoveredSnap = null;
+		const gBtn = document.getElementById('btn-glue-tab');
+		gBtn.style.background = ''; gBtn.style.color = ''; gBtn.style.borderColor = '';
+		const btnN = document.getElementById('btn-edit-north');
+		const btnS = document.getElementById('btn-edit-south');
+		const btnM = document.getElementById('btn-edit-meridian');
+		btnN.style.background = ''; btnN.style.color = ''; btnN.style.borderColor = '';
+		btnS.style.background = ''; btnS.style.color = ''; btnS.style.borderColor = '';
+		btnM.style.background = '#806000'; btnM.style.color = '#fff'; btnM.style.borderColor = '#c90';
 	}
 	hoveredEdge = null; hoveredFace = -1; tooltip.style.display = 'none';
 	draw();
@@ -1587,6 +1909,7 @@ function togglePoleEdit(which) {
 
 document.getElementById('btn-edit-north').addEventListener('click', () => togglePoleEdit('north'));
 document.getElementById('btn-edit-south').addEventListener('click', () => togglePoleEdit('south'));
+document.getElementById('btn-edit-meridian').addEventListener('click', toggleMeridianEdit);
 
 // ── Clipboard ──
 document.getElementById('btn-export-clip').addEventListener('click', () => {
@@ -1599,6 +1922,7 @@ document.getElementById('btn-export-clip').addEventListener('click', () => {
 		mirrored: currentLayout.mirrored || false,
 		angle: currentLayout.angle || 0,
 		aspect: getEffectiveAspect(),
+		lonOffset: currentLayout.lonOffset || 0,
 		northPole: serializePole(currentLayout.northPole),
 		southPole: serializePole(currentLayout.southPole)
 	};
@@ -1639,6 +1963,7 @@ document.getElementById('btn-import-clip').addEventListener('click', async () =>
 		rebuildVertexMap();
 		layout.northPole = data.northPole ? resolvePole(data.northPole) : null;
 		layout.southPole = data.southPole ? resolvePole(data.southPole) : null;
+		layout.lonOffset = data.lonOffset || 0;
 		optimizeAndApplyRotation(currentLayout);
 		hoveredEdge = null; hoveredFace = -1;
 		updateDeleteBtnVisibility();

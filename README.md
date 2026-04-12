@@ -677,6 +677,7 @@ A standalone HTML tool (`net-layouter.html`) backed by a shared geometry definit
 | **Deltoidal-60** | 60 | congruent kites | rhombicosidodecahedron |
 | **Pentahex-60** | 60 | congruent irregular pentagons | snub dodecahedron |
 | **Rhombicosi-62** | 62 | 20 triangles + 30 squares + 12 pentagons | — (rhombicosidodecahedron) |
+| **Pentagonal-24** | 24 | congruent irregular pentagons (4×114.8° + 1×80.8°) | snub cube |
 
 **Features:**
 - **Interactive reparenting** — click any face to reassign its parent in the unfolding tree; the net recomputes instantly
@@ -689,6 +690,8 @@ A standalone HTML tool (`net-layouter.html`) backed by a shared geometry definit
 - **Undo / Redo** — browser history-based undo/redo for all layout and tab ownership changes
 - **Copy / Paste** — exports `{ geometry, parents, tabs, mirrored, angle, aspect }` JSON to clipboard
 - **Pole markers (N/S)** — place north and south pole markers on face centers or shared vertices; great-circle equator and meridian lines visualise the graticule on the net
+- **Null meridian editing** — interactive 0° button and gold markers on the net allow repositioning the prime meridian along the equator; clicking a marker or the 0° button enters meridian edit mode with ghost preview
+- **Marker mode switching** — clicking any pole or 0° marker during an active edit mode switches directly to that marker's editing mode
 - **Paper-format-driven preset selection** — switching paper format automatically loads the matching hand-tuned preset
 - **Configurable paper margins** — adjustable margin slider affects effective aspect ratio and paper outline
 
