@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-04-12
+
+### Changed
+- **Hand-tuned presets with `lonOffset`** — updated DIN A presets across all 10 geometries with null meridian offsets; replaced auto-generated US Letter/Legal presets for dodecahedron-12 and US Tabloid for pentagonal-24 with hand-crafted layouts; refined parent trees, tab assignments, pole positions, and rotation angles
+
 ## [0.25.0] - 2026-04-12
 
 ### Added
