@@ -94,6 +94,7 @@ canvas { display: block; }
 		<button id="btn-export-clip" title="Copy layout to clipboard">📋 Copy</button>
 		<button id="btn-import-clip" title="Paste layout from clipboard">📥 Paste</button>
 	</div>
+	<button id="btn-apply-viewer" title="Send layout to dome-mapper viewer (BroadcastChannel)">🔗 Apply to Viewer</button>
 	<div id="score"></div>
 </div>
 <div id="tooltip"></div>
@@ -604,30 +605,11 @@ function drawPoleMarker(x, y, isNorth, alpha) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// BFS Unfolding (generic)
+// BFS Unfolding (generic) — delegates to shared unfoldNet()
 // ═══════════════════════════════════════════════════════════════════════
 
 function guidedUnfold(startFace, predefinedParents) {
-	const N = geo.nFaces;
-	const placed = new Array(N).fill(false);
-	const parent = predefinedParents.slice();
-	const res = new Array(N);
-	res[startFace] = { x: 0, y: 0, r: geo.initialRotation || 0 };
-	placed[startFace] = true;
-	let count = 1;
-	const queue = [startFace];
-	let qi = 0;
-	while (qi < queue.length) {
-		const p = queue[qi++];
-		for (let j = 0; j < N; j++) {
-			if (placed[j] || parent[j] !== p) continue;
-			res[j] = geo.ghostPlace(p, j, res, false);
-			placed[j] = true;
-			count++;
-			queue.push(j);
-		}
-	}
-	return { res, placed, parent, count, mirrored: false };
+	return unfoldNet(geo, predefinedParents, false);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -731,6 +713,9 @@ function getDescendants(j, parent, placed) {
 function reparent(layout, newParent, child) {
 	const { res, placed, parent, mirrored } = layout;
 	const descs = getDescendants(child, parent, placed);
+	// save original parent for each descendant to preserve subtree structure
+	const origParent = new Map();
+	for (const d of descs) origParent.set(d, parent[d]);
 	placed[child] = false; parent[child] = -1;
 	for (const d of descs) { placed[d] = false; parent[d] = -1; }
 	const pos = geo.ghostPlace(newParent, child, res, mirrored);
@@ -742,6 +727,15 @@ function reparent(layout, newParent, child) {
 		changed = false;
 		for (const d of descs) {
 			if (placed[d]) continue;
+			// try original parent first to preserve subtree topology
+			const op = origParent.get(d);
+			if (placed[op]) {
+				const p = geo.tryPlace(op, d, res, placed, mirrored);
+				if (p) {
+					res[d] = p; placed[d] = true; parent[d] = op;
+					changed = true; continue;
+				}
+			}
 			for (const i of geo.adj[d]) {
 				if (!placed[i]) continue;
 				const p = geo.tryPlace(i, d, res, placed, mirrored);
@@ -763,35 +757,16 @@ function optimizeAndApplyRotation(layout) {
 	const N = geo.nFaces;
 	const { res, placed, parent, mirrored } = layout;
 	const prevAngle = layout.angle || 0;
-	if (prevAngle !== 0) {
-		const pc = Math.cos(-prevAngle), ps = Math.sin(-prevAngle);
-		for (let i = 0; i < N; i++) {
-			if (!placed[i]) continue;
-			const x = res[i].x, y = res[i].y;
-			res[i].x = x * pc - y * ps;
-			res[i].y = x * ps + y * pc;
-			res[i].r -= prevAngle;
-		}
-	}
+	if (prevAngle !== 0) applyNetAngle(layout, -prevAngle, N);
 	const pts = bboxCriticalPoints(res, placed, parent, mirrored || false);
 	let bestA = 0, bestAr = Infinity;
-	for (let deg = 0; deg < 180; deg += 1) {
-		const rad = deg * Math.PI / 180;
+	for (let hdeg = 0; hdeg < 360; hdeg++) {
+		const rad = hdeg * 0.5 * Math.PI / 180;
 		const ar = paperScore(pts, rad);
 		if (ar < bestAr) { bestAr = ar; bestA = rad; }
 	}
 	if (bestA > Math.PI / 2) bestA -= Math.PI;
-	layout.angle = bestA;
-	if (bestA !== 0) {
-		const cs = Math.cos(bestA), sn = Math.sin(bestA);
-		for (let i = 0; i < N; i++) {
-			if (!placed[i]) continue;
-			const x = res[i].x, y = res[i].y;
-			res[i].x = x * cs - y * sn;
-			res[i].y = x * sn + y * cs;
-			res[i].r += bestA;
-		}
-	}
+	applyNetAngle(layout, bestA, N);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1931,6 +1906,14 @@ document.getElementById('btn-export-clip').addEventListener('click', () => {
 		btn.textContent = '✅ Copied!';
 		setTimeout(() => btn.textContent = '📋 Copy', 1500);
 	});
+	broadcastCurrentLayout();
+});
+
+document.getElementById('btn-apply-viewer').addEventListener('click', () => {
+	broadcastCurrentLayout();
+	const btn = document.getElementById('btn-apply-viewer');
+	btn.textContent = '✅ Sent!';
+	setTimeout(() => btn.textContent = '🔗 Apply to Viewer', 1500);
 });
 
 document.getElementById('btn-import-clip').addEventListener('click', async () => {
@@ -2035,7 +2018,7 @@ window.addEventListener('resize', () => { if (currentLayout) draw(); });
 // Initialization
 // ═══════════════════════════════════════════════════════════════════════
 
-// Support ?geo=xxx URL parameter
+// Support ?geo=xxx&preset=N URL parameters
 const urlParams = new URLSearchParams(window.location.search);
 const geoParam = urlParams.get('geo');
 if (geoParam && GEOMETRIES[geoParam]) {
@@ -2045,6 +2028,37 @@ if (geoParam && GEOMETRIES[geoParam]) {
 populatePaperFormats();
 history.replaceState({ idx: 0 }, '');
 switchGeometry(geoSelect.value);
+
+const presetParam = urlParams.get('preset');
+if (presetParam != null && geo) {
+	const idx = parseInt(presetParam);
+	if (idx >= 0 && idx < geo.presets.length) {
+		presetSelect.value = idx;
+		computeLayout();
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// BroadcastChannel — live sync with dome-mapper viewer
+// ═══════════════════════════════════════════════════════════════════════
+const layoutChannel = new BroadcastChannel('dome-mapper-layout');
+
+function broadcastCurrentLayout() {
+	if (!currentLayout || !geo) return;
+	const data = {
+		geometry: geo.id,
+		label: presetSelect.options[presetSelect.selectedIndex]?.textContent || '',
+		parents: currentLayout.parent,
+		tabs: cloneTabOwnership(),
+		mirrored: currentLayout.mirrored || false,
+		angle: currentLayout.angle || 0,
+		aspect: getEffectiveAspect(),
+		lonOffset: currentLayout.lonOffset || 0,
+		northPole: serializePole(currentLayout.northPole),
+		southPole: serializePole(currentLayout.southPole)
+	};
+	layoutChannel.postMessage({ type: 'layout-update', payload: data });
+}
 </script>
 </body>
 </html>

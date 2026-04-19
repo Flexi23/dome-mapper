@@ -20,7 +20,7 @@ A single-file browser app that loads equirectangular images and videos and rende
 
 For each screen pixel the fragment shader:
 
-1. Computes a **ray direction** based on the active projection mode — one of eleven: equirectangular, perspective, buckyball-32 preview, azimuthal equidistant, azimuthal collage, stereographic, buckyball-32 foldable, rhombic-30 foldable, rhombic-30 preview, truncoct-14 preview, or truncoct-14 foldable
+1. Computes a **ray direction** based on the active projection mode — one of 25: equirectangular, perspective, azimuthal equidistant, azimuthal collage, stereographic, plus 10 polyhedra (dodec-12, rhombic-12, truncoct-14, ico-20, pentagonal-24, rhombic-30, buckyball-32, deltoidal-60, pentahex-60, rhombicosi-62) each with a preview and foldable mode
 2. Applies a **quaternion-derived rotation matrix** (controlled by mouse or keyboard) to orient the ray
 3. Optionally applies **horizon leveling** via a second quaternion
 4. Converts the ray direction to **spherical coordinates** (θ, φ)
@@ -196,53 +196,71 @@ Non-quaternion attributes (FOV, zoom, stereographic coefficients, etc.) use a st
 
 ## Projection Modes
 
-> **11 projection modes** — cycle with the dropdown.
+> **25 projection modes** — cycle with the dropdown.
+
+### Base projections
 
 | # | Mode | Description |
 |:---:|---|---|
 | 0 | **Equirectangular** | Direct 2:1 equirectangular mapping; black bars when viewport aspect ≠ 2:1 |
 | 1 | **Perspective** | Gnomonic projection with adjustable FOV (20°–170°); mathematically a special case of the stereographic family at D=1 |
-| 2 | **Buckyball-32 Preview** | SDF-raymarched truncated icosahedron floating over the panorama; Blinn-Phong lit, bevelled edges, real-time rotation via Y/P/R face sliders |
-| 3 | **Azimuthal Equidistant** | Full sphere mapped into a disc (forward pole → center, backward pole → edge) |
-| 4 | **Azimuthal Collage** | Two overlapping azimuthal equidistant discs side-by-side (front/back hemispheres) with rotation, overlap blend slider (0–1), zoom (1×–10×), and auto-fit scaling |
-| 5 | **Stereographic** | Generalised stereographic with Scaramuzza polynomial lens distortion; D parameter (D=2 conformal, D=1 gnomonic) and a¹–a⁴ coefficients |
-| 6 | **Buckyball-32 Foldable** | Flat 2D net of a truncated icosahedron unfolded onto the screen; gnomonic back-projection with 2D canvas overlay (edges, glue tabs); paper format presets with in-shader paper outline |
-| 7 | **Rhombic-30 Foldable** | Flat 2D net of a rhombic triacontahedron (30 golden rhombi); configurable layout with paper format presets, in-shader paper outline, and L1 norm point-in-rhombus test |
-| 8 | **Rhombic-30 Preview** | SDF-raymarched rhombic triacontahedron (30 equidistant faces) floating over the panorama; same lighting and interaction model as buckyball-32 preview |
-| 9 | **Truncoct-14 Preview** | SDF-raymarched truncated octahedron (8 hexagons + 6 squares) floating over the panorama; same shading pipeline as above |
-| 10 | **Truncoct-14 Foldable** | Flat 2D net of a truncated octahedron; BFS unfolding with overlap detection; gnomonic back-projection for hexagonal and square faces |
+| 2 | **Azimuthal Equidistant** | Full sphere mapped into a disc (forward pole → center, backward pole → edge) |
+| 3 | **Azimuthal Collage** | Two overlapping azimuthal equidistant discs side-by-side (front/back hemispheres) with rotation, overlap blend slider (0–1), zoom (1×–10×), and auto-fit scaling |
+| 4 | **Stereographic** | Generalised stereographic with Scaramuzza polynomial lens distortion; D parameter (D=2 conformal, D=1 gnomonic) and a¹–a⁴ coefficients |
+
+### Polyhedron projection modes (10 geometries × preview + foldable)
+
+| Geometry | Preview | Foldable | Faces |
+|---|---|---|---|
+| **Dodecahedron-12** | SDF-raymarched regular dodecahedron | Flat net of 12 regular pentagons | 12 |
+| **Rhombic-12** | SDF-raymarched rhombic dodecahedron | Flat net of 12 congruent rhombi (70.53°/109.47°) | 12 |
+| **Truncoct-14** | SDF-raymarched truncated octahedron | Flat net of 8 hexagons + 6 squares | 14 |
+| **Icosahedron-20** | SDF-raymarched regular icosahedron | Flat net of 20 equilateral triangles | 20 |
+| **Pentagonal-24** | SDF-raymarched pentagonal icositetrahedron | Flat net of 24 congruent irregular pentagons (4×114.8° + 1×80.8°) | 24 |
+| **Rhombic-30** | SDF-raymarched rhombic triacontahedron | Flat net of 30 golden rhombi | 30 |
+| **Buckyball-32** | SDF-raymarched truncated icosahedron | Flat net of 12 pentagons + 20 hexagons | 32 |
+| **Deltoidal-60** | SDF-raymarched deltoidal hexecontahedron | Flat net of 60 congruent kites | 60 |
+| **Pentahex-60** | SDF-raymarched pentagonal hexecontahedron | Flat net of 60 congruent irregular pentagons | 60 |
+| **Rhombicosi-62** | SDF-raymarched rhombicosidodecahedron | Flat net of 20 triangles + 30 squares + 12 pentagons | 62 |
+
+All preview modes: SDF sphere-tracing with Blinn-Phong lighting, bevelled edges, real-time rotation via Y/P/R face sliders. All foldable modes: gnomonic back-projection per face, BFS-unfolded 2D net with canvas overlay (edges, glue tabs), paper format presets, in-shader paper outline, cut line overlay, SVG/PDF export.
 
 ---
 
 ### Polyhedron Preview Modes — Technical Deep Dive
 
-All three preview modes render a **3D polyhedron** floating in front of the panorama background via SDF sphere-tracing. They serve as tangible previews of the face partitioning used by the corresponding foldable modes — you can rotate the ball to inspect how the panorama maps onto each face before printing.
+All 10 preview modes render a **3D polyhedron** floating in front of the panorama background via SDF sphere-tracing. They serve as tangible previews of the face partitioning used by the corresponding foldable modes — you can rotate the ball to inspect how the panorama maps onto each face before printing.
 
-| Property | Buckyball-32 | Rhombic-30 | Truncoct-14 |
+| Geometry | Polyhedron | Faces | Face distances |
 |---|---|---|---|
-| Polyhedron | Truncated icosahedron | Rhombic triacontahedron | Truncated octahedron |
-| Faces | 32 (12 pentagons + 20 hexagons) | 30 (identical golden rhombi) | 14 (8 hexagons + 6 squares) |
-| Face distances | 0.9393 (pent), 0.9149 (hex) | 0.8507 (all equal) | √3/√5 (hex), 2/√5 (sq) |
-| Pre-rotation | Ry(180°)·Rx(45°)·Rz(−90°) | Ry(−144°)·Rx(−57°) | Rx(45°)·Rz(−110°) |
-| Quaternion | `foldable32facesQuat` | `foldable30facesQuat` | `foldable14facesQuat` |
+| Dodecahedron-12 | Regular dodecahedron | 12 regular pentagons | 0.7947 (all equal) |
+| Rhombic-12 | Rhombic dodecahedron | 12 congruent rhombi | 0.7071 (all equal) |
+| Truncoct-14 | Truncated octahedron | 8 hexagons + 6 squares | √3/√5 (hex), 2/√5 (sq) |
+| Icosahedron-20 | Regular icosahedron | 20 equilateral triangles | 0.7947 (all equal) |
+| Pentagonal-24 | Pentagonal icositetrahedron | 24 irregular pentagons | 0.8503 (all equal) |
+| Rhombic-30 | Rhombic triacontahedron | 30 golden rhombi | 0.8507 (all equal) |
+| Buckyball-32 | Truncated icosahedron | 12 pentagons + 20 hexagons | 0.9393 (pent), 0.9149 (hex) |
+| Deltoidal-60 | Deltoidal hexecontahedron | 60 congruent kites | 0.9499 (all equal) |
+| Pentahex-60 | Pentagonal hexecontahedron | 60 irregular pentagons | 0.9462 (all equal) |
+| Rhombicosi-62 | Rhombicosidodecahedron | 20 tri + 30 sq + 12 pent | 0.9660 (tri), 0.9485 (sq), 0.9246 (pent) |
 
 #### Rendering Technique
 
-The SDF for both polyhedra is the intersection of N half-spaces:
+The SDF for all polyhedra is the intersection of N half-spaces:
 
 ```
 SDF(p) = max over all N faces of: dot(p, faceNormal) − faceDist
 ```
 
-32 half-spaces for the buckyball (with two different face distances), 30 equidistant half-spaces for the rhombic triacontahedron, 14 half-spaces for the truncated octahedron (two face distances). All three are convex polyhedra rendered without any mesh geometry.
+The number of half-spaces equals the face count of each polyhedron (12–62). All are convex polyhedra rendered without any mesh geometry.
 
 #### View-Space Architecture
 
 The ball is evaluated entirely in **view space** to ensure consistent rotation behavior:
 
 1. The camera is fixed at `(0, 0, 2.5)` in view space — it never moves.
-2. All 32 face normals are transformed from object space → world space → view space before raymarching: `vFaces[i] = transpose(viewMatrix) · camQuatOffsetMat · previewMatrix · buckyPreRot · buckyFaces[i]`
-3. The `camQuatOffsetMat` (Ry−90°) ensures the preview's texture mapping produces the same panorama direction as foldable mode's `viewMatrix · buckyPreRot · d_obj` chain.
+2. All face normals are transformed from object space → world space → view space before raymarching: `vFaces[i] = transpose(viewMatrix) · camQuatOffsetMat · previewMatrix · preRot · faces[i]`
+3. The `camQuatOffsetMat` (Ry−90°) ensures the preview's texture mapping produces the same panorama direction as foldable mode's `viewMatrix · preRot · d_obj` chain.
 4. This means the ball rotates on screen in the same direction as mouse drag — matching the perspective projection, globe overlay, and all other modes.
 
 #### Shading Pipeline
@@ -263,7 +281,7 @@ The ball is evaluated entirely in **view space** to ensure consistent rotation b
 In preview modes, mouse drag targets either the polyhedron or the background panorama, determined by a **circle test** at pointer-down:
 
 - The projected ball radius in pixels is computed from the camera distance (2.5) and the current FOV: `rPx = canvasHeight / 2 / (√(d²−1) · tan(fov/2))`
-- Clicks **inside** the circle manipulate the faces quaternion (`foldable32facesQuat` or `foldable30facesQuat`). The view-space drag rotation is conjugated into faces-quat space via `camQuat · q · camQuat⁻¹` so the ball surface follows the cursor naturally.
+- Clicks **inside** the circle manipulate the faces quaternion (one per geometry, e.g. `foldable32facesQuat`, `foldable30facesQuat`, etc.). The view-space drag rotation is conjugated into faces-quat space via `camQuat · q · camQuat⁻¹` so the ball surface follows the cursor naturally.
 - Clicks **outside** the circle manipulate `camQuat` with perspective-style pixel-locked rotation, orbiting the ball.
 
 Shift+drag applies roll in the same target-dependent manner.
@@ -363,7 +381,9 @@ Finally, the `viewMatrix` (derived from the camera quaternion) orients the ray i
 
 #### JavaScript Mirror
 
-The `screenToLocalDir()` function in JavaScript contains an exact mirror of the GLSL stereographic pipeline for use by **double-click fly-to** (mapping a screen pixel back to a sphere direction). The JS variables `stereoA0`–`stereoA3` and `stereoD` correspond to the shader uniforms. The output `[rd0, rd2, -rd1]` applies the same +90° pre-rotation.
+The `screenToLocalDir()` function in JavaScript contains an exact mirror of the GLSL stereographic pipeline for use by **double-click fly-to** and **pixel-locked drag** (mapping a screen pixel back to a sphere direction). The JS variables `stereoA0`–`stereoA3` and `stereoD` correspond to the shader uniforms. The output `[rd0, rd2, -rd1]` applies the same +90° pre-rotation.
+
+For foldable modes, the dedicated `screenToFoldableDir()` function mirrors the shader's per-face gnomonic back-projection: it loops over all face polygons, performs point-in-polygon tests matching the GLSL (angular sector for regular polygons, L1 norm for rhombic, bilateral-symmetry edge tests for irregular), and reconstructs the 3D sphere direction via the same tangent-frame gnomonic formula. PreRot matrices are read back from the GPU via `gl.getUniform()`. This provides pixel-perfect drag in all 10 foldable net views.
 
 #### Parameter Presets (Copy / Paste / Reset)
 
@@ -451,7 +471,7 @@ The overlay is rendered to an offscreen 2048px-tall canvas, uploaded as a WebGL 
 
 #### Cut Line Overlay
 
-All three foldable modes (buckyball-32, rhombic-30, truncoct-14) provide a **3-state "Cut line" toggle** (Off → Overlay → Only) that renders the physical cutting outline you'd follow with scissors:
+All foldable modes provide a **3-state "Cut line" toggle** (Off → Overlay → Only) that renders the physical cutting outline you'd follow with scissors:
 
 1. **Tab trapezoid outlines**: The three open edges of each glue tab (two diagonals + outer edge; the base polygon edge is omitted to avoid double lines) are drawn as an open path and clipped to polygon interiors via an even-odd winding rule — matching the overlay tab clipping.
 2. **Polygon boundary edges**: Face edges where the current face does **not** own the tab (determined by `tabsMap` ownership or index-based dedup) are drawn. For each shared edge, exactly one face draws the tab outline (step 1) and the other draws its polygon edge here. Truly open edges (no neighbor or neighbor not placed) are always drawn.
@@ -548,7 +568,7 @@ The 2D canvas overlay generates trapezoidal glue tabs on boundary edges with:
 
 #### Paper Format Outline
 
-All three foldable modes (buckyball-32, rhombic-30, and truncoct-14) render a **dashed green paper format rectangle** in the fragment shader. This outline shows the paper boundary at the selected aspect ratio, fitted tightly around the net's actual vertex + tab bounding box. Because it is drawn in the shader (not the canvas overlay), it is automatically excluded from PNG/TIFF exports.
+All foldable modes render a **dashed green paper format rectangle** in the fragment shader. This outline shows the paper boundary at the selected aspect ratio, fitted tightly around the net's actual vertex + tab bounding box. Because it is drawn in the shader (not the canvas overlay), it is automatically excluded from PNG/TIFF exports.
 
 The paper rect is computed from the **tight bounding box** (`buckyTightBBox`) — iterating all polygon vertices and glue tab outer corners for exact bounds, rather than the approximate circumscribed-radius overlay bbox.
 
@@ -585,6 +605,23 @@ The SVG uses its own inline tight bounding box computation (iterating all polygo
 
 The SVG and PDF options are **disabled and hidden** when not in a foldable projection mode. Switching away from foldable while SVG or PDF is selected automatically resets the format to PNG.
 
+### Pixel-Perfect Foldable Drag
+
+Dragging in foldable net views is **pixel-locked**: the texture point under the cursor stays exactly under the cursor throughout the drag, just like in perspective or equirectangular modes. This is achieved by `screenToFoldableDir(cx, cy)`, a JavaScript function that exactly mirrors the GLSL fragment shader's gnomonic back-projection pipeline:
+
+1. **Screen → net UV**: CSS coordinates are converted to net-space UV using the same `foldableBBox`-based fit-scale as the shader
+2. **Face hit test**: For each of the N faces, the point is transformed into the face's local frame (center + rotation) and tested against the face polygon — angular sector test for regular polygons, L1 norm for rhombic, bilateral-symmetry edge tests for irregular pentagons/kites
+3. **Gnomonic back-projection**: The 2D face-local position is rotated by `faceOffset`, scaled to tangent-plane space, and projected back to a unit sphere direction via `normalize(rFace·N + gno.x·T1 + gno.y·T2)` (or `normalize(N + gno·T)` for Voronoi-partition polyhedra)
+4. **PreRot application**: The per-geometry pre-rotation matrix is read from the GPU uniform via `gl.getUniform(program, preRotLoc)` and applied to the direction
+
+Three categories of gnomonic projection are implemented, matching the three families of point-in-polygon test:
+
+| Category | PIP test | Gnomonic formula | Geometries |
+|---|---|---|---|
+| Regular polygon | Angular sector fold | `alignedRP × scale × (gnoCircumR / flatCircumR)` | Bucky-32, Truncoct-14, Ico-20, Dodec-12, RC-62 |
+| Rhombic | L1 norm | `tangentRP × (scale / halfDiag)` | Rhombic-30, Rhombic-12 |
+| Irregular polygon | Bilateral-symmetry edge test | `canonFC × GNO_S` with `theta = faceOffset − π/2` | Pent-24, Delt-60, PH-60 |
+
 ### PDF Export
 
 The PDF format combines a **CMYK raster image** and a **vector cutline overlay** in a single file, suitable for professional print production without requiring separate raster/vector files.
@@ -611,15 +648,11 @@ Each projection uses optimised dimensions:
 | Projection | Dimensions | Clipping |
 |---|---|---|
 | **Equirectangular / Perspective** | `texHeight × (texHeight · aspect)` | Full viewport |
-| **Buckyball-32 Preview** | `texHeight × texHeight` (square) | Full viewport |
-| **Rhombic-30 Preview** | `texHeight × texHeight` (square) | Full viewport |
+| **All Preview modes** | `texHeight × texHeight` (square) | Full viewport |
 | **Azimuthal** | `texWidth × texWidth` (square) | Full viewport |
 | **Azimuthal Collage** | `texWidth × (texWidth · ⅔)` (3:2) | Full viewport |
 | **Stereographic** | `texWidth × texHeight` (original) | Full viewport |
-| **Foldable Buckyball-32** | Longer bbox side → `max(texW, texH)` px | Tight vertex+tab bounding box; paper outline hidden |
-| **Foldable Rhombic-30** | Longer bbox side → `max(texW, texH)` px | Tight vertex+tab bounding box; paper outline hidden |
-| **Truncoct-14 Preview** | `texHeight × texHeight` (square) | Full viewport |
-| **Truncoct-14 Foldable** | Longer bbox side → `max(texW, texH)` px | Tight net bounding box |
+| **All Foldable modes** | Longer bbox side → `max(texW, texH)` px | Tight vertex+tab bounding box; paper outline hidden |
 
 The implementation resizes the WebGL canvas to export resolution, sets the `exportClip` uniform to remap `screenUV` from the default `(−1,−1)→(1,1)` range to the net's bounding box coordinates (with aspect-ratio compensation), renders a single frame, and reads pixels via `gl.readPixels()` within the same JS task. After export, the canvas and uniform are restored to viewport defaults.
 
@@ -644,7 +677,7 @@ Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png` (or `
 | 🔢 **Y / P / R sliders** | Live Euler-angle readout; drag to set orientation, double-click to reset; copy/paste quaternion |
 | 💾 **Multi-file cache** | Multiple panoramas cached in IndexedDB; switch between cached files via file list; last-viewed file restored on reload; "clear cache" link to delete all cached data and reset viewer state; favorite flag (★) per file |
 | ⚙️ **Per-file config** | Camera orientation, FOV, projection mode, grid, globe, leveling, favorite flag, and all projection parameters persisted per file |
-| ✂️ **Cut line overlay** | 3-state toggle (Off / Overlay / Only) rendering physical cut outlines for all three foldable nets; tab edges, polygon edges, and ownership-aware boundary logic |
+| ✂️ **Cut line overlay** | 3-state toggle (Off / Overlay / Only) rendering physical cut outlines for all 10 foldable nets; tab edges, polygon edges, and ownership-aware boundary logic |
 | 🎨 **Test pattern** | Built-in checkerboard fallback with meridian/equator markers |
 
 ---

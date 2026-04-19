@@ -66,6 +66,99 @@ function defaultPoles(c3) {
 	};
 }
 
+// ── Shared net layout functions ──
+
+// BFS unfold net from parent tree
+function unfoldNet(geo, parents, mirrored) {
+	const N = geo.nFaces;
+	const seed = parents.indexOf(-1);
+	const placed = new Array(N).fill(false);
+	const parent = parents.slice();
+	const res = new Array(N);
+	res[seed] = { x: 0, y: 0, r: geo.initialRotation || 0 };
+	placed[seed] = true;
+	const queue = [seed];
+	let qi = 0;
+	while (qi < queue.length) {
+		const p = queue[qi++];
+		for (let j = 0; j < N; j++) {
+			if (placed[j] || parent[j] !== p) continue;
+			res[j] = geo.ghostPlace(p, j, res, mirrored || false);
+			placed[j] = true;
+			queue.push(j);
+		}
+	}
+	return { res, placed, parent, count: placed.filter(Boolean).length, seed, mirrored: mirrored || false };
+}
+
+// Collect vertex positions from unfolded layout (flat pairs array: [x0,y0, x1,y1, ...])
+function netVertexPoints(geo, layout) {
+	const N = geo.nFaces;
+	const { res, placed } = layout;
+	const pts = [];
+	for (let i = 0; i < N; i++) {
+		if (!placed[i]) continue;
+		const verts = geo.polyVerts(res[i].x, res[i].y, res[i].r, i, layout.mirrored || false);
+		for (const v of verts) { pts.push(v.x, v.y); }
+	}
+	return pts;
+}
+
+// Find optimal rotation angle for a given paper aspect ratio (landscape w/h)
+function optimizeNetAngle(geo, layout, aspect) {
+	const pts = netVertexPoints(geo, layout);
+	let bestA = 0, bestScore = Infinity;
+	for (let hdeg = 0; hdeg < 360; hdeg++) {
+		const rad = hdeg * 0.5 * Math.PI / 180;
+		const cs = Math.cos(rad), sn = Math.sin(rad);
+		let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
+		for (let p = 0; p < pts.length; p += 2) {
+			const rx = pts[p] * cs - pts[p + 1] * sn;
+			const ry = pts[p] * sn + pts[p + 1] * cs;
+			mnX = Math.min(mnX, rx); mxX = Math.max(mxX, rx);
+			mnY = Math.min(mnY, ry); mxY = Math.max(mxY, ry);
+		}
+		const w = mxX - mnX, h = mxY - mnY;
+		const s = Math.min(aspect / w, 1 / h);
+		const score = aspect / (s * s);
+		if (score < bestScore) { bestScore = score; bestA = rad; }
+	}
+	if (bestA > Math.PI / 2) bestA -= Math.PI;
+	return bestA;
+}
+
+// Apply rotation angle to all face positions in layout
+function applyNetAngle(layout, angle, nFaces) {
+	const { res, placed } = layout;
+	const cs = Math.cos(angle), sn = Math.sin(angle);
+	for (let i = 0; i < nFaces; i++) {
+		if (!placed[i]) continue;
+		const x = res[i].x, y = res[i].y;
+		res[i].x = x * cs - y * sn;
+		res[i].y = x * sn + y * cs;
+		res[i].r += angle;
+	}
+	layout.angle = angle;
+}
+
+// Compute pre-rotation matrix from north pole direction and longitude offset
+function computePreRot(northPoleDir, lonOffset) {
+	const V = norm3(northPoleDir);
+	let ref = [0, 0, -1];
+	if (Math.abs(dot3(ref, V)) > 0.9) ref = [1, 0, 0];
+	let W = sub3(ref, scale3(V, dot3(ref, V)));
+	W = norm3(W);
+	const cs = Math.cos(lonOffset || 0), sn = Math.sin(lonOffset || 0);
+	const VxW = cross3(V, W);
+	W = [cs * W[0] + sn * VxW[0], cs * W[1] + sn * VxW[1], cs * W[2] + sn * VxW[2]];
+	const U = cross3(V, W);
+	return new Float32Array([
+		-U[0], V[0], -W[0],
+		-U[1], V[1], -W[1],
+		-U[2], V[2], -W[2]
+	]);
+}
+
 // Round-based edge index for regular polygon faces (buckyball, truncoct, rhombicosi)
 function regularEdgeIdx(c3, frames, nSides, i, j) {
 	const N = c3[i], [T1, T2] = frames[i], M = c3[j];
@@ -534,13 +627,14 @@ GEOMETRIES.truncoct14 = (function() {
 GEOMETRIES.rhombicosi62 = (function() {
 	const PHI = (1 + Math.sqrt(5)) / 2;
 
-	// Icosahedron vertices (12)
+	// Icosahedron vertices (12) — cyclic perms of (1, 0, φ) to match
+	// the RID vertex formula (even perms of (±1,±1,±φ³), etc.)
 	const icoRaw = [];
 	for (const s1 of [1, -1])
 		for (const s2 of [1, -1]) {
-			icoRaw.push([0, s1, s2 * PHI]);
-			icoRaw.push([s1, s2 * PHI, 0]);
-			icoRaw.push([s2 * PHI, 0, s1]);
+			icoRaw.push([s1, 0, s2 * PHI]);
+			icoRaw.push([0, s2 * PHI, s1]);
+			icoRaw.push([s2 * PHI, s1, 0]);
 		}
 	const icoVerts = icoRaw.map(norm3);
 
@@ -671,10 +765,10 @@ GEOMETRIES.rhombicosi62 = (function() {
 	}
 
 	const presets = [
-		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[20,24,23,22,41,31,27,26,36,29,45,33,35,44,46,38,40,-1,43,48,1,50,4,3,4,52,51,57,58,52,2,58,10,53,12,10,13,14,59,15,55,17,18,17,16,17,59,59,12,18,22,27,21,32,38,41,40,45,33,34,42,35],tabs:{"37-54":54,"14-38":38,"31-52":52,"46-58":58,"14-46":46,"46-59":59,"48-59":59,"47-59":59,"15-47":47,"48-61":61,"45-61":61,"43-61":61,"49-61":61,"49-60":60,"13-44":44,"2-23":23,"23-50":50,"22-55":55,"29-54":54},mirrored:false,angle:-0.33161255787892285,lonOffset:3.141592653589793,northPole:{type:'center',face:60,dir:[-0.5257311121191336,-0.85065080835204,0]},southPole:{type:'center',face:51,dir:[0.5257311121191336,0.85065080835204,0]}},
+		{"label":"DIN A (1:√2)","parents":[25,23,24,23,24,28,40,41,32,33,45,33,34,36,37,38,40,45,42,48,51,50,3,56,58,5,7,51,7,8,57,52,10,53,10,12,3,58,60,15,55,17,17,55,56,-1,60,19,18,19,20,26,29,32,36,41,40,41,33,42,35,43],"tabs":{"9-29":29,"9-31":31,"2-31":31,"36-56":36,"22-54":54,"6-26":26,"6-27":27,"27-56":56,"1-27":27,"1-20":20,"22-50":50,"21-50":50,"24-50":50,"2-21":21,"37-54":54,"14-46":46,"14-38":38,"11-46":46,"11-35":35,"35-53":53,"34-53":53,"29-53":53,"31-58":58,"23-50":50,"25-51":51,"28-51":51,"5-30":30,"30-57":57,"30-52":52,"25-52":52,"21-52":52,"4-37":37,"15-49":49,"49-61":61,"48-61":61,"18-43":43,"16-43":43,"16-44":44,"39-54":54,"13-44":44,"13-39":39,"39-61":61,"44-61":61,"42-55":55,"26-55":55,"42-59":59,"45-59":59,"48-59":59,"47-59":59,"47-60":60,"19-49":49,"19-48":48,"46-58":58,"38-54":38,"0-21":21,"0-20":20,"34-59":59,"8-30":30,"28-57":57,"45-57":57,"32-57":57},"mirrored":false,"angle":-0.49741883681838406,"aspect":1.4142857142857144,"lonOffset":-2.557831595636633,"northPole":{"type":"center","face":49,"dir":[-0.5000000000000001,-0.8090169943749475,-0.30901699437494745]},"southPole":{"type":"center","face":25,"dir":[0.5000000000000001,0.8090169943749475,0.30901699437494745]}},
 		generatePreset(11 / 8.5, 'US Letter (8.5×11 in)'),
-		{"label":"US Legal (8.5×14 in)","parents":[20,20,21,22,22,28,26,26,29,29,35,34,48,39,38,47,42,43,49,49,50,50,55,3,4,0,53,57,58,54,56,58,10,11,12,12,13,14,15,15,16,17,18,18,16,17,59,19,19,-1,22,20,21,34,38,42,40,41,46,47,42,43],"tabs":{},"mirrored":false,"angle":0.03490658503988659,"aspect":1.647058823529412,"northPole":{"type":"center","face":36,"dir":[0.3090169943749474,-0.8090169943749473,0.5]},"southPole":{"type":"center","face":32,"dir":[-0.3090169943749474,0.8090169943749473,-0.5]}},
-		{"label":"US Tabloid (11×17 in)","parents":[20,20,21,22,22,25,26,26,29,29,35,34,48,39,38,47,42,43,49,49,50,50,55,3,4,0,53,57,5,54,56,5,10,53,12,12,13,14,15,15,16,17,18,18,16,17,11,19,19,-1,22,20,21,34,38,42,40,41,28,48,42,43],"tabs":{"37-58":58,"9-31":31,"7-28":28},"mirrored":false,"angle":0,"aspect":1.5454545454545456,"northPole":{"type":"center","face":36,"dir":[0.3090169943749474,-0.8090169943749473,0.5]},"southPole":{"type":"center","face":32,"dir":[-0.3090169943749474,0.8090169943749473,-0.5]}},
+		generatePreset(14 / 8.5, 'US Legal (8.5×14 in)'),
+		generatePreset(17 / 11, 'US Tabloid (11×17 in)'),
 		generatePreset(257 / 182, 'B5 JIS (182×257 mm)'),
 	].filter(Boolean);
 	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
@@ -936,7 +1030,7 @@ GEOMETRIES.deltoidal60 = (function() {
 	}
 
 	const presets = [
-		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[56,58,0,1,0,1,2,3,32,33,8,9,8,9,10,11,-1,41,16,17,16,17,18,19,0,1,2,3,4,5,6,7,24,28,25,53,26,30,27,15,16,26,18,30,20,27,22,31,24,25,28,29,16,18,36,39,40,2,44,3],tabs:{"31-51":51,"29-46":29,"46-58":58,"35-46":46,"33-53":53,"39-47":47,"21-45":45},mirrored:false,angle:1.3264502315156903,lonOffset:-0.9424777960769379,northPole:{type:'vertex',dir:[-0.8506508083520399,0.5257311121191335,0]},southPole:{type:'vertex',dir:[0.8506508083520399,-0.5257311121191335,0]}},
+		{label:'DIN A (1:√2)',aspect:1.4182692307692308,parents:[56,58,0,1,0,1,2,3,32,33,8,9,8,9,49,13,-1,41,16,17,16,17,18,19,0,44,2,3,4,5,6,7,24,28,52,53,26,30,27,31,16,26,18,30,20,27,22,31,24,25,28,29,16,18,36,19,40,2,44,3],tabs:{"31-51":51,"29-46":29,"46-58":58,"35-46":46,"33-53":53,"39-47":47,"21-45":45,"12-48":48,"32-40":40,"24-40":40},mirrored:false,angle:1.6057029118348564,lonOffset:-0.3141592653589793,northPole:{type:'vertex',dir:[-0.8506508083520399,0.5257311121191335,0]},southPole:{type:'vertex',dir:[0.8506508083520399,-0.5257311121191335,0]}},
 		generatePreset(11 / 8.5, 'US Letter (8.5×11 in)'),
 		generatePreset(14 / 8.5, 'US Legal (8.5×14 in)'),
 		generatePreset(17 / 11, 'US Tabloid (11×17 in)'),
@@ -949,7 +1043,7 @@ GEOMETRIES.deltoidal60 = (function() {
 		name: 'Deltoidal-60',
 		nFaces: N_FACES,
 		storageKey: 'deltoidal60-custom-layouts',
-		c3, adj, frames,
+		c3, adj, frames, faceOffsets, kiteVtx,
 		nSides() { return 4; },
 		edgeIdx,
 		apothem() { return INRADIUS; },
@@ -959,17 +1053,19 @@ GEOMETRIES.deltoidal60 = (function() {
 		singleTabArea,
 		initialRotation: 0,
 
+		irregularFace: true,
 		ghostPlace: _ghostPlace,
 		tryPlace(i, j, res, placed, mirrored) {
 			const pos = _ghostPlace(i, j, res, mirrored);
 			if (_collisionCheck(j, pos.x, pos.y, pos.r, placed, res)) return null;
 			return pos;
 		},
-		polyVerts(fx, fy, rot) {
+		polyVerts(fx, fy, rot, face, mirrored) {
 			const cr = Math.cos(rot), sr = Math.sin(rot);
+			const m = mirrored ? -1 : 1;
 			return kiteVtx.map(([lx, ly]) => ({
-				x: fx + lx * cr - ly * sr,
-				y: fy + lx * sr + ly * cr
+				x: fx + m * lx * cr - ly * sr,
+				y: fy + m * lx * sr + ly * cr
 			}));
 		},
 		faceArea() { return kiteArea; },
@@ -1209,7 +1305,7 @@ GEOMETRIES.pentahex60 = (function() {
 	}
 
 	const presets = [
-		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[48,0,30,15,16,17,4,5,20,21,9,8,0,1,26,27,12,13,6,7,12,13,10,11,12,13,22,11,16,1,18,19,4,17,22,47,24,25,26,44,28,29,30,55,32,33,34,53,-1,0,2,39,40,5,6,7,44,45,46,36],tabs:{"3-15":15,"3-31":31,"31-50":31,"43-50":43,"44-54":54,"32-54":54,"20-32":20,"35-53":53,"7-53":53,"16-28":28,"12-28":28,"4-52":52,"6-52":52,"34-52":52,"46-52":46,"46-58":58,"10-58":58,"9-58":9,"9-25":9,"21-25":25,"31-43":43,"15-31":31,"15-19":19,"3-50":50,"25-37":37,"37-58":58,"37-46":46,"37-40":40,"4-32":32,"27-39":39,"11-56":56,"8-56":56,"37-49":49,"47-59":59},mirrored:false,angle:1.5184364492350666,lonOffset:-2.062977941152395,northPole:{type:'vertex',dir:[0.8506508083520399,-0.5257311121191336,-1.208259388534423e-17]},southPole:{type:'vertex',dir:[-0.8506508083520399,0.5257311121191336,-1.208259388534423e-17]}},
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[48,0,30,15,16,17,4,5,20,21,58,8,0,1,18,27,12,13,6,7,12,13,10,11,12,13,22,11,12,1,18,19,4,17,46,47,24,25,26,44,28,29,30,55,32,33,40,53,-1,1,38,39,4,5,6,7,44,45,37,24],tabs:{"3-15":15,"3-31":31,"31-50":31,"43-50":43,"44-54":54,"32-54":54,"20-32":20,"35-53":53,"7-53":53,"16-28":28,"12-28":28,"4-52":52,"6-52":52,"34-52":52,"46-52":46,"46-58":58,"10-58":58,"9-58":9,"9-25":9,"21-25":25,"31-43":43,"15-31":31,"15-19":19,"3-50":3,"25-37":37,"37-58":58,"37-46":46,"37-40":40,"4-32":32,"27-39":39,"11-56":56,"8-56":56,"37-49":49,"47-59":59,"14-26":26,"2-14":14},mirrored:false,angle:1.53588974175501,lonOffset:-2.062977941152395,northPole:{type:'vertex',dir:[0.8506508083520399,-0.5257311121191336,-1.208259388534423e-17]},southPole:{type:'vertex',dir:[-0.8506508083520399,0.5257311121191336,-1.208259388534423e-17]}},
 		generatePreset(11 / 8.5, 'US Letter (8.5×11 in)'),
 		{"label":"US Legal (8.5×14 in)","parents":[12,0,14,15,16,17,4,5,20,21,9,8,-1,1,26,27,12,13,6,7,12,13,10,11,12,13,10,11,0,1,18,19,16,17,6,53,24,25,26,27,28,29,30,31,32,33,37,36,0,0,31,39,40,41,32,7,8,9,25,24],"tabs":{},"mirrored":false,"angle":0.7330382858376184,"aspect":1.647058823529412,"northPole":{"type":"vertex","dir":[-0.35682208977308993,0.9341723589627157,-1.9205239728688042e-17]},"southPole":{"type":"vertex","dir":[0.35682208977308993,-0.9341723589627157,-1.9205239728688042e-17]}},
 		generatePreset(17 / 11, 'US Tabloid (11×17 in)'),
@@ -1222,7 +1318,7 @@ GEOMETRIES.pentahex60 = (function() {
 		name: 'Pentahex-60',
 		nFaces: N_FACES,
 		storageKey: 'pentahex60-custom-layouts',
-		c3, adj, frames,
+		c3, adj, frames, faceOffsets, pentVtx,
 		nSides() { return 5; },
 		edgeIdx,
 		apothem() { return INRADIUS; },
@@ -1474,7 +1570,7 @@ GEOMETRIES.pentagonal24 = (function() {
 	}
 
 	const presets = [
-		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[19,8,23,21,17,0,13,17,14,12,0,13,10,8,-1,10,6,14,3,13,1,0,13,8],tabs:{"10-12":12,"10-15":10,"12-20":20,"15-21":21,"9-20":9,"6-8":6,"1-6":6,"1-20":20,"2-17":2,"7-17":17,"4-18":4,"11-14":11,"3-11":3,"3-18":3,"9-15":9,"2-4":4,"2-9":9,"4-9":9,"4-15":15,"12-16":16,"7-18":18,"17-23":23,"14-23":14,"7-14":14,"11-22":11,"3-22":22,"19-22":19,"0-22":22,"10-21":21,"9-12":12,"5-19":19,"6-19":19,"5-10":10,"1-23":1,"2-20":20,"18-21":21,"15-18":18},mirrored:false,angle:-1.186823891356144,lonOffset:-0.8658209702754063,northPole:{type:'vertex',dir:[0.5773502691896257,0.1706634362169713,0.7984614318833957]},southPole:{type:'center',face:3,dir:[-0.4623206278176563,-0.2513586456853625,-0.850340207407311]}},
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[19,23,23,21,17,0,13,14,14,12,0,13,10,8,-1,10,6,14,21,13,1,0,13,8],tabs:{"10-12":12,"10-15":10,"12-20":20,"15-21":21,"9-20":9,"6-8":8,"1-6":6,"1-20":20,"2-17":2,"7-17":17,"4-18":18,"11-14":11,"3-11":11,"3-18":18,"9-15":9,"2-4":4,"2-9":9,"4-9":9,"4-15":15,"12-16":12,"7-18":7,"17-23":23,"14-23":14,"7-14":14,"11-22":22,"3-22":3,"19-22":19,"0-22":22,"10-21":10,"9-12":12,"5-19":5,"6-19":19,"5-10":10,"1-23":1,"2-20":2,"18-21":18,"15-18":15,"1-8":1,"1-16":1,"16-20":16,"5-16":16},mirrored:false,angle:-1.186823891356144,lonOffset:0.4008164644327132,northPole:{type:'vertex',dir:[0.7984614318833957,0.5773502691896257,0.1706634362169713]},southPole:{type:'center',face:7,dir:[-0.850340207407311,-0.4623206278176563,-0.2513586456853625]}},
 		generatePreset(11 / 8.5, 'US Letter (8.5×11 in)'),
 		generatePreset(14 / 8.5, 'US Legal (8.5×14 in)'),
 		{"label":"US Tabloid (11×17 in)","parents":[22,20,20,18,2,16,1,18,1,2,12,14,9,8,8,4,1,2,4,6,-1,18,19,2],"tabs":{"3-22":3,"7-17":17,"4-17":17,"17-23":23,"5-10":10,"3-21":21,"3-7":7,"10-15":15,"12-20":20},"mirrored":false,"angle":0.29670597283903605,"aspect":1.5454545454545456,"lonOffset":0.9843287277544175,"northPole":{"type":"center","face":14,"dir":[-0.4623206278176563,-0.850340207407311,0.2513586456853625]},"southPole":{"type":"vertex","dir":[0.5773502691896257,0.7984614318833957,-0.17066343621697133]}},
@@ -1525,214 +1621,6 @@ GEOMETRIES.pentagonal24 = (function() {
 			return 'rgba(35, 55, 70, 0.85)';
 		},
 		ghostColor() { return 'rgba(100, 170, 220, 0.25)'; },
-		presets,
-	};
-})();
-
-// ─────────────────────────────────────────────────────────────────────
-// Rhombic-12 (Rhombic Dodecahedron: 12 congruent rhombi)
-// Dual of the cuboctahedron (polar reciprocal via midsphere).
-// Each face is a rhombus: acute angle = arccos(1/3) ≈ 70.53° (oct-type vertex, degree 4),
-// obtuse angle = arccos(-1/3) ≈ 109.47° (cube-type vertex, degree 3).
-// Diagonal ratio = 1:√2.
-// ─────────────────────────────────────────────────────────────────────
-GEOMETRIES.rhombic12 = (function() {
-	const N_FACES = 12;
-
-	// Cuboctahedron vertices = face centres of rhombic dodecahedron
-	// All permutations of (±1, ±1, 0) → 12 vertices at distance √2
-	const rawVerts = [];
-	for (let i = 0; i < 3; i++)
-		for (const s1 of [-1, 1])
-			for (const s2 of [-1, 1]) {
-				const v = [0, 0, 0];
-				v[(i + 1) % 3] = s1;
-				v[(i + 2) % 3] = s2;
-				rawVerts.push(v);
-			}
-
-	const c3 = rawVerts.map(norm3);
-
-	// Adjacency: cuboctahedron edge length √2 → normalised dot = 0.5
-	const adj = Array.from({ length: N_FACES }, () => []);
-	for (let i = 0; i < N_FACES; i++)
-		for (let j = i + 1; j < N_FACES; j++)
-			if (Math.abs(dot3(c3[i], c3[j]) - 0.5) < 0.1) {
-				adj[i].push(j); adj[j].push(i);
-			}
-
-	const frames = buildFrames(c3, N_FACES);
-
-	// Canonical rhombus (edge = 1), acute angle = arccos(1/3)
-	const p = 1 / Math.sqrt(3);              // half short diagonal (cube/obtuse vertices)
-	const q = Math.sqrt(2) / Math.sqrt(3);   // half long diagonal (oct/acute vertices)
-	const INRADIUS = p * q;                   // √2/3
-	const rhombVtx = [[q, 0], [0, p], [-q, 0], [0, -p]];
-
-	const edgeDirAngles = [];
-	for (let k = 0; k < 4; k++) {
-		const a = rhombVtx[k], b = rhombVtx[(k + 1) % 4];
-		edgeDirAngles.push(Math.atan2(b[1] - a[1], b[0] - a[0]));
-	}
-
-	const rhombusArea = 2 * p * q;
-	const _tabH = INRADIUS * 0.3;
-	const tabInsetAcute = INRADIUS * 0.35;
-	const tabInsetObtuse = INRADIUS * 0.25;
-	const singleTabArea = 1 * _tabH * 0.7;
-
-	// Face offsets: project one oct-type vertex direction (axis-aligned) to tangent plane
-	const faceOffsets = [];
-	for (let fi = 0; fi < N_FACES; fi++) {
-		const N = c3[fi], [T1, T2] = frames[fi];
-		const v = rawVerts[fi];
-		const octDir = [0, 0, 0];
-		for (let d = 0; d < 3; d++) if (v[d] !== 0) { octDir[d] = Math.sign(v[d]); break; }
-		const proj = sub3(octDir, scale3(N, dot3(octDir, N)));
-		faceOffsets.push(Math.atan2(dot3(proj, T2), dot3(proj, T1)));
-	}
-
-	function edgeIdx(i, j) {
-		const N = c3[i], [T1, T2] = frames[i];
-		const proj = sub3(c3[j], scale3(N, dot3(c3[j], N)));
-		const pn = norm3(proj);
-		let a = Math.atan2(dot3(pn, T2), dot3(pn, T1));
-		if (a < 0) a += 2 * Math.PI;
-		let rel = a - faceOffsets[i];
-		if (rel < 0) rel += 2 * Math.PI;
-		if (rel >= 2 * Math.PI) rel -= 2 * Math.PI;
-		return Math.floor(rel / (Math.PI / 2)) % 4;
-	}
-
-	function _ghostPlace(i, j, res, mirrored) {
-		const ki = edgeIdx(i, j), kj = edgeIdx(j, i);
-		const s = mirrored ? -1 : 1;
-		const r2 = res[i].r + s * edgeDirAngles[ki] - s * edgeDirAngles[kj] + Math.PI;
-		const qi = mirrored ? ki : (ki + 1) % 4;
-		const cr1 = Math.cos(res[i].r * s), sr1 = Math.sin(res[i].r * s);
-		const Qx = res[i].x + (rhombVtx[qi][0] * cr1 - rhombVtx[qi][1] * sr1) * s;
-		const Qy = res[i].y + rhombVtx[qi][0] * sr1 + rhombVtx[qi][1] * cr1;
-		const cr2 = Math.cos(r2 * s), sr2 = Math.sin(r2 * s);
-		const qj = mirrored ? (kj + 1) % 4 : kj;
-		const vjx = (rhombVtx[qj][0] * cr2 - rhombVtx[qj][1] * sr2) * s;
-		const vjy = rhombVtx[qj][0] * sr2 + rhombVtx[qj][1] * cr2;
-		return { x: Qx - vjx, y: Qy - vjy, r: r2 };
-	}
-
-	function _collisionCheck(j, px, py, pr, placed, res) {
-		for (let k = 0; k < N_FACES; k++) {
-			if (!placed[k]) continue;
-			const dx = px - res[k].x, dy = py - res[k].y;
-			const d = Math.sqrt(dx * dx + dy * dy);
-			if (d < INRADIUS * 1.7) {
-				const crk = Math.cos(-res[k].r), srk = Math.sin(-res[k].r);
-				const lx = dx * crk - dy * srk, ly = dx * srk + dy * crk;
-				if (Math.abs(lx) / q + Math.abs(ly) / p < 1.7) return true;
-			}
-		}
-		return false;
-	}
-
-	function generatePreset(aspect, label) {
-		let best = null, bestScore = Infinity;
-		for (let s = 0; s < N_FACES; s++) {
-			const placed = new Array(N_FACES).fill(false);
-			const parent = new Array(N_FACES).fill(-1);
-			const res = new Array(N_FACES);
-			res[s] = { x: 0, y: 0, r: 0 };
-			placed[s] = true;
-			let count = 1, changed = true;
-			while (changed) {
-				changed = false;
-				for (let j = 0; j < N_FACES; j++) {
-					if (placed[j]) continue;
-					for (const i of adj[j]) {
-						if (!placed[i]) continue;
-						const pos = _ghostPlace(i, j, res, false);
-						if (!_collisionCheck(j, pos.x, pos.y, pos.r, placed, res)) {
-							res[j] = pos; placed[j] = true; parent[j] = i; count++; changed = true; break;
-						}
-					}
-				}
-			}
-			let bestA = 0, bestAr = Infinity;
-			for (let deg = 0; deg < 180; deg += 2) {
-				const rad = deg * Math.PI / 180;
-				const cs = Math.cos(rad), sn = Math.sin(rad);
-				let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
-				for (let ii = 0; ii < N_FACES; ii++) {
-					if (!placed[ii]) continue;
-					const cr = q;
-					const rx = res[ii].x * cs - res[ii].y * sn;
-					const ry = res[ii].x * sn + res[ii].y * cs;
-					mnX = Math.min(mnX, rx - cr); mxX = Math.max(mxX, rx + cr);
-					mnY = Math.min(mnY, ry - cr); mxY = Math.max(mxY, ry + cr);
-				}
-				const w = mxX - mnX, h = mxY - mnY;
-				const sc = Math.min(aspect / w, 1 / h);
-				const ar = aspect / (sc * sc);
-				if (ar < bestAr) { bestAr = ar; bestA = rad; }
-			}
-			const penalty = (N_FACES - count) * 100;
-			const score = bestAr + penalty;
-			if (score < bestScore) {
-				bestScore = score;
-				best = { parents: parent.slice(), angle: bestA, count };
-			}
-		}
-		if (!best) return null;
-		return { label, aspect, parents: best.parents, tabs: {}, mirrored: false, angle: best.angle };
-	}
-
-	const presets = [
-		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[4,6,9,9,9,2,3,3,6,-1,7,3],tabs:{"1-10":10},mirrored:false,angle:1.5009831567151233,lonOffset:1.5707963267948966,northPole:{type:'vertex',dir:[-0.5773502691896257,-0.5773502691896257,0.5773502691896257]},southPole:{type:'vertex',dir:[0.5773502691896257,0.5773502691896257,-0.5773502691896257]}},
-		{"label":"US Letter (8.5×11 in)","parents":[8,8,4,6,0,0,8,1,-1,4,0,5],"tabs":{},"mirrored":false,"angle":1.5533430342749535,"aspect":1.2941176470588234,"northPole":{"type":"vertex","dir":[-0.5773502691896257,0.5773502691896257,-0.5773502691896257]},"southPole":{"type":"vertex","dir":[0.5773502691896257,-0.5773502691896257,0.5773502691896257]}},
-		generatePreset(14 / 8.5, 'US Legal (8.5×14 in)'),
-		{"label":"US Tabloid (11×17 in)","parents":[4,8,4,9,-1,2,8,1,0,2,0,2],"tabs":{"7-11":11,"3-7":7,"4-9":4,"4-8":8,"6-9":9,"1-6":6,"5-11":11,"0-5":5,"3-6":6},"mirrored":false,"angle":1.361356816555577,"aspect":1.5454545454545456,"northPole":{"type":"vertex","dir":[-0.5773502691896257,0.5773502691896257,0.5773502691896257]},"southPole":{"type":"vertex","dir":[0.5773502691896257,-0.5773502691896257,-0.5773502691896257]}},
-		{"label":"B5 JIS (182×257 mm)","parents":[4,6,9,9,2,2,9,3,4,-1,5,2],"tabs":{},"mirrored":false,"angle":-1.5009831567151233,"aspect":1.4120879120879122,"northPole":{"type":"vertex","dir":[0.5773502691896257,0.5773502691896257,0.5773502691896257]},"southPole":{"type":"vertex","dir":[-0.5773502691896257,-0.5773502691896257,-0.5773502691896257]}},
-	].filter(Boolean);
-	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
-
-	return {
-		id: 'rhombic12',
-		name: 'Rhombic-12',
-		nFaces: N_FACES,
-		storageKey: 'rhombic12-custom-layouts',
-		c3, adj, frames,
-		nSides() { return 4; },
-		edgeIdx,
-		apothem() { return INRADIUS; },
-		circumR() { return q; },
-		tabH: _tabH,
-		tabInset: tabInsetAcute,
-		singleTabArea,
-		initialRotation: 0,
-
-		ghostPlace: _ghostPlace,
-		tryPlace(i, j, res, placed, mirrored) {
-			const pos = _ghostPlace(i, j, res, mirrored);
-			if (_collisionCheck(j, pos.x, pos.y, pos.r, placed, res)) return null;
-			return pos;
-		},
-		polyVerts(fx, fy, rot) {
-			const cr = Math.cos(rot), sr = Math.sin(rot);
-			return rhombVtx.map(([lx, ly]) => ({
-				x: fx + lx * cr - ly * sr,
-				y: fy + lx * sr + ly * cr
-			}));
-		},
-		faceArea() { return rhombusArea; },
-		tabInsets(i, k) {
-			return (k % 2 === 0) ? [tabInsetAcute, tabInsetObtuse] : [tabInsetObtuse, tabInsetAcute];
-		},
-		edgeSlot(i, k) { return k; },
-		faceLabel() { return 'rhombus'; },
-		faceColor(i, isSelf, isTarget) {
-			if (isSelf) return 'rgba(120, 160, 60, 0.9)';
-			if (isTarget) return 'rgba(160, 200, 80, 0.45)';
-			return 'rgba(50, 70, 30, 0.85)';
-		},
-		ghostColor() { return 'rgba(160, 200, 80, 0.25)'; },
 		presets,
 	};
 })();
@@ -1863,6 +1751,230 @@ GEOMETRIES.dodecahedron12 = (function() {
 			return 'rgba(65, 40, 75, 0.85)';
 		},
 		ghostColor() { return 'rgba(160, 100, 200, 0.25)'; },
+		presets,
+	};
+})();
+
+// ─────────────────────────────────────────────────────────────────────
+// Rhombic-12 (Rhombic Dodecahedron: 12 congruent rhombi, diagonal ratio √2:1)
+// ─────────────────────────────────────────────────────────────────────
+GEOMETRIES.rhombic12 = (function() {
+	const N_FACES = 12;
+
+	// Unit-edge rhombus with diagonal ratio √2:1
+	const RD_A = 1 / Math.sqrt(3);          // short half-diagonal ≈ 0.5774
+	const RD_B = Math.sqrt(2 / 3);          // long half-diagonal  ≈ 0.8165
+	const INRADIUS = RD_A * RD_B;           // = √2/3 ≈ 0.4714
+	const PSI = Math.atan2(RD_A, RD_B);     // = atan(1/√2) ≈ 35.264°
+
+	const rhombVtx = [[RD_B, 0], [0, RD_A], [-RD_B, 0], [0, -RD_A]];
+	const edgeDirAngles = [Math.PI - PSI, Math.PI + PSI, -PSI, PSI];
+	const _tabH = INRADIUS * 0.3;
+	const tabInsetAcute = INRADIUS * 0.3 * Math.SQRT2;
+	const tabInsetObtuse = INRADIUS * 0.3 / Math.SQRT2;
+	const singleTabArea = (RD_A + RD_B) / 2 * _tabH * 0.7;
+	const rhombusArea = 2 * RD_A * RD_B;
+
+	// Octahedron vertices (6)
+	const octaVerts = [
+		[1, 0, 0], [-1, 0, 0],
+		[0, 1, 0], [0, -1, 0],
+		[0, 0, 1], [0, 0, -1]
+	];
+
+	// 12 perpendicular pairs of octahedron vertices → 12 face normals
+	const octaEdges = [];
+	for (let i = 0; i < 6; i++)
+		for (let j = i + 1; j < 6; j++)
+			if (Math.abs(dot3(octaVerts[i], octaVerts[j])) < 0.01)
+				octaEdges.push([i, j]);
+
+	const c3 = octaEdges.map(([i, j]) => {
+		const m = [octaVerts[i][0] + octaVerts[j][0], octaVerts[i][1] + octaVerts[j][1], octaVerts[i][2] + octaVerts[j][2]];
+		return norm3(m);
+	});
+
+	const frames = buildFrames(c3, N_FACES);
+
+	// Face offsets: angle from T1 to the first octahedron vertex direction
+	const faceOffsets = [];
+	for (let fi = 0; fi < N_FACES; fi++) {
+		const N = c3[fi], [T1, T2] = frames[fi];
+		const va = octaVerts[octaEdges[fi][0]];
+		const proj = sub3(va, scale3(N, dot3(va, N)));
+		faceOffsets.push(Math.atan2(dot3(proj, T2), dot3(proj, T1)));
+	}
+
+	// Adjacency from cyclic ordering around octahedron vertices
+	const vertexEdges = Array.from({ length: 6 }, () => []);
+	octaEdges.forEach(([a, b], ei) => { vertexEdges[a].push(ei); vertexEdges[b].push(ei); });
+
+	function cyclicOrderEdges(vIdx, edgeList) {
+		const N = octaVerts[vIdx];
+		let up = [0, 1, 0];
+		if (Math.abs(dot3(N, up)) > 0.9) up = [1, 0, 0];
+		const T1 = norm3(cross3(N, up));
+		const T2 = cross3(N, T1);
+		const withAngle = edgeList.map(ei => {
+			const [a, b] = octaEdges[ei];
+			const other = a === vIdx ? b : a;
+			const d = sub3(octaVerts[other], scale3(N, dot3(octaVerts[other], N)));
+			return { ei, angle: Math.atan2(dot3(d, T2), dot3(d, T1)) };
+		});
+		withAngle.sort((a, b) => a.angle - b.angle);
+		return withAngle.map(x => x.ei);
+	}
+
+	const adj = Array.from({ length: N_FACES }, () => []);
+	for (let v = 0; v < 6; v++) {
+		const ring = cyclicOrderEdges(v, vertexEdges[v]);
+		for (let k = 0; k < ring.length; k++) {
+			const ei = ring[k], ej = ring[(k + 1) % ring.length];
+			if (!adj[ei].includes(ej)) adj[ei].push(ej);
+			if (!adj[ej].includes(ei)) adj[ej].push(ei);
+		}
+	}
+
+	function edgeIdx(i, j) {
+		const N = c3[i], [T1, T2] = frames[i];
+		const proj = sub3(c3[j], scale3(N, dot3(c3[j], N)));
+		const pn = norm3(proj);
+		let a = Math.atan2(dot3(pn, T2), dot3(pn, T1));
+		if (a < 0) a += 2 * Math.PI;
+		let rel = a - faceOffsets[i];
+		if (rel < 0) rel += 2 * Math.PI;
+		if (rel >= 2 * Math.PI) rel -= 2 * Math.PI;
+		return Math.floor(rel / (Math.PI / 2)) % 4;
+	}
+
+	function _ghostPlace(i, j, res, mirrored) {
+		const ki = edgeIdx(i, j), kj = edgeIdx(j, i);
+		const s = mirrored ? -1 : 1;
+		const r2 = res[i].r + s * edgeDirAngles[ki] - s * edgeDirAngles[kj] + Math.PI;
+		const qi = mirrored ? ki : (ki + 1) % 4;
+		const cr1 = Math.cos(res[i].r * s), sr1 = Math.sin(res[i].r * s);
+		const Qx = res[i].x + (rhombVtx[qi][0] * cr1 - rhombVtx[qi][1] * sr1) * s;
+		const Qy = res[i].y + rhombVtx[qi][0] * sr1 + rhombVtx[qi][1] * cr1;
+		const cr2 = Math.cos(r2 * s), sr2 = Math.sin(r2 * s);
+		const vjx = mirrored ? (rhombVtx[(kj + 1) % 4][0] * cr2 - rhombVtx[(kj + 1) % 4][1] * sr2) * s : rhombVtx[kj][0] * cr2 - rhombVtx[kj][1] * sr2;
+		const vjy = mirrored ? rhombVtx[(kj + 1) % 4][0] * sr2 + rhombVtx[(kj + 1) % 4][1] * cr2 : rhombVtx[kj][0] * sr2 + rhombVtx[kj][1] * cr2;
+		return { x: Qx - vjx, y: Qy - vjy, r: r2 };
+	}
+
+	function _collisionCheck(j, px, py, pr, placed, res) {
+		for (let k = 0; k < N_FACES; k++) {
+			if (!placed[k]) continue;
+			const dx = px - res[k].x, dy = py - res[k].y;
+			const d = Math.sqrt(dx * dx + dy * dy);
+			if (d < INRADIUS * 1.7) {
+				const crk = Math.cos(-res[k].r), srk = Math.sin(-res[k].r);
+				const lx = dx * crk - dy * srk, ly = dx * srk + dy * crk;
+				if (Math.abs(lx) / RD_B + Math.abs(ly) / RD_A < 1.7) return true;
+			}
+		}
+		return false;
+	}
+
+	function generatePreset(aspect, label) {
+		let best = null, bestScore = Infinity;
+		for (const s of Array.from({ length: N_FACES }, (_, i) => i)) {
+			const placed = new Array(N_FACES).fill(false);
+			const parent = new Array(N_FACES).fill(-1);
+			const res = new Array(N_FACES);
+			res[s] = { x: 0, y: 0, r: Math.PI / 2 };
+			placed[s] = true;
+			let count = 1, changed = true;
+			while (changed) {
+				changed = false;
+				for (let j = 0; j < N_FACES; j++) {
+					if (placed[j]) continue;
+					for (const i of adj[j]) {
+						if (!placed[i]) continue;
+						const pos = _ghostPlace(i, j, res, false);
+						if (!_collisionCheck(j, pos.x, pos.y, pos.r, placed, res)) {
+							res[j] = pos; placed[j] = true; parent[j] = i; count++; changed = true; break;
+						}
+					}
+				}
+			}
+			let bestA = 0, bestAr = Infinity;
+			for (let deg = 0; deg < 180; deg += 2) {
+				const rad = deg * Math.PI / 180;
+				const cs = Math.cos(rad), sn = Math.sin(rad);
+				let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
+				for (let ii = 0; ii < N_FACES; ii++) {
+					if (!placed[ii]) continue;
+					for (const [lx, ly] of rhombVtx) {
+						const gx = res[ii].x + lx * Math.cos(res[ii].r) - ly * Math.sin(res[ii].r);
+						const gy = res[ii].y + lx * Math.sin(res[ii].r) + ly * Math.cos(res[ii].r);
+						const rx = gx * cs - gy * sn;
+						const ry = gx * sn + gy * cs;
+						mnX = Math.min(mnX, rx); mxX = Math.max(mxX, rx);
+						mnY = Math.min(mnY, ry); mxY = Math.max(mxY, ry);
+					}
+				}
+				const w = mxX - mnX, h = mxY - mnY;
+				const sc = Math.min(aspect / w, 1 / h);
+				const ar = aspect / (sc * sc);
+				if (ar < bestAr) { bestAr = ar; bestA = rad; }
+			}
+			const penalty = (N_FACES - count) * 100;
+			const score = bestAr + penalty;
+			if (score < bestScore) { bestScore = score; best = { parents: parent.slice(), angle: bestA, count }; }
+		}
+		if (!best) return null;
+		return { label, aspect, parents: best.parents, tabs: {}, mirrored: false, angle: best.angle };
+	}
+
+	const presets = [
+		generatePreset(Math.SQRT2, 'DIN A (1:√2)'),
+		generatePreset(11 / 8.5, 'US Letter (8.5×11 in)'),
+		generatePreset(14 / 8.5, 'US Legal (8.5×14 in)'),
+		generatePreset(17 / 11, 'US Tabloid (11×17 in)'),
+		generatePreset(257 / 182, 'B5 JIS (182×257 mm)'),
+	].filter(Boolean);
+	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
+
+	return {
+		id: 'rhombic12',
+		name: 'Rhombic-12',
+		nFaces: N_FACES,
+		storageKey: 'rhombic12-custom-layouts',
+		c3, adj, frames,
+		nSides() { return 4; },
+		edgeIdx,
+		apothem() { return INRADIUS; },
+		circumR() { return Math.sqrt(RD_A * RD_A + RD_B * RD_B); },
+		tabH: _tabH,
+		tabInset: tabInsetAcute,
+		singleTabArea,
+		initialRotation: Math.PI / 2,
+
+		ghostPlace: _ghostPlace,
+		tryPlace(i, j, res, placed, mirrored) {
+			const pos = _ghostPlace(i, j, res, mirrored);
+			if (_collisionCheck(j, pos.x, pos.y, pos.r, placed, res)) return null;
+			return pos;
+		},
+		polyVerts(fx, fy, rot) {
+			const cr = Math.cos(rot), sr = Math.sin(rot);
+			return rhombVtx.map(([lx, ly]) => ({
+				x: fx + lx * cr - ly * sr,
+				y: fy + lx * sr + ly * cr
+			}));
+		},
+		faceArea() { return rhombusArea; },
+		tabInsets(i, k) {
+			return (k % 2 === 0) ? [tabInsetAcute, tabInsetObtuse] : [tabInsetObtuse, tabInsetAcute];
+		},
+		edgeSlot(i, k) { return k; },
+		faceLabel() { return 'rhombus'; },
+		faceColor(i, isSelf, isTarget) {
+			if (isSelf) return 'rgba(100, 140, 180, 0.9)';
+			if (isTarget) return 'rgba(80, 160, 220, 0.45)';
+			return 'rgba(40, 60, 80, 0.85)';
+		},
+		ghostColor() { return 'rgba(80, 160, 220, 0.25)'; },
 		presets,
 	};
 })();

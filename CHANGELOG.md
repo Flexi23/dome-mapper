@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-04-19
+
+### Added
+- **Deltoidal-60 foldable + preview** — deltoidal hexecontahedron (60 congruent kite faces, dual of rhombicosidodecahedron); GLSL gnomonic back-projection with bilateral-symmetry point-in-kite test; SDF-raymarched preview mode; BFS net unfolding with kite-specific edge pairing and tab insets; layout selector with hand-tuned presets
+- **Pentahex-60 foldable + preview** — pentagonal hexecontahedron (60 congruent irregular pentagons, dual of snub dodecahedron); GLSL gnomonic back-projection with bilateral-symmetry point-in-pentagon test; SDF-raymarched preview mode; BFS net unfolding with 3 edge-pairing types (0↔4, 1↔1, 2↔3); layout selector with presets
+- **Rhombicosi-62 foldable + preview** — rhombicosidodecahedron (62 faces: 20 equilateral triangles + 30 squares + 12 regular pentagons); GLSL gnomonic back-projection with per-face side count (3/4/5); SDF-raymarched preview mode; mixed regular polygon net unfolding; layout selector with hand-tuned DIN A preset
+- **Pixel-perfect foldable drag** — new `screenToFoldableDir()` function mirrors the shader's per-face gnomonic back-projection exactly in JavaScript, replacing the previous equirectangular-style fallback; drag is now pixel-locked in all 10 foldable net views; three projection categories implemented: regular polygon (bucky32, truncoct14, ico20, dodec12, rc62), rhombic (rhombic30, rd12), and irregular polygon (pent24, delt60, ph60); preRot matrices read from the GPU via `gl.getUniform()`
+- **JS-side face normal arrays** — all 10 polyhedra face normals (32 + 30 + 14 + 20 + 12 + 12 + 24 + 60 + 60 + 62 = 326 face normals) duplicated in JavaScript for the foldable drag system; point-in-polygon helpers (`_pipRegular`, `_pipPent24`, `_pipDelt60`, `_pipPH60`) match GLSL tests exactly
+- **Unified shader uniforms** — all 10 foldable modes share a single set of `foldableNet[62]`, `foldableScale`, `foldableBBox`, `foldableOverlay`, `foldablePaperRect`, and `foldableOverlayAlpha` uniforms (replacing per-polyhedron copies); individual `preRot` uniforms remain per geometry
+- **25 projection modes** — the projection dropdown now has 25 entries: 5 base projections (equirectangular, perspective, azimuthal, azimuthal collage, stereographic) plus 10 polyhedra × 2 modes (preview + foldable) each; sorted by face count (dodec-12 through rhombicosi-62)
+- **Shared geometry functions** — `unfoldNet()`, `netVertexPoints()`, `optimizeNetAngle()`, `applyNetAngle()`, and `computePreRot()` extracted into `geometry-presets.js` for reuse by the unified net layouter
+
+### Changed
+- **Projection dropdown order** — polyhedra are now sorted by ascending face count instead of chronological addition order
+- **Net layouter uses shared unfolding** — `net-layouter.html` delegates BFS unfolding to the shared `unfoldNet()` function from `geometry-presets.js`
+
 ## [0.25.1] - 2026-04-12
 
 ### Changed
