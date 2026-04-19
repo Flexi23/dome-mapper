@@ -17,11 +17,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **JS-side face normal arrays** — all 10 polyhedra face normals (32 + 30 + 14 + 20 + 12 + 12 + 24 + 60 + 60 + 62 = 326 face normals) duplicated in JavaScript for the foldable drag system; point-in-polygon helpers (`_pipRegular`, `_pipPent24`, `_pipDelt60`, `_pipPH60`) match GLSL tests exactly
 - **Unified shader uniforms** — all 10 foldable modes share a single set of `foldableNet[62]`, `foldableScale`, `foldableBBox`, `foldableOverlay`, `foldablePaperRect`, and `foldableOverlayAlpha` uniforms (replacing per-polyhedron copies); individual `preRot` uniforms remain per geometry
 - **25 projection modes** — the projection dropdown now has 25 entries: 5 base projections (equirectangular, perspective, azimuthal, azimuthal collage, stereographic) plus 10 polyhedra × 2 modes (preview + foldable) each; sorted by face count (dodec-12 through rhombicosi-62)
-- **Shared geometry functions** — `unfoldNet()`, `netVertexPoints()`, `optimizeNetAngle()`, `applyNetAngle()`, and `computePreRot()` extracted into `geometry-presets.js` for reuse by the unified net layouter
+- **Shared geometry functions** — `unfoldNet()`, `netVertexPoints()`, `optimizeNetAngle()`, `applyNetAngle()`, and `computePreRot()` extracted into `foldable-geometries.js` for reuse by the unified net layouter
 
 ### Changed
 - **Projection dropdown order** — polyhedra are now sorted by ascending face count instead of chronological addition order
-- **Net layouter uses shared unfolding** — `net-layouter.html` delegates BFS unfolding to the shared `unfoldNet()` function from `geometry-presets.js`
+- **Net layouter uses shared unfolding** — `net-layouter.html` delegates BFS unfolding to the shared `unfoldNet()` function from `foldable-geometries.js`
+- **Preset consolidation** — bucky32 and rhombic30 presets now loaded from `GEOMETRIES.buckyball32.presets` / `GEOMETRIES.rhombic30.presets` in `geometry-presets.js` (with northPole/southPole/lonOffset), replacing inline arrays in `index.html`; page-level overrides only needed when a local score beats the shared preset
+- **Unified northPole/lonOffset import** — all 10 `import*Layout` functions now accept `northPoleDir` and `lonOffset` parameters; `computePreRot()` used when pole data is present, with fallback to legacy per-geometry pre-rotation; BroadcastChannel handler passes pole data for all 10 geometries
+- **`computePreRot` hoisted to shared scope** — moved from inside the truncoct14 IIFE to shared script scope with self-contained `d3`/`n3` math helpers; previously called from delt60/ph60/rc62/ico20/dodec12 IIFEs where it was inaccessible (latent scoping bug)
+- **Unified geo-layout-row** — 10 per-geometry layout UI rows replaced with a single `geo-layout-row` driven by a `GEO_CFG` dispatch table
+
+### Fixed
+- **Overlay bounding-box guard** — overlay textures (edges, tabs, cut lines) now multiplied by an `inBB` factor that is zero outside the net bounding box; prevents `CLAMP_TO_EDGE` smearing of edge-pixels into the paper margin, which caused visible striped artefacts on dense nets (most noticeable on rhombicosi-62)
+- **Inter-face aliasing** — `nearestOutsideD` tracking ensures anti-aliased blending occurs only at the outer net boundary, not between adjacent faces where it produced faint seams
+- **bestSDF AA blend** — anti-aliasing smoothstep applied to the best (closest) SDF face hit rather than the last-evaluated face, removing face-order-dependent edge artifacts
 
 ## [0.25.1] - 2026-04-12
 
@@ -67,8 +76,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.23.0] - 2026-04-10
 
 ### Added
-- **Unified net layouter** — new `net-layouter.html` replaces the per-polyhedron layouter files; a single geometry selector dynamically loads any polyhedron from `geometry-presets.js`
-- **Shared geometry presets** (`geometry-presets.js`) — extracted all polyhedron definitions (vertices, adjacency, frames, edge pairing, ghost placement, collision checks, presets) into a standalone JS module loaded by the unified layouter
+- **Unified net layouter** — new `net-layouter.html` replaces the per-polyhedron layouter files; a single geometry selector dynamically loads any polyhedron from `foldable-geometries.js`
+- **Shared geometry presets** (`foldable-geometries.js`) — extracted all polyhedron definitions (vertices, adjacency, frames, edge pairing, ghost placement, collision checks, presets) into a standalone JS module loaded by the unified layouter
 - **Rhombic-12 geometry** — rhombic dodecahedron (12 congruent rhombi, dual of cuboctahedron); acute angle ≈ 70.53°, obtuse angle ≈ 109.47°, diagonal ratio 1:√2
 - **Pentahex-60 geometry** — pentagonal hexecontahedron (60 congruent irregular pentagons, dual of snub dodecahedron via polar reciprocal); bilateral mirror symmetry, two edge lengths (ratio 1.75:1), three edge-pairing types (0↔4, 1↔1, 2↔3)
 - **Deltoidal-60 geometry** — deltoidal hexecontahedron (60 congruent kite faces, dual of rhombicosidodecahedron); correct polar-reciprocal kite vertex distances and edge direction angles

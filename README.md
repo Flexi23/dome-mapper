@@ -688,7 +688,7 @@ Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png` (or `
 dome-mapper/
 ├── index.html                       # Self-contained viewer (HTML + GLSL + JS)
 ├── net-layouter.html                # Unified net layout editor for all polyhedra
-├── geometry-presets.js              # Shared polyhedron definitions (vertices, adjacency, presets)
+├── foldable-geometries.js           # Shared polyhedron definitions (vertices, adjacency, presets)
 ├── buckyball-net-layouter.html      # Legacy net layout editor for the truncated icosahedron
 ├── rhombic-30-net-layouter.html     # Legacy net layout editor for the rhombic triacontahedron
 ├── CHANGELOG.md                     # Version history
@@ -697,7 +697,7 @@ dome-mapper/
 
 ### Unified Net Layouter
 
-A standalone HTML tool (`net-layouter.html`) backed by a shared geometry definitions file (`geometry-presets.js`) for interactively optimizing flat net layouts of any supported polyhedron. A geometry selector dynamically loads the chosen solid. Currently supported:
+A standalone HTML tool (`net-layouter.html`) backed by a shared geometry definitions file (`foldable-geometries.js`) for interactively optimizing flat net layouts of any supported polyhedron. A geometry selector dynamically loads the chosen solid. Currently supported:
 
 | Geometry | Faces | Face shape | Dual of |
 |---|---|---|---|
