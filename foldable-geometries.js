@@ -217,6 +217,57 @@ function regularEdgeSlot(n, k, mirrored) {
 	return mirrored ? (n - k - 1 + n) % n : (k - 1 + n) % n;
 }
 
+// Ghost placement for irregular polygon faces (rhombi, kites, irregular pentagons).
+// Aligns edge ki of parent i with edge kj of child j via shared vertex positions.
+function irregularGhostPlace(vtx, n, edgeDirAngles, edgeIdx, i, j, res, mirrored) {
+	const ki = edgeIdx(i, j), kj = edgeIdx(j, i);
+	const s = mirrored ? -1 : 1;
+	const r2 = res[i].r + s * edgeDirAngles[ki] - s * edgeDirAngles[kj] + Math.PI;
+	const qi = mirrored ? ki : (ki + 1) % n;
+	const cr1 = Math.cos(res[i].r * s), sr1 = Math.sin(res[i].r * s);
+	const Qx = res[i].x + (vtx[qi][0] * cr1 - vtx[qi][1] * sr1) * s;
+	const Qy = res[i].y + vtx[qi][0] * sr1 + vtx[qi][1] * cr1;
+	const cr2 = Math.cos(r2 * s), sr2 = Math.sin(r2 * s);
+	const qj = mirrored ? (kj + 1) % n : kj;
+	const vjx = (vtx[qj][0] * cr2 - vtx[qj][1] * sr2) * s;
+	const vjy = vtx[qj][0] * sr2 + vtx[qj][1] * cr2;
+	return { x: Qx - vjx, y: Qy - vjy, r: r2 };
+}
+
+// Collision check for irregular polygon faces (L1 bound in local frame).
+function irregularCollisionCheck(nFaces, inradius, halfW, halfH, placed, res, j, px, py) {
+	const threshold = inradius * 1.7;
+	for (let k = 0; k < nFaces; k++) {
+		if (!placed[k]) continue;
+		const dx = px - res[k].x, dy = py - res[k].y;
+		const d = Math.sqrt(dx * dx + dy * dy);
+		if (d < threshold) {
+			const crk = Math.cos(-res[k].r), srk = Math.sin(-res[k].r);
+			const lx = dx * crk - dy * srk, ly = dx * srk + dy * crk;
+			if (Math.abs(lx) / halfW + Math.abs(ly) / halfH < 1.7) return true;
+		}
+	}
+	return false;
+}
+
+// Cyclic ordering of edges around a shared vertex in 3D (for dual adjacency).
+function cyclicOrderEdges(verts, edges, vIdx, edgeList) {
+	const N = verts[vIdx];
+	let up = [0, 1, 0];
+	if (Math.abs(dot3(N, up)) > 0.9) up = [1, 0, 0];
+	const T1 = norm3(cross3(N, up));
+	const T2 = cross3(N, T1);
+	const withAngle = edgeList.map(ei => {
+		const [a, b] = edges[ei];
+		const other = a === vIdx ? b : a;
+		const d = sub3(verts[other], scale3(N, dot3(verts[other], N)));
+		return { ei, angle: Math.atan2(dot3(d, T2), dot3(d, T1)) };
+	});
+	withAngle.sort((a, b) => a.angle - b.angle);
+	return withAngle.map(x => x.ei);
+}
+
+
 // ═══════════════════════════════════════════════════════════════════════
 // Geometry definitions
 // ═══════════════════════════════════════════════════════════════════════
@@ -381,25 +432,11 @@ GEOMETRIES.rhombic30 = (function() {
 	const vertexEdges = Array.from({ length: 12 }, () => []);
 	edges.forEach(([a, b], ei) => { vertexEdges[a].push(ei); vertexEdges[b].push(ei); });
 
-	function cyclicOrderEdges(vIdx, edgeList) {
-		const N = icoVerts[vIdx];
-		let up = [0, 1, 0];
-		if (Math.abs(dot3(N, up)) > 0.9) up = [1, 0, 0];
-		const T1 = norm3(cross3(N, up));
-		const T2 = cross3(N, T1);
-		const withAngle = edgeList.map(ei => {
-			const [a, b] = edges[ei];
-			const other = a === vIdx ? b : a;
-			const d = sub3(icoVerts[other], scale3(N, dot3(icoVerts[other], N)));
-			return { ei, angle: Math.atan2(dot3(d, T2), dot3(d, T1)) };
-		});
-		withAngle.sort((a, b) => a.angle - b.angle);
-		return withAngle.map(x => x.ei);
-	}
+	const _cyclicOrderEdges = (vIdx, edgeList) => cyclicOrderEdges(icoVerts, edges, vIdx, edgeList);
 
 	const adj = Array.from({ length: N_FACES }, () => []);
 	for (let v = 0; v < 12; v++) {
-		const ring = cyclicOrderEdges(v, vertexEdges[v]);
+		const ring = _cyclicOrderEdges(v, vertexEdges[v]);
 		for (let k = 0; k < ring.length; k++) {
 			const ei = ring[k], ej = ring[(k + 1) % ring.length];
 			if (!adj[ei].includes(ej)) adj[ei].push(ej);
@@ -419,33 +456,10 @@ GEOMETRIES.rhombic30 = (function() {
 		return Math.floor(rel / (Math.PI / 2)) % 4;
 	}
 
-	function _ghostPlace(i, j, res, mirrored) {
-		const ki = edgeIdx(i, j), kj = edgeIdx(j, i);
-		const s = mirrored ? -1 : 1;
-		const r2 = res[i].r + s * edgeDirAngles[ki] - s * edgeDirAngles[kj] + Math.PI;
-		const qi = mirrored ? ki : (ki + 1) % 4;
-		const cr1 = Math.cos(res[i].r * s), sr1 = Math.sin(res[i].r * s);
-		const Qx = res[i].x + (rhombVtx[qi][0] * cr1 - rhombVtx[qi][1] * sr1) * s;
-		const Qy = res[i].y + rhombVtx[qi][0] * sr1 + rhombVtx[qi][1] * cr1;
-		const cr2 = Math.cos(r2 * s), sr2 = Math.sin(r2 * s);
-		const vjx = mirrored ? (rhombVtx[(kj + 1) % 4][0] * cr2 - rhombVtx[(kj + 1) % 4][1] * sr2) * s : rhombVtx[kj][0] * cr2 - rhombVtx[kj][1] * sr2;
-		const vjy = mirrored ? rhombVtx[(kj + 1) % 4][0] * sr2 + rhombVtx[(kj + 1) % 4][1] * cr2 : rhombVtx[kj][0] * sr2 + rhombVtx[kj][1] * cr2;
-		return { x: Qx - vjx, y: Qy - vjy, r: r2 };
-	}
-
-	function _collisionCheck(j, px, py, pr, placed, res) {
-		for (let k = 0; k < N_FACES; k++) {
-			if (!placed[k]) continue;
-			const dx = px - res[k].x, dy = py - res[k].y;
-			const d = Math.sqrt(dx * dx + dy * dy);
-			if (d < INRADIUS * 1.7) {
-				const crk = Math.cos(-res[k].r), srk = Math.sin(-res[k].r);
-				const lx = dx * crk - dy * srk, ly = dx * srk + dy * crk;
-				if (Math.abs(lx) / iB + Math.abs(ly) / iA < 1.7) return true;
-			}
-		}
-		return false;
-	}
+	const _ghostPlace = (i, j, res, mirrored) =>
+		irregularGhostPlace(rhombVtx, 4, edgeDirAngles, edgeIdx, i, j, res, mirrored);
+	const _collisionCheck = (j, px, py, pr, placed, res) =>
+		irregularCollisionCheck(N_FACES, INRADIUS, iB, iA, placed, res, j, px, py);
 
 	const presets = [
 		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[-1,0,4,1,0,0,7,0,5,10,1,5,7,6,15,12,10,11,17,16,3,4,23,21,16,12,17,29,15,23],tabs:{"22-24":24,"3-10":10,"6-12":12,"8-11":8,"15-25":25,"22-29":22,"27-28":28,"2-3":3,"9-16":16},mirrored:false,angle:0.017453292519943295,lonOffset:1.5707963267948968,northPole:{type:'vertex',dir:[-1.3051454412604205e-17,-0.5257311121191336,0.8506508083520399]},southPole:{type:'vertex',dir:[0,0.5257311121191336,-0.8506508083520399]}},
@@ -543,64 +557,14 @@ GEOMETRIES.truncoct14 = (function() {
 	function apothem(i) { return nSides(i) === 6 ? ap6 : ap4; }
 	function circumR(i) { return nSides(i) === 6 ? cr6 : cr4; }
 
-	// Generate presets by trying all seeds and picking best per aspect
-	function generatePreset(aspect, label) {
-		let best = null, bestScore = Infinity;
-		for (let s = 0; s < nFaces; s++) {
-			const placed = new Array(nFaces).fill(false);
-			const parent = new Array(nFaces).fill(-1);
-			const res = new Array(nFaces);
-			res[s] = { x: 0, y: 0, r: 0 };
-			placed[s] = true;
-			let count = 1, changed = true;
-			while (changed) {
-				changed = false;
-				for (let j = 0; j < nFaces; j++) {
-					if (placed[j]) continue;
-					for (const i of adj[j]) {
-						if (!placed[i]) continue;
-						const pos = regularGhostPlace(nSides, apothem, edgeIdx, i, j, res, false);
-						if (!regularCollisionCheck(nFaces, apothem, placed, res, j, pos.x, pos.y)) {
-							res[j] = pos; placed[j] = true; parent[j] = i; count++; changed = true; break;
-						}
-					}
-				}
-			}
-			if (count < nFaces) continue;
-			let bestA = 0, bestAr = Infinity;
-			for (let deg = 0; deg < 180; deg += 2) {
-				const rad = deg * Math.PI / 180;
-				const cs = Math.cos(rad), sn = Math.sin(rad);
-				let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
-				for (let i = 0; i < nFaces; i++) {
-					if (!placed[i]) continue;
-					const cr = circumR(i);
-					const rx = res[i].x * cs - res[i].y * sn;
-					const ry = res[i].x * sn + res[i].y * cs;
-					mnX = Math.min(mnX, rx - cr); mxX = Math.max(mxX, rx + cr);
-					mnY = Math.min(mnY, ry - cr); mxY = Math.max(mxY, ry + cr);
-				}
-				const w = mxX - mnX, h = mxY - mnY;
-				const sc = Math.min(aspect / w, 1 / h);
-				const ar = aspect / (sc * sc);
-				if (ar < bestAr) { bestAr = ar; bestA = rad; }
-			}
-			if (bestAr < bestScore) {
-				bestScore = bestAr;
-				best = { parents: parent.slice(), angle: bestA };
-			}
-		}
-		if (!best) return null;
-		return { label, aspect, parents: best.parents, tabs: {}, mirrored: false, angle: best.angle };
-	}
 
 	const presets = [
-		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[1,3,11,-1,6,13,7,3,1,6,1,7,6,3],tabs:{"4-9":4,"6-9":9,"4-6":6,"5-10":5,"0-10":0,"0-1":1,"5-9":5,"2-8":2,"3-8":3,"3-11":3,"6-11":6,"2-11":2,"4-12":4,"4-10":4,"2-12":2,"0-12":0,"0-4":4,"0-8":0,"7-13":7,"1-13":1,"1-10":10,"7-9":7,"4-5":5,"1-5":5,"0-2":2},mirrored:false,angle:0.9512044423369095,lonOffset:-2.0943951023931957,northPole:{type:'center',face:2,dir:[0.5773502691896258,-0.5773502691896258,0.5773502691896258]},southPole:{type:'center',face:5,dir:[-0.5773502691896258,0.5773502691896258,-0.5773502691896258]}},
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[1,3,11,-1,6,13,7,3,1,6,1,7,6,3],tabs:{"4-9":4,"6-9":9,"4-6":6,"5-10":5,"0-10":0,"0-1":1,"5-9":5,"2-8":2,"3-8":3,"3-11":3,"6-11":6,"2-11":2,"4-12":4,"4-10":4,"2-12":2,"0-12":0,"0-4":4,"0-8":0,"7-13":7,"1-13":1,"1-10":10,"7-9":7,"4-5":5,"1-5":5,"0-2":2},mirrored:false,angle:0.951204442336909,lonOffset:-2.0943951023931957,northPole:{type:'center',face:2,dir:[0.5773502691896258,-0.5773502691896258,0.5773502691896258]},southPole:{type:'center',face:5,dir:[-0.5773502691896258,0.5773502691896258,-0.5773502691896258]}},
 		{"label":"US Letter (8.5×11 in)","parents":[1,3,3,-1,10,1,2,13,1,7,1,2,2,1],"tabs":{"4-12":12,"4-6":6,"7-11":11},"mirrored":false,"angle":-1.308996938995747,"aspect":1.2941176470588234,"northPole":{"type":"center","face":7,"dir":[-0.5773502691896258,-0.5773502691896258,-0.5773502691896258]},"southPole":{"type":"center","face":0,"dir":[0.5773502691896258,0.5773502691896258,0.5773502691896258]}},
-		generatePreset(14 / 8.5, 'US Legal (8.5×14 in)'),
-		generatePreset(17 / 11, 'US Tabloid (11×17 in)'),
-		generatePreset(257 / 182, 'B5 JIS (182×257 mm)'),
-	].filter(Boolean);
+		{label:"US Legal (8.5×14 in)",aspect:1.6470588235294117,parents:[1,3,11,-1,6,13,7,3,1,6,1,7,6,3],tabs:{},mirrored:false,angle:0.9162978572970231},
+		{label:"US Tabloid (11×17 in)",aspect:1.5454545454545454,parents:[1,3,11,-1,6,13,7,3,1,6,1,7,6,3],tabs:{},mirrored:false,angle:0.9162978572970231},
+		{label:"B5 JIS (182×257 mm)",aspect:1.4120879120879122,parents:[1,3,11,-1,6,13,7,3,1,6,1,7,6,3],tabs:{},mirrored:false,angle:0.9512044423369095},
+	];
 	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
 
 	return {
@@ -737,70 +701,14 @@ GEOMETRIES.rhombicosi62 = (function() {
 	function apothem(i) { const n = nSides(i); return n === 3 ? ap3 : n === 4 ? ap4 : ap5; }
 	function circumR(i) { const n = nSides(i); return n === 3 ? cr3 : n === 4 ? cr4 : cr5; }
 
-	// Generate a single best-effort layout for a given aspect ratio
-	function generatePreset(aspect, label) {
-		let best = null, bestScore = Infinity;
-		// Try a subset of seeds (one per face type)
-		const seeds = [];
-		for (let i = 0; i < nFaces; i++) seeds.push(i);
-		for (const s of seeds) {
-			const placed = new Array(nFaces).fill(false);
-			const parent = new Array(nFaces).fill(-1);
-			const res = new Array(nFaces);
-			res[s] = { x: 0, y: 0, r: 0 };
-			placed[s] = true;
-			let count = 1, changed = true;
-			while (changed) {
-				changed = false;
-				for (let j = 0; j < nFaces; j++) {
-					if (placed[j]) continue;
-					for (const i of adj[j]) {
-						if (!placed[i]) continue;
-						const pos = regularGhostPlace(nSides, apothem, edgeIdx, i, j, res, false);
-						if (!regularCollisionCheck(nFaces, apothem, placed, res, j, pos.x, pos.y)) {
-							res[j] = pos; placed[j] = true; parent[j] = i; count++; changed = true; break;
-						}
-					}
-				}
-			}
-			// Accept layouts with most faces placed
-			let bestA = 0, bestAr = Infinity;
-			for (let deg = 0; deg < 180; deg += 2) {
-				const rad = deg * Math.PI / 180;
-				const cs = Math.cos(rad), sn = Math.sin(rad);
-				let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
-				for (let i = 0; i < nFaces; i++) {
-					if (!placed[i]) continue;
-					const cr = circumR(i);
-					const rx = res[i].x * cs - res[i].y * sn;
-					const ry = res[i].x * sn + res[i].y * cs;
-					mnX = Math.min(mnX, rx - cr); mxX = Math.max(mxX, rx + cr);
-					mnY = Math.min(mnY, ry - cr); mxY = Math.max(mxY, ry + cr);
-				}
-				const w = mxX - mnX, h = mxY - mnY;
-				const sc = Math.min(aspect / w, 1 / h);
-				const ar = aspect / (sc * sc);
-				if (ar < bestAr) { bestAr = ar; bestA = rad; }
-			}
-			// Penalize missing faces heavily
-			const penalty = (nFaces - count) * 100;
-			const score = bestAr + penalty;
-			if (score < bestScore) {
-				bestScore = score;
-				best = { parents: parent.slice(), angle: bestA, count };
-			}
-		}
-		if (!best) return null;
-		return { label, aspect, parents: best.parents, tabs: {}, mirrored: false, angle: best.angle };
-	}
 
 	const presets = [
 		{"label":"DIN A (1:√2)","parents":[25,23,24,23,24,28,40,41,32,33,45,33,34,36,37,38,40,45,42,48,51,50,3,56,58,5,7,51,7,8,57,52,10,53,10,12,3,58,60,15,55,17,17,55,56,-1,60,19,18,19,20,26,29,32,36,41,40,41,33,42,35,43],"tabs":{"9-29":29,"9-31":31,"2-31":31,"36-56":36,"22-54":54,"6-26":26,"6-27":27,"27-56":56,"1-27":27,"1-20":20,"22-50":50,"21-50":50,"24-50":50,"2-21":21,"37-54":54,"14-46":46,"14-38":38,"11-46":46,"11-35":35,"35-53":53,"34-53":53,"29-53":53,"31-58":58,"23-50":50,"25-51":51,"28-51":51,"5-30":30,"30-57":57,"30-52":52,"25-52":52,"21-52":52,"4-37":37,"15-49":49,"49-61":61,"48-61":61,"18-43":43,"16-43":43,"16-44":44,"39-54":54,"13-44":44,"13-39":39,"39-61":61,"44-61":61,"42-55":55,"26-55":55,"42-59":59,"45-59":59,"48-59":59,"47-59":59,"47-60":60,"19-49":49,"19-48":48,"46-58":58,"38-54":38,"0-21":21,"0-20":20,"34-59":59,"8-30":30,"28-57":57,"45-57":57,"32-57":57},"mirrored":false,"angle":-0.49741883681838406,"aspect":1.4142857142857144,"lonOffset":-2.557831595636633,"northPole":{"type":"center","face":49,"dir":[-0.5000000000000001,-0.8090169943749475,-0.30901699437494745]},"southPole":{"type":"center","face":25,"dir":[0.5000000000000001,0.8090169943749475,0.30901699437494745]}},
-		generatePreset(11 / 8.5, 'US Letter (8.5×11 in)'),
-		generatePreset(14 / 8.5, 'US Legal (8.5×14 in)'),
-		generatePreset(17 / 11, 'US Tabloid (11×17 in)'),
-		generatePreset(257 / 182, 'B5 JIS (182×257 mm)'),
-	].filter(Boolean);
+		{label:"US Letter (8.5×11 in)",aspect:1.2941176470588236,parents:[25,23,24,23,24,28,40,41,32,33,45,33,34,36,37,38,40,45,42,48,51,50,3,56,58,5,7,51,7,8,57,52,10,53,10,12,3,58,60,15,55,17,17,55,56,-1,60,19,18,19,20,26,29,32,36,41,40,41,33,42,35,43],tabs:{},mirrored:false,angle:-0.5585053606381853},
+		{label:"US Legal (8.5×14 in)",aspect:1.6470588235294117,parents:[25,23,24,23,24,28,40,41,32,33,45,33,34,36,37,38,40,45,42,48,51,50,3,56,58,5,7,51,7,8,57,52,10,53,10,12,3,58,60,15,55,17,17,55,56,-1,60,19,18,19,20,26,29,32,36,41,40,41,33,42,35,43],tabs:{},mirrored:false,angle:-0.4276056667386108},
+		{label:"US Tabloid (11×17 in)",aspect:1.5454545454545454,parents:[25,23,24,23,24,28,40,41,32,33,45,33,34,36,37,38,40,45,42,48,51,50,3,56,58,5,7,51,7,8,57,52,10,53,10,12,3,58,60,15,55,17,17,55,56,-1,60,19,18,19,20,26,29,32,36,41,40,41,33,42,35,43],tabs:{},mirrored:false,angle:-0.4276056667386108},
+		{label:"B5 JIS (182×257 mm)",aspect:1.4120879120879122,parents:[25,23,24,23,24,28,40,41,32,33,45,33,34,36,37,38,40,45,42,48,51,50,3,56,58,5,7,51,7,8,57,52,10,53,10,12,3,58,60,15,55,17,17,55,56,-1,60,19,18,19,20,26,29,32,36,41,40,41,33,42,35,43],tabs:{},mirrored:false,angle:-0.49741883681838406},
+	];
 	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
 
 	return {
@@ -984,95 +892,19 @@ GEOMETRIES.deltoidal60 = (function() {
 	const tabInsetShort = 0.15;
 	const singleTabArea = ((shortEdge + longEdge) / 2) * _tabH * 0.5;
 
-	function _ghostPlace(i, j, res, mirrored) {
-		const ki = edgeIdx(i, j), kj = edgeIdx(j, i);
-		const s = mirrored ? -1 : 1;
-		const r2 = res[i].r + s * edgeDirAngles[ki] - s * edgeDirAngles[kj] + Math.PI;
-		const qi = mirrored ? ki : (ki + 1) % 4;
-		const cr1 = Math.cos(res[i].r * s), sr1 = Math.sin(res[i].r * s);
-		const Qx = res[i].x + (kiteVtx[qi][0] * cr1 - kiteVtx[qi][1] * sr1) * s;
-		const Qy = res[i].y + kiteVtx[qi][0] * sr1 + kiteVtx[qi][1] * cr1;
-		const cr2 = Math.cos(r2 * s), sr2 = Math.sin(r2 * s);
-		const qj = mirrored ? (kj + 1) % 4 : kj;
-		const vjx = (kiteVtx[qj][0] * cr2 - kiteVtx[qj][1] * sr2) * s;
-		const vjy = kiteVtx[qj][0] * sr2 + kiteVtx[qj][1] * cr2;
-		return { x: Qx - vjx, y: Qy - vjy, r: r2 };
-	}
+	const _ghostPlace = (i, j, res, mirrored) =>
+		irregularGhostPlace(kiteVtx, 4, edgeDirAngles, edgeIdx, i, j, res, mirrored);
+	const _collisionCheck = (j, px, py, pr, placed, res) =>
+		irregularCollisionCheck(N_FACES, INRADIUS, halfW, dPent, placed, res, j, px, py);
 
-	function _collisionCheck(j, px, py, pr, placed, res) {
-		const threshold = INRADIUS * 1.7;
-		for (let k = 0; k < N_FACES; k++) {
-			if (!placed[k]) continue;
-			const dx = px - res[k].x, dy = py - res[k].y;
-			const d = Math.sqrt(dx * dx + dy * dy);
-			if (d < threshold) {
-				const crk = Math.cos(-res[k].r), srk = Math.sin(-res[k].r);
-				const lx = dx * crk - dy * srk, ly = dx * srk + dy * crk;
-				if (Math.abs(lx) / halfW + Math.abs(ly) / dPent < 1.7) return true;
-			}
-		}
-		return false;
-	}
-
-	// Auto-generate presets
-	function generatePreset(aspect, label) {
-		let best = null, bestScore = Infinity;
-		for (let s = 0; s < N_FACES; s++) {
-			const placed = new Array(N_FACES).fill(false);
-			const parent = new Array(N_FACES).fill(-1);
-			const res = new Array(N_FACES);
-			res[s] = { x: 0, y: 0, r: 0 };
-			placed[s] = true;
-			let count = 1, changed = true;
-			while (changed) {
-				changed = false;
-				for (let j = 0; j < N_FACES; j++) {
-					if (placed[j]) continue;
-					for (const i of adj[j]) {
-						if (!placed[i]) continue;
-						const pos = _ghostPlace(i, j, res, false);
-						if (!_collisionCheck(j, pos.x, pos.y, pos.r, placed, res)) {
-							res[j] = pos; placed[j] = true; parent[j] = i; count++; changed = true; break;
-						}
-					}
-				}
-			}
-			let bestA = 0, bestAr = Infinity;
-			for (let deg = 0; deg < 180; deg += 2) {
-				const rad = deg * Math.PI / 180;
-				const cs = Math.cos(rad), sn = Math.sin(rad);
-				let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
-				for (let ii = 0; ii < N_FACES; ii++) {
-					if (!placed[ii]) continue;
-					const cr = dPent;
-					const rx = res[ii].x * cs - res[ii].y * sn;
-					const ry = res[ii].x * sn + res[ii].y * cs;
-					mnX = Math.min(mnX, rx - cr); mxX = Math.max(mxX, rx + cr);
-					mnY = Math.min(mnY, ry - cr); mxY = Math.max(mxY, ry + cr);
-				}
-				const w = mxX - mnX, h = mxY - mnY;
-				const sc = Math.min(aspect / w, 1 / h);
-				const ar = aspect / (sc * sc);
-				if (ar < bestAr) { bestAr = ar; bestA = rad; }
-			}
-			const penalty = (N_FACES - count) * 100;
-			const score = bestAr + penalty;
-			if (score < bestScore) {
-				bestScore = score;
-				best = { parents: parent.slice(), angle: bestA, count };
-			}
-		}
-		if (!best) return null;
-		return { label, aspect, parents: best.parents, tabs: {}, mirrored: false, angle: best.angle };
-	}
 
 	const presets = [
-		{label:'DIN A (1:√2)',aspect:1.4182692307692308,parents:[56,58,0,1,0,1,2,3,32,33,8,9,8,9,49,13,-1,41,16,17,16,17,18,19,0,44,2,3,4,5,6,7,24,28,52,53,26,30,27,31,16,26,18,30,20,27,22,31,24,25,28,29,16,18,36,19,40,2,44,3],tabs:{"31-51":51,"29-46":29,"46-58":58,"35-46":46,"33-53":53,"39-47":47,"21-45":45,"12-48":48,"32-40":40,"24-40":40},mirrored:false,angle:1.6057029118348564,lonOffset:-0.3141592653589793,northPole:{type:'vertex',dir:[-0.8506508083520399,0.5257311121191335,0]},southPole:{type:'vertex',dir:[0.8506508083520399,-0.5257311121191335,0]}},
-		generatePreset(11 / 8.5, 'US Letter (8.5×11 in)'),
-		generatePreset(14 / 8.5, 'US Legal (8.5×14 in)'),
-		generatePreset(17 / 11, 'US Tabloid (11×17 in)'),
-		generatePreset(257 / 182, 'B5 JIS (182×257 mm)'),
-	].filter(Boolean);
+		{label:'DIN A (1:√2)',aspect:1.4182692307692308,parents:[56,58,0,1,0,1,2,3,32,33,8,9,8,9,49,13,-1,41,16,17,16,17,18,19,0,44,2,3,4,5,6,7,24,28,52,53,26,30,27,31,16,26,18,30,20,27,22,31,24,25,28,29,16,18,36,19,40,2,44,3],tabs:{"31-51":51,"29-46":29,"46-58":58,"35-46":46,"33-53":53,"39-47":47,"21-45":45,"12-48":48,"32-40":40,"24-40":40},mirrored:false,angle:1.3700834628155485,lonOffset:-0.3141592653589793,northPole:{type:'vertex',dir:[-0.8506508083520399,0.5257311121191335,0]},southPole:{type:'vertex',dir:[0.8506508083520399,-0.5257311121191335,0]}},
+		{label:"US Letter (8.5×11 in)",aspect:1.2941176470588236,parents:[56,25,0,1,0,1,2,3,10,33,34,9,8,9,10,11,20,54,16,17,44,17,20,19,0,44,2,3,4,5,6,7,52,53,25,29,12,13,14,31,16,17,18,19,-1,27,22,31,8,25,9,29,20,22,38,39,40,2,44,3],tabs:{},mirrored:false,angle:0.8813912722571364},
+		{label:"US Legal (8.5×14 in)",aspect:1.6470588235294117,parents:[56,3,0,7,0,7,2,-1,10,11,49,35,8,9,10,11,18,54,53,17,16,17,18,19,0,1,2,3,4,5,6,7,8,53,10,29,54,55,27,31,16,17,18,19,25,27,29,31,8,27,9,29,34,35,38,39,42,41,5,3],tabs:{},mirrored:false,angle:1.5707963267948966},
+		{label:"US Tabloid (11×17 in)",aspect:1.5454545454545454,parents:[56,58,0,1,0,1,2,3,32,33,8,9,8,9,49,13,-1,41,16,17,16,17,18,19,0,44,2,3,4,5,6,7,24,28,52,53,26,30,27,31,16,26,18,30,20,27,22,31,24,25,28,29,16,18,36,19,40,2,44,3],tabs:{},mirrored:false,angle:1.2828170002158323},
+		{label:"B5 JIS (182×257 mm)",aspect:1.4120879120879122,parents:[56,58,0,1,0,1,2,3,32,33,8,9,8,9,49,13,-1,41,16,17,16,17,18,19,0,44,2,3,4,5,6,7,24,28,52,53,26,30,27,31,16,26,18,30,20,27,22,31,24,25,28,29,16,18,36,19,40,2,44,3],tabs:{},mirrored:false,angle:1.3700834628155485},
+	];
 	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
 
 	return {
@@ -1273,95 +1105,19 @@ GEOMETRIES.pentahex60 = (function() {
 	const tabInsetShort = 0.15;
 	const singleTabArea = ((shortEdge + longEdgeActual) / 2) * _tabH * 0.5;
 
-	function _ghostPlace(i, j, res, mirrored) {
-		const ki = edgeIdx(i, j), kj = edgeIdx(j, i);
-		const s = mirrored ? -1 : 1;
-		const r2 = res[i].r + s * edgeDirAngles[ki] - s * edgeDirAngles[kj] + Math.PI;
-		const qi = mirrored ? ki : (ki + 1) % 5;
-		const cr1 = Math.cos(res[i].r * s), sr1 = Math.sin(res[i].r * s);
-		const Qx = res[i].x + (pentVtx[qi][0] * cr1 - pentVtx[qi][1] * sr1) * s;
-		const Qy = res[i].y + pentVtx[qi][0] * sr1 + pentVtx[qi][1] * cr1;
-		const cr2 = Math.cos(r2 * s), sr2 = Math.sin(r2 * s);
-		const qj = mirrored ? (kj + 1) % 5 : kj;
-		const vjx = (pentVtx[qj][0] * cr2 - pentVtx[qj][1] * sr2) * s;
-		const vjy = pentVtx[qj][0] * sr2 + pentVtx[qj][1] * cr2;
-		return { x: Qx - vjx, y: Qy - vjy, r: r2 };
-	}
+	const _ghostPlace = (i, j, res, mirrored) =>
+		irregularGhostPlace(pentVtx, 5, edgeDirAngles, edgeIdx, i, j, res, mirrored);
+	const _collisionCheck = (j, px, py, pr, placed, res) =>
+		irregularCollisionCheck(N_FACES, INRADIUS, halfW, dPent, placed, res, j, px, py);
 
-	function _collisionCheck(j, px, py, pr, placed, res) {
-		const threshold = INRADIUS * 1.7;
-		for (let k = 0; k < N_FACES; k++) {
-			if (!placed[k]) continue;
-			const dx = px - res[k].x, dy = py - res[k].y;
-			const d = Math.sqrt(dx * dx + dy * dy);
-			if (d < threshold) {
-				const crk = Math.cos(-res[k].r), srk = Math.sin(-res[k].r);
-				const lx = dx * crk - dy * srk, ly = dx * srk + dy * crk;
-				if (Math.abs(lx) / halfW + Math.abs(ly) / dPent < 1.7) return true;
-			}
-		}
-		return false;
-	}
-
-	// Auto-generate presets
-	function generatePreset(aspect, label) {
-		let best = null, bestScore = Infinity;
-		for (let s = 0; s < N_FACES; s++) {
-			const placed = new Array(N_FACES).fill(false);
-			const parent = new Array(N_FACES).fill(-1);
-			const res = new Array(N_FACES);
-			res[s] = { x: 0, y: 0, r: 0 };
-			placed[s] = true;
-			let count = 1, changed = true;
-			while (changed) {
-				changed = false;
-				for (let j = 0; j < N_FACES; j++) {
-					if (placed[j]) continue;
-					for (const i of adj[j]) {
-						if (!placed[i]) continue;
-						const pos = _ghostPlace(i, j, res, false);
-						if (!_collisionCheck(j, pos.x, pos.y, pos.r, placed, res)) {
-							res[j] = pos; placed[j] = true; parent[j] = i; count++; changed = true; break;
-						}
-					}
-				}
-			}
-			let bestA = 0, bestAr = Infinity;
-			for (let deg = 0; deg < 180; deg += 2) {
-				const rad = deg * Math.PI / 180;
-				const cs = Math.cos(rad), sn = Math.sin(rad);
-				let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
-				for (let ii = 0; ii < N_FACES; ii++) {
-					if (!placed[ii]) continue;
-					const cr = dPent;
-					const rx = res[ii].x * cs - res[ii].y * sn;
-					const ry = res[ii].x * sn + res[ii].y * cs;
-					mnX = Math.min(mnX, rx - cr); mxX = Math.max(mxX, rx + cr);
-					mnY = Math.min(mnY, ry - cr); mxY = Math.max(mxY, ry + cr);
-				}
-				const w = mxX - mnX, h = mxY - mnY;
-				const sc = Math.min(aspect / w, 1 / h);
-				const ar = aspect / (sc * sc);
-				if (ar < bestAr) { bestAr = ar; bestA = rad; }
-			}
-			const penalty = (N_FACES - count) * 100;
-			const score = bestAr + penalty;
-			if (score < bestScore) {
-				bestScore = score;
-				best = { parents: parent.slice(), angle: bestA, count };
-			}
-		}
-		if (!best) return null;
-		return { label, aspect, parents: best.parents, tabs: {}, mirrored: false, angle: best.angle };
-	}
 
 	const presets = [
-		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[48,0,30,15,16,17,4,5,20,21,58,8,0,1,18,27,12,13,6,7,12,13,10,11,12,13,22,11,12,1,18,19,4,17,46,47,24,25,26,44,28,29,30,55,32,33,40,53,-1,1,38,39,4,5,6,7,44,45,37,24],tabs:{"3-15":15,"3-31":31,"31-50":31,"43-50":43,"44-54":54,"32-54":54,"20-32":20,"35-53":53,"7-53":53,"16-28":28,"12-28":28,"4-52":52,"6-52":52,"34-52":52,"46-52":46,"46-58":58,"10-58":58,"9-58":9,"9-25":9,"21-25":25,"31-43":43,"15-31":31,"15-19":19,"3-50":3,"25-37":37,"37-58":58,"37-46":46,"37-40":40,"4-32":32,"27-39":39,"11-56":56,"8-56":56,"37-49":49,"47-59":59,"14-26":26,"2-14":14},mirrored:false,angle:1.53588974175501,lonOffset:-2.062977941152395,northPole:{type:'vertex',dir:[0.8506508083520399,-0.5257311121191336,-1.208259388534423e-17]},southPole:{type:'vertex',dir:[-0.8506508083520399,0.5257311121191336,-1.208259388534423e-17]}},
-		generatePreset(11 / 8.5, 'US Letter (8.5×11 in)'),
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[48,0,30,15,16,17,4,5,20,21,58,8,0,1,18,27,12,13,6,7,12,13,10,11,12,13,22,11,12,1,18,19,4,17,46,47,24,25,26,44,28,29,30,55,32,33,40,53,-1,1,38,39,4,5,6,7,44,45,37,24],tabs:{"3-15":15,"3-31":31,"31-50":31,"43-50":43,"44-54":54,"32-54":54,"20-32":20,"35-53":53,"7-53":53,"16-28":28,"12-28":28,"4-52":52,"6-52":52,"34-52":52,"46-52":46,"46-58":58,"10-58":58,"9-58":9,"9-25":9,"21-25":25,"31-43":43,"15-31":31,"15-19":19,"3-50":3,"25-37":37,"37-58":58,"37-46":46,"37-40":40,"4-32":32,"27-39":39,"11-56":56,"8-56":56,"37-49":49,"47-59":59,"14-26":26,"2-14":14},mirrored:false,angle:1.5271630954950381,lonOffset:-2.062977941152395,northPole:{type:'vertex',dir:[0.8506508083520399,-0.5257311121191336,-1.208259388534423e-17]},southPole:{type:'vertex',dir:[-0.8506508083520399,0.5257311121191336,-1.208259388534423e-17]}},
+		{label:"US Letter (8.5×11 in)",aspect:1.2941176470588236,parents:[48,0,30,15,16,17,4,5,20,21,58,8,0,1,18,27,12,13,6,7,12,13,10,11,12,13,22,11,12,1,18,19,4,17,46,47,24,25,26,44,28,29,30,55,32,33,40,53,-1,1,38,39,4,5,6,7,44,45,37,24],tabs:{},mirrored:false,angle:1.5446163880149817},
 		{"label":"US Legal (8.5×14 in)","parents":[12,0,14,15,16,17,4,5,20,21,9,8,-1,1,26,27,12,13,6,7,12,13,10,11,12,13,10,11,0,1,18,19,16,17,6,53,24,25,26,27,28,29,30,31,32,33,37,36,0,0,31,39,40,41,32,7,8,9,25,24],"tabs":{},"mirrored":false,"angle":0.7330382858376184,"aspect":1.647058823529412,"northPole":{"type":"vertex","dir":[-0.35682208977308993,0.9341723589627157,-1.9205239728688042e-17]},"southPole":{"type":"vertex","dir":[0.35682208977308993,-0.9341723589627157,-1.9205239728688042e-17]}},
-		generatePreset(17 / 11, 'US Tabloid (11×17 in)'),
-		generatePreset(257 / 182, 'B5 JIS (182×257 mm)'),
-	].filter(Boolean);
+		{label:"US Tabloid (11×17 in)",aspect:1.5454545454545454,parents:[48,0,30,15,16,17,4,5,20,21,58,8,0,1,18,27,12,13,6,7,12,13,10,11,12,13,22,11,12,1,18,19,4,17,46,47,24,25,26,44,28,29,30,55,32,33,40,53,-1,1,38,39,4,5,6,7,44,45,37,24],tabs:{},mirrored:false,angle:1.5184364492350666},
+		{label:"B5 JIS (182×257 mm)",aspect:1.4120879120879122,parents:[48,0,30,15,16,17,4,5,20,21,58,8,0,1,18,27,12,13,6,7,12,13,10,11,12,13,22,11,12,1,18,19,4,17,46,47,24,25,26,44,28,29,30,55,32,33,40,53,-1,1,38,39,4,5,6,7,44,45,37,24],tabs:{},mirrored:false,angle:1.53588974175501},
+	];
 	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
 
 	return {
@@ -1553,95 +1309,19 @@ GEOMETRIES.pentagonal24 = (function() {
 	const tabInsetShort = 0.15;
 	const singleTabArea = ((shortEdge + longEdgeActual) / 2) * _tabH * 0.5;
 
-	function _ghostPlace(i, j, res, mirrored) {
-		const ki = edgeIdx(i, j), kj = edgeIdx(j, i);
-		const s = mirrored ? -1 : 1;
-		const r2 = res[i].r + s * edgeDirAngles[ki] - s * edgeDirAngles[kj] + Math.PI;
-		const qi = mirrored ? ki : (ki + 1) % 5;
-		const cr1 = Math.cos(res[i].r * s), sr1 = Math.sin(res[i].r * s);
-		const Qx = res[i].x + (pentVtx[qi][0] * cr1 - pentVtx[qi][1] * sr1) * s;
-		const Qy = res[i].y + pentVtx[qi][0] * sr1 + pentVtx[qi][1] * cr1;
-		const cr2 = Math.cos(r2 * s), sr2 = Math.sin(r2 * s);
-		const qj = mirrored ? (kj + 1) % 5 : kj;
-		const vjx = (pentVtx[qj][0] * cr2 - pentVtx[qj][1] * sr2) * s;
-		const vjy = pentVtx[qj][0] * sr2 + pentVtx[qj][1] * cr2;
-		return { x: Qx - vjx, y: Qy - vjy, r: r2 };
-	}
+	const _ghostPlace = (i, j, res, mirrored) =>
+		irregularGhostPlace(pentVtx, 5, edgeDirAngles, edgeIdx, i, j, res, mirrored);
+	const _collisionCheck = (j, px, py, pr, placed, res) =>
+		irregularCollisionCheck(N_FACES, INRADIUS, halfW, dOct, placed, res, j, px, py);
 
-	function _collisionCheck(j, px, py, pr, placed, res) {
-		const threshold = INRADIUS * 1.7;
-		for (let k = 0; k < N_FACES; k++) {
-			if (!placed[k]) continue;
-			const dx = px - res[k].x, dy = py - res[k].y;
-			const d = Math.sqrt(dx * dx + dy * dy);
-			if (d < threshold) {
-				const crk = Math.cos(-res[k].r), srk = Math.sin(-res[k].r);
-				const lx = dx * crk - dy * srk, ly = dx * srk + dy * crk;
-				if (Math.abs(lx) / halfW + Math.abs(ly) / dOct < 1.7) return true;
-			}
-		}
-		return false;
-	}
-
-	// Auto-generate presets
-	function generatePreset(aspect, label) {
-		let best = null, bestScore = Infinity;
-		for (let s = 0; s < N_FACES; s++) {
-			const placed = new Array(N_FACES).fill(false);
-			const parent = new Array(N_FACES).fill(-1);
-			const res = new Array(N_FACES);
-			res[s] = { x: 0, y: 0, r: 0 };
-			placed[s] = true;
-			let count = 1, changed = true;
-			while (changed) {
-				changed = false;
-				for (let j = 0; j < N_FACES; j++) {
-					if (placed[j]) continue;
-					for (const i of adj[j]) {
-						if (!placed[i]) continue;
-						const pos = _ghostPlace(i, j, res, false);
-						if (!_collisionCheck(j, pos.x, pos.y, pos.r, placed, res)) {
-							res[j] = pos; placed[j] = true; parent[j] = i; count++; changed = true; break;
-						}
-					}
-				}
-			}
-			let bestA = 0, bestAr = Infinity;
-			for (let deg = 0; deg < 180; deg += 2) {
-				const rad = deg * Math.PI / 180;
-				const cs = Math.cos(rad), sn = Math.sin(rad);
-				let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
-				for (let ii = 0; ii < N_FACES; ii++) {
-					if (!placed[ii]) continue;
-					const cr = dOct;
-					const rx = res[ii].x * cs - res[ii].y * sn;
-					const ry = res[ii].x * sn + res[ii].y * cs;
-					mnX = Math.min(mnX, rx - cr); mxX = Math.max(mxX, rx + cr);
-					mnY = Math.min(mnY, ry - cr); mxY = Math.max(mxY, ry + cr);
-				}
-				const w = mxX - mnX, h = mxY - mnY;
-				const sc = Math.min(aspect / w, 1 / h);
-				const ar = aspect / (sc * sc);
-				if (ar < bestAr) { bestAr = ar; bestA = rad; }
-			}
-			const penalty = (N_FACES - count) * 100;
-			const score = bestAr + penalty;
-			if (score < bestScore) {
-				bestScore = score;
-				best = { parents: parent.slice(), angle: bestA, count };
-			}
-		}
-		if (!best) return null;
-		return { label, aspect, parents: best.parents, tabs: {}, mirrored: false, angle: best.angle };
-	}
 
 	const presets = [
-		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[19,23,23,21,17,0,13,14,14,12,0,13,10,8,-1,10,6,14,21,13,1,0,13,8],tabs:{"10-12":12,"10-15":10,"12-20":20,"15-21":21,"9-20":9,"6-8":8,"1-6":6,"1-20":20,"2-17":2,"7-17":17,"4-18":18,"11-14":11,"3-11":11,"3-18":18,"9-15":9,"2-4":4,"2-9":9,"4-9":9,"4-15":15,"12-16":12,"7-18":7,"17-23":23,"14-23":14,"7-14":14,"11-22":22,"3-22":3,"19-22":19,"0-22":22,"10-21":10,"9-12":12,"5-19":5,"6-19":19,"5-10":10,"1-23":1,"2-20":2,"18-21":18,"15-18":15,"1-8":1,"1-16":1,"16-20":16,"5-16":16},mirrored:false,angle:-1.186823891356144,lonOffset:0.4008164644327132,northPole:{type:'vertex',dir:[0.7984614318833957,0.5773502691896257,0.1706634362169713]},southPole:{type:'center',face:7,dir:[-0.850340207407311,-0.4623206278176563,-0.2513586456853625]}},
-		generatePreset(11 / 8.5, 'US Letter (8.5×11 in)'),
-		generatePreset(14 / 8.5, 'US Legal (8.5×14 in)'),
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[19,23,23,21,17,0,13,14,14,12,0,13,10,8,-1,10,6,14,21,13,1,0,13,8],tabs:{"10-12":12,"10-15":10,"12-20":20,"15-21":21,"9-20":9,"6-8":8,"1-6":6,"1-20":20,"2-17":2,"7-17":17,"4-18":18,"11-14":11,"3-11":11,"3-18":18,"9-15":9,"2-4":4,"2-9":9,"4-9":9,"4-15":15,"12-16":12,"7-18":7,"17-23":23,"14-23":14,"7-14":14,"11-22":22,"3-22":3,"19-22":19,"0-22":22,"10-21":10,"9-12":12,"5-19":5,"6-19":19,"5-10":10,"1-23":1,"2-20":2,"18-21":18,"15-18":15,"1-8":1,"1-16":1,"16-20":16,"5-16":16},mirrored:false,angle:-1.1780972450961724,lonOffset:0.4008164644327132,northPole:{type:'vertex',dir:[0.7984614318833957,0.5773502691896257,0.1706634362169713]},southPole:{type:'center',face:7,dir:[-0.850340207407311,-0.4623206278176563,-0.2513586456853625]}},
+		{label:"US Letter (8.5×11 in)",aspect:1.2941176470588236,parents:[19,23,23,21,17,0,13,14,14,12,0,13,10,8,-1,10,6,14,21,13,1,0,13,8],tabs:{},mirrored:false,angle:-1.1780972450961724},
+		{label:"US Legal (8.5×14 in)",aspect:1.6470588235294117,parents:[19,23,23,21,17,0,13,14,14,12,0,13,10,8,-1,10,6,14,21,13,1,0,13,8],tabs:{},mirrored:false,angle:-1.2740903539558606},
 		{"label":"US Tabloid (11×17 in)","parents":[22,20,20,18,2,16,1,18,1,2,12,14,9,8,8,4,1,2,4,6,-1,18,19,2],"tabs":{"3-22":3,"7-17":17,"4-17":17,"17-23":23,"5-10":10,"3-21":21,"3-7":7,"10-15":15,"12-20":20},"mirrored":false,"angle":0.29670597283903605,"aspect":1.5454545454545456,"lonOffset":0.9843287277544175,"northPole":{"type":"center","face":14,"dir":[-0.4623206278176563,-0.850340207407311,0.2513586456853625]},"southPole":{"type":"vertex","dir":[0.5773502691896257,0.7984614318833957,-0.17066343621697133]}},
-		generatePreset(257 / 182, 'B5 JIS (182×257 mm)'),
-	].filter(Boolean);
+		{label:"B5 JIS (182×257 mm)",aspect:1.4120879120879122,parents:[19,23,23,21,17,0,13,14,14,12,0,13,10,8,-1,10,6,14,21,13,1,0,13,8],tabs:{},mirrored:false,angle:-1.1780972450961724},
+	];
 	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
 
 	return {
@@ -1742,60 +1422,14 @@ GEOMETRIES.dodecahedron12 = (function() {
 	function apothem() { return ap5; }
 	function circumR() { return cr5; }
 
-	function generatePreset(aspect, label) {
-		let best = null, bestScore = Infinity;
-		for (const s of Array.from({ length: N_FACES }, (_, i) => i)) {
-			const placed = new Array(N_FACES).fill(false);
-			const parent = new Array(N_FACES).fill(-1);
-			const res = new Array(N_FACES);
-			res[s] = { x: 0, y: 0, r: 0 };
-			placed[s] = true;
-			let count = 1, changed = true;
-			while (changed) {
-				changed = false;
-				for (let j = 0; j < N_FACES; j++) {
-					if (placed[j]) continue;
-					for (const i of adj[j]) {
-						if (!placed[i]) continue;
-						const pos = regularGhostPlace(nSides, apothem, edgeIdx, i, j, res, false);
-						if (!regularCollisionCheck(N_FACES, apothem, placed, res, j, pos.x, pos.y)) {
-							res[j] = pos; placed[j] = true; parent[j] = i; count++; changed = true; break;
-						}
-					}
-				}
-			}
-			let bestA = 0, bestAr = Infinity;
-			for (let deg = 0; deg < 180; deg += 2) {
-				const rad = deg * Math.PI / 180;
-				const cs = Math.cos(rad), sn = Math.sin(rad);
-				let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
-				for (let ii = 0; ii < N_FACES; ii++) {
-					if (!placed[ii]) continue;
-					const rx = res[ii].x * cs - res[ii].y * sn;
-					const ry = res[ii].x * sn + res[ii].y * cs;
-					mnX = Math.min(mnX, rx - cr5); mxX = Math.max(mxX, rx + cr5);
-					mnY = Math.min(mnY, ry - cr5); mxY = Math.max(mxY, ry + cr5);
-				}
-				const w = mxX - mnX, h = mxY - mnY;
-				const sc = Math.min(aspect / w, 1 / h);
-				const ar = aspect / (sc * sc);
-				if (ar < bestAr) { bestAr = ar; bestA = rad; }
-			}
-			const penalty = (N_FACES - count) * 100;
-			const score = bestAr + penalty;
-			if (score < bestScore) { bestScore = score; best = { parents: parent.slice(), angle: bestA, count }; }
-		}
-		if (!best) return null;
-		return { label, aspect, parents: best.parents, tabs: {}, mirrored: false, angle: best.angle };
-	}
 
 	const presets = [
 		{"label":"DIN A (1:√2)","parents":[4,4,0,1,-1,8,1,2,0,1,2,1],"tabs":{"10-11":11,"3-5":5,"4-6":4,"0-6":0},"mirrored":false,"angle":-0.7330382858376185,"aspect":1.4142857142857144,"lonOffset":-1.5707963267948966,"northPole":{"type":"vertex","dir":[0.9341723589627157,-0.3568220897730899,0]},"southPole":{"type":"vertex","dir":[-0.9341723589627157,0.3568220897730899,0]}},
 		{"label":"US Letter (8.5×11 in)","parents":[4,4,0,1,-1,8,0,2,0,1,0,1],"tabs":{"10-11":11,"3-5":5,"4-6":4,"0-6":0},"mirrored":false,"angle":-0.8901179185171082,"aspect":1.2941176470588234,"lonOffset":-0.6283185307179586,"northPole":{"type":"center","face":9,"dir":[0.85065080835204,0,-0.5257311121191336]},"southPole":{"type":"center","face":10,"dir":[-0.85065080835204,0,0.5257311121191336]}},
 		{"label":"US Legal (8.5×14 in)","parents":[4,4,0,1,-1,2,0,2,0,1,2,1],"tabs":{"10-11":11,"2-8":8},"mirrored":false,"angle":-0.5410520681182422,"aspect":1.647058823529412,"lonOffset":-1.1826568114247078,"northPole":{"type":"vertex","dir":[0.9341723589627157,-0.3568220897730899,0]},"southPole":{"type":"vertex","dir":[-0.9341723589627157,0.3568220897730899,0]}},
-		generatePreset(17 / 11, 'US Tabloid (11×17 in)'),
-		generatePreset(257 / 182, 'B5 JIS (182×257 mm)'),
-	].filter(Boolean);
+		{label:"US Tabloid (11×17 in)",aspect:1.5454545454545454,parents:[4,4,0,1,-1,2,0,2,0,1,0,1],tabs:{},mirrored:false,angle:-0.5846852994181004},
+		{label:"B5 JIS (182×257 mm)",aspect:1.4120879120879122,parents:[4,4,0,1,-1,8,1,2,0,1,2,1],tabs:{},mirrored:false,angle:-0.7330382858376185},
+	];
 	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
 
 	return {
@@ -1897,25 +1531,11 @@ GEOMETRIES.rhombic12 = (function() {
 	const vertexEdges = Array.from({ length: 6 }, () => []);
 	octaEdges.forEach(([a, b], ei) => { vertexEdges[a].push(ei); vertexEdges[b].push(ei); });
 
-	function cyclicOrderEdges(vIdx, edgeList) {
-		const N = octaVerts[vIdx];
-		let up = [0, 1, 0];
-		if (Math.abs(dot3(N, up)) > 0.9) up = [1, 0, 0];
-		const T1 = norm3(cross3(N, up));
-		const T2 = cross3(N, T1);
-		const withAngle = edgeList.map(ei => {
-			const [a, b] = octaEdges[ei];
-			const other = a === vIdx ? b : a;
-			const d = sub3(octaVerts[other], scale3(N, dot3(octaVerts[other], N)));
-			return { ei, angle: Math.atan2(dot3(d, T2), dot3(d, T1)) };
-		});
-		withAngle.sort((a, b) => a.angle - b.angle);
-		return withAngle.map(x => x.ei);
-	}
+	const _cyclicOrderEdges = (vIdx, edgeList) => cyclicOrderEdges(octaVerts, octaEdges, vIdx, edgeList);
 
 	const adj = Array.from({ length: N_FACES }, () => []);
 	for (let v = 0; v < 6; v++) {
-		const ring = cyclicOrderEdges(v, vertexEdges[v]);
+		const ring = _cyclicOrderEdges(v, vertexEdges[v]);
 		for (let k = 0; k < ring.length; k++) {
 			const ei = ring[k], ej = ring[(k + 1) % ring.length];
 			if (!adj[ei].includes(ej)) adj[ei].push(ej);
@@ -1935,92 +1555,19 @@ GEOMETRIES.rhombic12 = (function() {
 		return Math.floor(rel / (Math.PI / 2)) % 4;
 	}
 
-	function _ghostPlace(i, j, res, mirrored) {
-		const ki = edgeIdx(i, j), kj = edgeIdx(j, i);
-		const s = mirrored ? -1 : 1;
-		const r2 = res[i].r + s * edgeDirAngles[ki] - s * edgeDirAngles[kj] + Math.PI;
-		const qi = mirrored ? ki : (ki + 1) % 4;
-		const cr1 = Math.cos(res[i].r * s), sr1 = Math.sin(res[i].r * s);
-		const Qx = res[i].x + (rhombVtx[qi][0] * cr1 - rhombVtx[qi][1] * sr1) * s;
-		const Qy = res[i].y + rhombVtx[qi][0] * sr1 + rhombVtx[qi][1] * cr1;
-		const cr2 = Math.cos(r2 * s), sr2 = Math.sin(r2 * s);
-		const vjx = mirrored ? (rhombVtx[(kj + 1) % 4][0] * cr2 - rhombVtx[(kj + 1) % 4][1] * sr2) * s : rhombVtx[kj][0] * cr2 - rhombVtx[kj][1] * sr2;
-		const vjy = mirrored ? rhombVtx[(kj + 1) % 4][0] * sr2 + rhombVtx[(kj + 1) % 4][1] * cr2 : rhombVtx[kj][0] * sr2 + rhombVtx[kj][1] * cr2;
-		return { x: Qx - vjx, y: Qy - vjy, r: r2 };
-	}
+	const _ghostPlace = (i, j, res, mirrored) =>
+		irregularGhostPlace(rhombVtx, 4, edgeDirAngles, edgeIdx, i, j, res, mirrored);
+	const _collisionCheck = (j, px, py, pr, placed, res) =>
+		irregularCollisionCheck(N_FACES, INRADIUS, RD_B, RD_A, placed, res, j, px, py);
 
-	function _collisionCheck(j, px, py, pr, placed, res) {
-		for (let k = 0; k < N_FACES; k++) {
-			if (!placed[k]) continue;
-			const dx = px - res[k].x, dy = py - res[k].y;
-			const d = Math.sqrt(dx * dx + dy * dy);
-			if (d < INRADIUS * 1.7) {
-				const crk = Math.cos(-res[k].r), srk = Math.sin(-res[k].r);
-				const lx = dx * crk - dy * srk, ly = dx * srk + dy * crk;
-				if (Math.abs(lx) / RD_B + Math.abs(ly) / RD_A < 1.7) return true;
-			}
-		}
-		return false;
-	}
-
-	function generatePreset(aspect, label) {
-		let best = null, bestScore = Infinity;
-		for (const s of Array.from({ length: N_FACES }, (_, i) => i)) {
-			const placed = new Array(N_FACES).fill(false);
-			const parent = new Array(N_FACES).fill(-1);
-			const res = new Array(N_FACES);
-			res[s] = { x: 0, y: 0, r: Math.PI / 2 };
-			placed[s] = true;
-			let count = 1, changed = true;
-			while (changed) {
-				changed = false;
-				for (let j = 0; j < N_FACES; j++) {
-					if (placed[j]) continue;
-					for (const i of adj[j]) {
-						if (!placed[i]) continue;
-						const pos = _ghostPlace(i, j, res, false);
-						if (!_collisionCheck(j, pos.x, pos.y, pos.r, placed, res)) {
-							res[j] = pos; placed[j] = true; parent[j] = i; count++; changed = true; break;
-						}
-					}
-				}
-			}
-			let bestA = 0, bestAr = Infinity;
-			for (let deg = 0; deg < 180; deg += 2) {
-				const rad = deg * Math.PI / 180;
-				const cs = Math.cos(rad), sn = Math.sin(rad);
-				let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
-				for (let ii = 0; ii < N_FACES; ii++) {
-					if (!placed[ii]) continue;
-					for (const [lx, ly] of rhombVtx) {
-						const gx = res[ii].x + lx * Math.cos(res[ii].r) - ly * Math.sin(res[ii].r);
-						const gy = res[ii].y + lx * Math.sin(res[ii].r) + ly * Math.cos(res[ii].r);
-						const rx = gx * cs - gy * sn;
-						const ry = gx * sn + gy * cs;
-						mnX = Math.min(mnX, rx); mxX = Math.max(mxX, rx);
-						mnY = Math.min(mnY, ry); mxY = Math.max(mxY, ry);
-					}
-				}
-				const w = mxX - mnX, h = mxY - mnY;
-				const sc = Math.min(aspect / w, 1 / h);
-				const ar = aspect / (sc * sc);
-				if (ar < bestAr) { bestAr = ar; bestA = rad; }
-			}
-			const penalty = (N_FACES - count) * 100;
-			const score = bestAr + penalty;
-			if (score < bestScore) { bestScore = score; best = { parents: parent.slice(), angle: bestA, count }; }
-		}
-		if (!best) return null;
-		return { label, aspect, parents: best.parents, tabs: {}, mirrored: false, angle: best.angle };
-	}
 
 	const presets = [
-		generatePreset(Math.SQRT2, 'DIN A (1:√2)'),
-		generatePreset(11 / 8.5, 'US Letter (8.5×11 in)'),
-		generatePreset(14 / 8.5, 'US Legal (8.5×14 in)'),
-		generatePreset(17 / 11, 'US Tabloid (11×17 in)'),
-		generatePreset(257 / 182, 'B5 JIS (182×257 mm)'),
-	].filter(Boolean);
+		{label:"DIN A (1:√2)",aspect:1.4142135623730951,parents:[2,10,1,1,6,10,5,5,6,7,-1,1],tabs:{},mirrored:false,angle:0},
+		{label:"US Letter (8.5×11 in)",aspect:1.2941176470588236,parents:[2,10,1,1,6,10,5,5,6,7,-1,1],tabs:{},mirrored:false,angle:0.11344640137963143},
+		{label:"US Legal (8.5×14 in)",aspect:1.6470588235294117,parents:[9,11,0,1,7,7,4,-1,4,4,5,5],tabs:{},mirrored:false,angle:0.17453292519943295},
+		{label:"US Tabloid (11×17 in)",aspect:1.5454545454545454,parents:[9,11,0,1,7,7,4,-1,4,4,5,5],tabs:{},mirrored:false,angle:0.061086523819801536},
+		{label:"B5 JIS (182×257 mm)",aspect:1.4120879120879122,parents:[2,10,1,1,6,10,5,5,6,7,-1,1],tabs:{},mirrored:false,angle:-0.02617993877991509},
+	];
 	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
 
 	return {
@@ -2139,60 +1686,14 @@ GEOMETRIES.icosahedron20 = (function() {
 	function apothem() { return ap3; }
 	function circumR() { return cr3; }
 
-	function generatePreset(aspect, label) {
-		let best = null, bestScore = Infinity;
-		for (let s = 0; s < N_FACES; s++) {
-			const placed = new Array(N_FACES).fill(false);
-			const parent = new Array(N_FACES).fill(-1);
-			const res = new Array(N_FACES);
-			res[s] = { x: 0, y: 0, r: 0 };
-			placed[s] = true;
-			let count = 1, changed = true;
-			while (changed) {
-				changed = false;
-				for (let j = 0; j < N_FACES; j++) {
-					if (placed[j]) continue;
-					for (const i of adj[j]) {
-						if (!placed[i]) continue;
-						const pos = regularGhostPlace(nSides, apothem, edgeIdx, i, j, res, false);
-						if (!regularCollisionCheck(N_FACES, apothem, placed, res, j, pos.x, pos.y)) {
-							res[j] = pos; placed[j] = true; parent[j] = i; count++; changed = true; break;
-						}
-					}
-				}
-			}
-			let bestA = 0, bestAr = Infinity;
-			for (let deg = 0; deg < 180; deg += 2) {
-				const rad = deg * Math.PI / 180;
-				const cs = Math.cos(rad), sn = Math.sin(rad);
-				let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
-				for (let ii = 0; ii < N_FACES; ii++) {
-					if (!placed[ii]) continue;
-					const rx = res[ii].x * cs - res[ii].y * sn;
-					const ry = res[ii].x * sn + res[ii].y * cs;
-					mnX = Math.min(mnX, rx - cr3); mxX = Math.max(mxX, rx + cr3);
-					mnY = Math.min(mnY, ry - cr3); mxY = Math.max(mxY, ry + cr3);
-				}
-				const w = mxX - mnX, h = mxY - mnY;
-				const sc = Math.min(aspect / w, 1 / h);
-				const ar = aspect / (sc * sc);
-				if (ar < bestAr) { bestAr = ar; bestA = rad; }
-			}
-			const penalty = (N_FACES - count) * 100;
-			const score = bestAr + penalty;
-			if (score < bestScore) { bestScore = score; best = { parents: parent.slice(), angle: bestA, count }; }
-		}
-		if (!best) return null;
-		return { label, aspect, parents: best.parents, tabs: {}, mirrored: false, angle: best.angle };
-	}
 
 	const presets = [
-		{"label":"DIN A (1:√2)","parents":[1,4,3,16,3,9,1,6,13,8,6,14,11,15,15,-1,13,4,16,15],"tabs":{"7-11":11},"mirrored":false,"angle":-0.8552113334772211,"aspect":1.4142857142857144,"lonOffset":2.5132741228718345,"northPole":{"type":"vertex","dir":[-0.85065080835204,2.794228342850189e-17,-0.5257311121191336]},"southPole":{"type":"vertex","dir":[0.85065080835204,1.3971141714250944e-17,0.5257311121191336]}},
+		{"label":"DIN A (1:√2)","parents":[1,4,3,16,3,9,1,6,13,8,6,14,11,15,15,-1,13,4,16,15],"tabs":{"7-11":11},"mirrored":false,"angle":-0.8552113334772216,"aspect":1.4142857142857144,"lonOffset":2.5132741228718345,"northPole":{"type":"vertex","dir":[-0.85065080835204,2.794228342850189e-17,-0.5257311121191336]},"southPole":{"type":"vertex","dir":[0.85065080835204,1.3971141714250944e-17,0.5257311121191336]}},
 		{"label":"US Letter (8.5×11 in)","parents":[1,4,3,16,3,7,1,6,2,8,6,7,10,16,11,13,-1,4,16,15],"tabs":{},"mirrored":false,"angle":1.1868238913561442,"aspect":1.2941176470588234,"northPole":{"type":"vertex","dir":[-0.85065080835204,2.794228342850189e-17,-0.5257311121191336]},"southPole":{"type":"vertex","dir":[0.85065080835204,1.3971141714250944e-17,0.5257311121191336]}},
 		{"label":"US Legal (8.5×14 in)","parents":[1,4,0,4,17,0,1,5,9,14,12,12,-1,15,11,14,13,10,17,12],"tabs":{"2-8":8,"5-9":9,"5-7":7},"mirrored":false,"angle":-1.0471975511965979,"aspect":1.647058823529412,"northPole":{"type":"vertex","dir":[-0.5257311121191336,-0.85065080835204,0]},"southPole":{"type":"vertex","dir":[0.5257311121191336,0.8506508083520399,2.794228342850189e-17]}},
 		{"label":"US Tabloid (11×17 in)","parents":[1,4,0,4,17,0,10,6,9,14,12,12,-1,15,11,14,13,10,17,12],"tabs":{"2-8":8,"5-9":9},"mirrored":false,"angle":-1.0471975511965979,"aspect":1.5454545454545456,"northPole":{"type":"vertex","dir":[-0.5257311121191336,-0.85065080835204,0]},"southPole":{"type":"vertex","dir":[0.5257311121191336,0.8506508083520399,2.794228342850189e-17]}},
 		{"label":"B5 JIS (182×257 mm)","parents":[1,4,3,16,3,0,1,5,13,8,17,14,11,15,15,-1,13,4,16,15],"tabs":{"5-9":9},"mirrored":false,"angle":-0.7679448708775047,"aspect":1.4120879120879122,"northPole":{"type":"vertex","dir":[-0.85065080835204,2.794228342850189e-17,-0.5257311121191336]},"southPole":{"type":"vertex","dir":[0.85065080835204,1.3971141714250944e-17,0.5257311121191336]}},
-	].filter(Boolean);
+	];
 	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
 
 	return {

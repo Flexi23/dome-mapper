@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-04-22
+
+### Changed
+- **`foldable-geometries.js` consolidated** — 9 auto-baking `generatePreset(aspect, label)` closures and 15 dynamic call sites replaced with literal preset objects. For each format the bake compared an auto-generated greedy BFS layout against the geometry's DIN A parent tree re-optimized for the new aspect, keeping whichever scored better; DIN A parents won 12 of 15 comparisons.
+- **Redundant helpers unified** — 5 near-duplicate `_ghostPlace` / `_collisionCheck` closures and 2 identical `cyclicOrderEdges` closures replaced with one-line delegations to three new module-scope helpers: `irregularGhostPlace`, `irregularCollisionCheck`, and a generalized `cyclicOrderEdges(verts, edges, vIdx, edgeList)`. Dead `.filter(Boolean)` guards on preset arrays dropped. Net: −15 KB, −500 LOC.
+- **`index.html` loads `foldable-geometries.js` directly** — removed the stale `geometry-presets.js` fork (its preset data lived in `foldable-geometries.js` already).
+- **DIN A preset angles re-optimized** — every geometry's DIN A `angle` re-fit using the same tab-aware bounding-box score the layouter reports. The deltoidal-60 DIN A preset had been stuck at 92° and scored 34.9 % fill; the new 78.5° angle raises it to 54.5 % (parents and tabs unchanged). Four other presets improved marginally (0.1–0.8 percentage points).
+
+
 ## [0.26.0] - 2026-04-19
 
 ### Added
