@@ -1741,7 +1741,13 @@ function switchGeometry(geoId) {
 	}
 }
 
-geoSelect.addEventListener('change', () => switchGeometry(geoSelect.value));
+geoSelect.addEventListener('change', () => {
+	switchGeometry(geoSelect.value);
+	const url = new URL(window.location.href);
+	url.searchParams.set('geo', geoSelect.value);
+	url.searchParams.delete('preset');
+	history.replaceState(history.state, '', url);
+});
 presetSelect.addEventListener('change', computeLayout);
 
 paperFmt.addEventListener('change', () => {
