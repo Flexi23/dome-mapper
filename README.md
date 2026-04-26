@@ -253,7 +253,7 @@ Non-quaternion attributes (FOV, zoom, stereographic coefficients, etc.) use a st
 
 ### Polyhedron projection modes (10 geometries × preview + foldable)
 
-| Geometry | Preview | Foldable | Faces |
+|  | Geometry | Foldable | Faces |
 |---|---|---|---|
 | **Dodecahedron-12** | regular dodecahedron | 12 regular pentagons | 12 |
 | **Rhombic-12** | rhombic dodecahedron | 12 congruent rhombi (70.53°/109.47°) | 12 |
