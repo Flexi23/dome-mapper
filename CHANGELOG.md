@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.2] - 2026-04-26
+
+### Performance
+- **Async shader compilation** — main program link uses `KHR_parallel_shader_compile` with `requestAnimationFrame`-polled `COMPLETION_STATUS_KHR`, deferring the rest of app init (`startApp()`) until the driver finishes. Total cold startup measured 1699 ms → 307 ms (5.5× speedup); the previously blocking ~1.4 s shader compile now runs in parallel with geometry init and texture loading on a worker thread.
+
+### Changed
+- **Page-fill presets re-tuned** — eight `foldable-geometries.js` presets updated against the tab-aware bounding-box scorer: rhombic-12 (US Legal, US Tabloid, B5), icosahedron-20 (B5), truncoct-14 (US Legal), deltoidal-60 (US Legal), pentagonal-24 (US Letter). Worst-case fill ratio for the historically tightest combos lifted by 5–7 percentage points.
+
+### Fixed
+- **README references to deleted legacy layouters** — removed stale `buckyball-net-layouter.html` and `rhombic-30-net-layouter.html` entries in the Project Structure block and dropped the three sections describing them (the unified `net-layouter.html` superseded them in v0.23). Corrected the SVG Cutline export note to reflect that all 10 foldable modes are supported (was: only 3).
+
 ## [0.26.1] - 2026-04-22
 
 ### Changed

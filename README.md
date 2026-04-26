@@ -582,7 +582,7 @@ The export button renders the current view at high resolution and downloads the 
 |---|---|
 | **PNG** | Standard lossless image; default for all projections |
 | **CMYK TIFF** | Uncompressed TIFF with `PhotometricInterpretation = CMYK`, `SamplesPerPixel = 4`, and configurable DPI resolution metadata; suitable for professional print workflows (ISO 12647-2:2013) |
-| **SVG Cutline** | Vector SVG of the foldable net's physical cut lines; available only in foldable projection modes (buckyball-32, rhombic-30, truncoct-14); includes face boundary edges, glue tab outlines, and an evenodd clip path |
+| **SVG Cutline** | Vector SVG of the foldable net's physical cut lines; available in all 10 foldable projection modes; includes face boundary edges, glue tab outlines, and an evenodd clip path |
 | **PDF (CMYK + Cutline)** | Combined CMYK raster image and vector cutline overlay in a single PDF/X-compatible file; FlateDecode-compressed; available only in foldable projection modes; optional ICC profile embedding; configurable paper size (A0–A4 or fit-to-content) and non-printable margin |
 
 ### DPI Setting
@@ -689,8 +689,6 @@ dome-mapper/
 ├── index.html                       # Self-contained viewer (HTML + GLSL + JS)
 ├── net-layouter.html                # Unified net layout editor for all polyhedra
 ├── foldable-geometries.js           # Shared polyhedron definitions (vertices, adjacency, presets)
-├── buckyball-net-layouter.html      # Legacy net layout editor for the truncated icosahedron
-├── rhombic-30-net-layouter.html     # Legacy net layout editor for the rhombic triacontahedron
 ├── CHANGELOG.md                     # Version history
 └── README.md                        # This file
 ```
@@ -727,46 +725,6 @@ A standalone HTML tool (`net-layouter.html`) backed by a shared geometry definit
 - **Marker mode switching** — clicking any pole or 0° marker during an active edit mode switches directly to that marker's editing mode
 - **Paper-format-driven preset selection** — switching paper format automatically loads the matching hand-tuned preset
 - **Configurable paper margins** — adjustable margin slider affects effective aspect ratio and paper outline
-
-### Legacy Net Layouters
-
-The original per-polyhedron layouters (`buckyball-net-layouter.html`, `rhombic-30-net-layouter.html`) remain for reference but are superseded by the unified layouter.
-
-### Buckyball Net Layouter
-
-A standalone single-file HTML tool (`buckyball-net-layouter.html`) for interactively optimizing the flat net layout of the truncated icosahedron used by the Buckyball-32 Foldable projection mode.
-
-**Features:**
-- **Interactive reparenting** — click any face to reassign its parent in the unfolding tree; the net recomputes instantly
-- **Glue tab placement mode** — toggle mode where clicking a cut-edge flap swaps tab ownership between adjacent faces; owned tabs appear as solid pink, non-owned as faint ghosts
-- **Tab-aware rotation optimization** — auto-rotation accounts for actual tab geometry (owned flap trapezoids) when computing the bounding box and page fill score
-- **Paper format presets** — predefined optimized layouts (including tab assignments) for DIN A, Letter, Legal, Tabloid, and B5 JIS paper aspect ratios
-- **Flip H / V** — mirror the net layout horizontally or vertically
-- **Tree visualization** — displays the parent tree as a miniature graph; hover to preview subtree reparenting
-- **Ghost polygon preview** — shows where a face would land before committing a reparent
-- **Tooltip fill preview** — hovering a face or flap shows projected page fill with a colored +/− delta
-- **Undo / Redo** — browser history-based undo/redo for all layout and tab ownership changes
-- **Copy / Paste** — exports `{ parents, tabs }` JSON to clipboard; paste accepts the new format, plain arrays, and legacy formats
-
-The tool uses Canvas 2D rendering (no WebGL) and operates entirely on the 2D net geometry — no panorama texture is involved. Optimized parent trees from this tool can be pasted into the main viewer's foldable mode.
-
-### Rhombic-30 Net Layouter
-
-A standalone single-file HTML tool (`rhombic-30-net-layouter.html`) for interactively optimizing the flat net layout of the rhombic triacontahedron used by the Rhombic-30 Foldable projection mode.
-
-**Features:**
-- **Interactive reparenting** — click any face to reassign its parent in the unfolding tree; the net recomputes instantly
-- **Glue tab placement mode** — toggle mode where clicking a cut-edge flap swaps tab ownership; asymmetric acute/obtuse insets match the golden rhombus geometry
-- **Tab-aware rotation optimization** — auto-rotation uses actual tab geometry with L1 norm overlap probing for flap direction
-- **Paper format presets** — predefined optimized layouts for DIN A, US Letter, US Legal, US Tabloid, and B5 JIS paper aspect ratios
-- **Flip H / V** — mirror the net layout horizontally or vertically
-- **Tree visualization** — displays the parent tree as a miniature graph; hover to preview subtree reparenting
-- **Ghost polygon preview** — shows where a face would land before committing a reparent
-- **Tooltip fill preview** — hovering a face or flap shows projected page fill with a colored +/− delta
-- **Undo / Redo** — browser history-based undo/redo for all layout and tab ownership changes
-- **Copy / Paste** — exports `{ parents, tabs, mirrored, angle, aspect }` JSON to clipboard; paste into the main viewer's rhombic layout selector
-
-The tool uses Canvas 2D rendering and the same adjacency/geometry as the main viewer's rhombic-30 foldable mode. Optimized layouts are transferred via clipboard paste or the layout select dropdown in the viewer.
 
 ---
 

@@ -4785,10 +4785,32 @@ void main() {
 		gl.attachShader(program, vs);
 		gl.attachShader(program, fs);
 		gl.linkProgram(program);
-		if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-			console.error(gl.getProgramInfoLog(program));
+		// Async link with KHR_parallel_shader_compile: linkProgram itself is
+		// non-blocking; the next call that touches the program (useProgram /
+		// getUniformLocation / draw) blocks until the driver finishes
+		// compiling. We poll COMPLETION_STATUS_KHR via rAF so the main thread
+		// stays responsive during the (often >1s) compile.
+		const parallelExt = gl.getExtension('KHR_parallel_shader_compile');
+		function whenProgramReady(cb) {
+			if (!parallelExt) { cb(); return; }
+			const tick = () => {
+				if (gl.getProgramParameter(program, parallelExt.COMPLETION_STATUS_KHR)) {
+					cb();
+				} else {
+					requestAnimationFrame(tick);
+				}
+			};
+			requestAnimationFrame(tick);
 		}
-		gl.useProgram(program);
+		whenProgramReady(function () {
+			if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+				console.error(gl.getProgramInfoLog(program));
+			}
+			gl.useProgram(program);
+			startApp();
+		});
+
+		function startApp() {
 
 		// Full-screen quad
 		const quad = gl.createBuffer();
@@ -15726,6 +15748,7 @@ void main() {
 			gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 		}
 		frame();
+		} // end startApp
 	</script>
 </body>
 
