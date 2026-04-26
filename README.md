@@ -529,27 +529,30 @@ The cut line is rendered to a separate offscreen canvas (same resolution as the 
 
 #### Data Flow Summary
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  JavaScript (runs once at init)                             │
-│                                                             │
-│  1. Build adjacency graph (32 faces, angular threshold)     │
-│  2. BFS unfolding → flat net positions + rotations          │
-│  3. Optimize layout rotation for minimal bounding box       │
-│  4. Compute tangent frame offsets from true TI vertices      │
-│  5. Upload uniform vec4 buckyNet[32] to GPU                 │
-│  6. Render 2D overlay (edges, tabs, labels) → texture       │
-└─────────────────────────────────────────────────────────────┘
-                         ↓
-┌─────────────────────────────────────────────────────────────┐
-│  Fragment Shader (runs per pixel, every frame)              │
-│                                                             │
-│  1. For each of 32 polygons: point-in-polygon test          │
-│  2. Winner: reconstruct 3D direction via gnomonic proj.     │
-│  3. Apply camera rotation (viewMatrix · buckyPreRot)        │
-│  4. Convert to equirectangular UV → sample panorama         │
-│  5. Composite 2D overlay (edges + tabs) on top              │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph JS["JavaScript &mdash; runs once at init"]
+        direction TB
+        J1["Build adjacency graph<br/>(32 faces, angular threshold)"]
+        J2["BFS unfolding<br/>flat net positions + rotations"]
+        J3["Optimize layout rotation<br/>for minimal bounding box"]
+        J4["Compute tangent frame offsets<br/>from true TI vertices"]
+        J5["Upload uniform<br/>vec4 buckyNet[32] to GPU"]
+        J6["Render 2D overlay<br/>(edges, tabs, labels) &rarr; texture"]
+        J1 --> J2 --> J3 --> J4 --> J5 --> J6
+    end
+
+    subgraph FS["Fragment Shader &mdash; runs per pixel, every frame"]
+        direction TB
+        F1["For each of 32 polygons:<br/>point-in-polygon test"]
+        F2["Winner: reconstruct 3D direction<br/>via gnomonic projection"]
+        F3["Apply camera rotation<br/>(viewMatrix &middot; buckyPreRot)"]
+        F4["Convert to equirectangular UV<br/>&rarr; sample panorama"]
+        F5["Composite 2D overlay<br/>(edges + tabs) on top"]
+        F1 --> F2 --> F3 --> F4 --> F5
+    end
+
+    JS --> FS
 ```
 
 ---
@@ -742,16 +745,16 @@ A standalone HTML tool (`net-layouter.html`) backed by a shared geometry definit
 
 | Geometry | Faces | Face shape | Dual of |
 |---|---|---|---|
+| **Dodecahedron-12** | 12 | congruent regular pentagons | icosahedron |
 | **Rhombic-12** | 12 | congruent rhombi (70.53°/109.47°) | cuboctahedron |
 | **Truncoct-14** | 14 | 8 hexagons + 6 squares | — (truncated octahedron) |
+| **Icosahedron-20** | 20 | congruent equilateral triangles | regular dodecahedron |
+| **Pentagonal-24** | 24 | congruent irregular pentagons (4×114.8° + 1×80.8°) | snub cube |
 | **Rhombic-30** | 30 | congruent golden rhombi | icosahedron |
 | **Buckyball-32** | 32 | 20 hexagons + 12 pentagons | — (truncated icosahedron) |
-| **Dodecahedron-12** | 12 | congruent regular pentagons | icosahedron |
-| **Icosahedron-20** | 20 | congruent equilateral triangles | regular dodecahedron |
 | **Deltoidal-60** | 60 | congruent kites | rhombicosidodecahedron |
 | **Pentahex-60** | 60 | congruent irregular pentagons | snub dodecahedron |
 | **Rhombicosi-62** | 62 | 20 triangles + 30 squares + 12 pentagons | — (rhombicosidodecahedron) |
-| **Pentagonal-24** | 24 | congruent irregular pentagons (4×114.8° + 1×80.8°) | snub cube |
 
 **Features:**
 - **Interactive reparenting** — click any face to reassign its parent in the unfolding tree; the net recomputes instantly
