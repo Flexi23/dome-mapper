@@ -255,16 +255,16 @@ Non-quaternion attributes (FOV, zoom, stereographic coefficients, etc.) use a st
 
 | Geometry | Preview | Foldable | Faces |
 |---|---|---|---|
-| **Dodecahedron-12** | SDF-raymarched regular dodecahedron | Flat net of 12 regular pentagons | 12 |
-| **Rhombic-12** | SDF-raymarched rhombic dodecahedron | Flat net of 12 congruent rhombi (70.53°/109.47°) | 12 |
-| **Truncoct-14** | SDF-raymarched truncated octahedron | Flat net of 8 hexagons + 6 squares | 14 |
-| **Icosahedron-20** | SDF-raymarched regular icosahedron | Flat net of 20 equilateral triangles | 20 |
-| **Pentagonal-24** | SDF-raymarched pentagonal icositetrahedron | Flat net of 24 congruent irregular pentagons (4×114.8° + 1×80.8°) | 24 |
-| **Rhombic-30** | SDF-raymarched rhombic triacontahedron | Flat net of 30 golden rhombi | 30 |
-| **Buckyball-32** | SDF-raymarched truncated icosahedron | Flat net of 12 pentagons + 20 hexagons | 32 |
-| **Deltoidal-60** | SDF-raymarched deltoidal hexecontahedron | Flat net of 60 congruent kites | 60 |
-| **Pentahex-60** | SDF-raymarched pentagonal hexecontahedron | Flat net of 60 congruent irregular pentagons | 60 |
-| **Rhombicosi-62** | SDF-raymarched rhombicosidodecahedron | Flat net of 20 triangles + 30 squares + 12 pentagons | 62 |
+| **Dodecahedron-12** | regular dodecahedron | 12 regular pentagons | 12 |
+| **Rhombic-12** | rhombic dodecahedron | 12 congruent rhombi (70.53°/109.47°) | 12 |
+| **Truncoct-14** | truncated octahedron | 8 hexagons + 6 squares | 14 |
+| **Icosahedron-20** | regular icosahedron | 20 equilateral triangles | 20 |
+| **Pentagonal-24** | pentagonal icositetrahedron | 24 congruent irregular pentagons (4×114.8° + 1×80.8°) | 24 |
+| **Rhombic-30** | rhombic triacontahedron | 30 golden rhombi | 30 |
+| **Buckyball-32** | truncated icosahedron | 12 pentagons + 20 hexagons | 32 |
+| **Deltoidal-60** | deltoidal hexecontahedron | 60 congruent kites | 60 |
+| **Pentahex-60** | pentagonal hexecontahedron | 60 congruent irregular pentagons | 60 |
+| **Rhombicosi-62** | rhombicosidodecahedron | 20 triangles + 30 squares + 12 pentagons | 62 |
 
 All preview modes: SDF sphere-tracing with Blinn-Phong lighting, bevelled edges, real-time rotation via Y/P/R face sliders. All foldable modes: gnomonic back-projection per face, BFS-unfolded 2D net with canvas overlay (edges, glue tabs), paper format presets, in-shader paper outline, cut line overlay, SVG/PDF export.
 
