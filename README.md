@@ -16,6 +16,49 @@ A single-file browser app that loads equirectangular images and videos and rende
 
 ---
 
+## Contents
+
+- [How It Works](#how-it-works)
+- [Usage](#usage)
+- [Controls](#controls)
+  - [Mouse / Touch](#mouse--touch)
+  - [Keyboard](#keyboard)
+  - [UI Panels](#ui-panels)
+  - [Y / P / R Sliders](#y--p--r-sliders)
+- [Animation Editor](#animation-editor)
+  - [Data Model](#data-model)
+  - [Keyframe Attributes](#keyframe-attributes)
+  - [Timeline Interactions](#timeline-interactions)
+  - [Pin Visual States](#pin-visual-states)
+  - [Playback](#playback)
+  - [Duration Scaling](#duration-scaling)
+  - [Architecture](#architecture)
+  - [SQUAD Quaternion Spline — Technical Deep Dive](#squad-quaternion-spline--technical-deep-dive)
+- [Projection Modes](#projection-modes)
+  - [Base projections](#base-projections)
+  - [Polyhedron projection modes](#polyhedron-projection-modes-10-geometries--preview--foldable)
+  - [Polyhedron Preview Modes — Technical Deep Dive](#polyhedron-preview-modes--technical-deep-dive)
+  - [Stereographic Projection — Technical Deep Dive](#stereographic-projection--technical-deep-dive)
+  - [Foldable Buckyball-32 Projection — Technical Deep Dive](#foldable-buckyball-32-projection--technical-deep-dive)
+  - [Foldable Rhombic-30 Projection — Technical Deep Dive](#foldable-rhombic-30-projection--technical-deep-dive)
+- [Export](#export)
+  - [DPI Setting](#dpi-setting)
+  - [ICC Profiles](#icc-profiles)
+  - [SVG Cutline Export](#svg-cutline-export)
+  - [Pixel-Perfect Foldable Drag](#pixel-perfect-foldable-drag)
+  - [PDF Export](#pdf-export)
+- [Features](#features)
+- [Project Structure](#project-structure)
+  - [Unified Net Layouter](#unified-net-layouter)
+- [Technical Notes](#technical-notes)
+  - [Texture Caching (IndexedDB)](#texture-caching-indexeddb)
+- [Roadmap](#roadmap)
+  - [Technical Roadmap Notes](#technical-roadmap-notes)
+- [Acknowledgements](#acknowledgements)
+- [License](#license)
+
+---
+
 ## How It Works
 
 For each screen pixel the fragment shader:
