@@ -537,7 +537,7 @@ flowchart TB
         J2["BFS unfolding<br/>flat net positions + rotations"]
         J3["Optimize layout rotation<br/>for minimal bounding box"]
         J4["Compute tangent frame offsets<br/>from true TI vertices"]
-        J5["Upload uniform<br/>vec4 buckyNet[32] to GPU"]
+        J5["Upload uniform<br/>vec4 foldableNet[62] to GPU"]
         J6["Render 2D overlay<br/>(edges, tabs, labels) &rarr; texture"]
         J1 --> J2 --> J3 --> J4 --> J5 --> J6
     end
@@ -546,7 +546,7 @@ flowchart TB
         direction TB
         F1["For each of 32 polygons:<br/>point-in-polygon test"]
         F2["Winner: reconstruct 3D direction<br/>via gnomonic projection"]
-        F3["Apply camera rotation<br/>(viewMatrix &middot; buckyPreRot)"]
+        F3["Apply camera rotation<br/>(viewMatrix &middot; foldablePreRot)"]
         F4["Convert to equirectangular UV<br/>&rarr; sample panorama"]
         F5["Composite 2D overlay<br/>(edges + tabs) on top"]
         F1 --> F2 --> F3 --> F4 --> F5
