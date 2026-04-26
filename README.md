@@ -159,7 +159,7 @@ Each keyframe stores a **full projection state snapshot** — all parameters fro
 | Category | Properties | Interpolation |
 |---|---|---|
 | Camera orientation | `quat` [x, y, z, w] | **SQUAD** — C¹-smooth spherical spline (Catmull-Rom tangents via `squadInner`, hemisphere-consistent) |
-| Numeric | `fovDeg`, `pixelate`, `collageRotationDeg`, `collageFlip`, `azimuthalZoom`, `stereoD`, `stereoA0`–`stereoA3`, `globeSize`, `globeOpacity`, `globeReflect`, `buckyOverlayAlpha` | Catmull-Rom spline |
+| Numeric | `fovDeg`, `pixelate`, `collageRotationDeg`, `collageFlip`, `azimuthalZoom`, `stereoD`, `stereoA0`–`stereoA3`, `globeSize`, `globeOpacity`, `globeReflect`, `foldableOverlayAlpha` | Catmull-Rom spline |
 | Boolean | `globeVisible` | Snap to keyframe A |
 
 ### Timeline Interactions
@@ -315,7 +315,7 @@ The ball is evaluated entirely in **view space** to ensure consistent rotation b
 | **Face ID** | The face with the maximum half-space value is the active face; second-maximum gives edge proximity |
 | **Bevel** | `smoothstep` blend of the two nearest face normals creates a subtle chamfer at edges |
 | **Texture** | View-space hit point → world direction via `viewMatrix` → equirectangular UV; matches foldable mode exactly via `camQuatOffset` baked into `worldRot` |
-| **Edge wireframe** | `smoothstep` on edge distance, modulated by `buckyOverlayAlpha` (Net slider) |
+| **Edge wireframe** | `smoothstep` on edge distance, modulated by `foldableOverlayAlpha` (Net slider) |
 | **Lighting** | Key light at `(0.4, 0.9, 0.7)` in view space; diffuse + ambient, Blinn-Phong specular (exponent 60), rim light |
 | **Background** | Perspective panorama behind the ball with projected edge wireframe (same Net slider) |
 
@@ -499,7 +499,7 @@ For each pixel inside a polygon in the 2D net, the shader reconstructs the corre
 2. **Face offset rotation**: `bestRP` is further rotated by the precomputed `faceOffset` to align with the 3D tangent frame.
 3. **Gnomonic mapping**: The 2D position is scaled from flat-polygon space to gnomonic (tangent-plane) space using the ratio `gnoCircumR / flatCircumR`, where `gnoCircumR = √(1 − rFace²)` is the gnomonic circumradius and `flatCircumR = 1/(2·sin(π/n))` is the flat polygon's circumradius.
 4. **Direction reconstruction**: `dir = normalize(rFace · N + gno.x · T₁ + gno.y · T₂)` — the face normal scaled by its distance plus the tangent-plane offset.
-5. **Camera rotation**: The direction is transformed by `viewMatrix · buckyPreRot` (a fixed Ry(180°)·Rx(45°)·Rz(−90°) pre-rotation for aesthetic default orientation).
+5. **Camera rotation**: The direction is transformed by `viewMatrix · foldablePreRot` (a fixed Ry(180°)·Rx(45°)·Rz(−90°) pre-rotation for aesthetic default orientation).
 6. **Texture lookup**: The rotated direction is converted to equirectangular UV via `dirToEquirect()` and the panorama is sampled.
 
 #### 2D Canvas Overlay
@@ -510,7 +510,7 @@ After the WebGL shader renders the textured polygons, a 2D canvas overlay is com
 - **Glue tabs**: Opaque trapezoidal flaps on boundary edges (edges not shared with a neighbor in the net). These are clipped against all polygon interiors using an even-odd winding rule, so tabs never overlap face content. Flaps always render at full opacity regardless of the Net overlay slider.
 - **Face labels**: (optional) Numeric identifiers per face for assembly guidance.
 
-The overlay is rendered to an offscreen 2048px-tall canvas, uploaded as a WebGL texture, and alpha-composited in the fragment shader using the bounding box `buckyBBox` for UV mapping.
+The overlay is rendered to an offscreen 2048px-tall canvas, uploaded as a WebGL texture, and alpha-composited in the fragment shader using the bounding box `foldableBBox` for UV mapping.
 
 #### Cut Line Overlay
 
@@ -598,11 +598,11 @@ float L1 = abs(rp.x) / ha + abs(rp.y) / hb;
 if (L1 < 1.0) { /* inside */ }
 ```
 
-where `ha` and `hb` are the long and short half-diagonals scaled by `1/buckyScale`.
+where `ha` and `hb` are the long and short half-diagonals scaled by `1/foldableScale`.
 
 #### Gnomonic Back-Projection
 
-Same principle as the buckyball: the 2D rhombus position is rotated by a `faceOffset` angle, scaled to gnomonic tangent-plane space (`buckyScale / (iA + iB)`), and projected back onto the unit sphere via `normalize(N + gno.x·T1 + gno.y·T2)`. The direction is then rotated by `viewMatrix · rhombicPreRot`.
+Same principle as the buckyball: the 2D rhombus position is rotated by a `faceOffset` angle, scaled to gnomonic tangent-plane space (`foldableScale / (iA + iB)`), and projected back onto the unit sphere via `normalize(N + gno.x·T1 + gno.y·T2)`. The direction is then rotated by `viewMatrix · rhombicPreRot`.
 
 #### Flap Generation
 
@@ -616,7 +616,7 @@ The 2D canvas overlay generates trapezoidal glue tabs on boundary edges with:
 
 All foldable modes render a **dashed green paper format rectangle** in the fragment shader. This outline shows the paper boundary at the selected aspect ratio, fitted tightly around the net's actual vertex + tab bounding box. Because it is drawn in the shader (not the canvas overlay), it is automatically excluded from PNG/TIFF exports.
 
-The paper rect is computed from the **tight bounding box** (`buckyTightBBox`) — iterating all polygon vertices and glue tab outer corners for exact bounds, rather than the approximate circumscribed-radius overlay bbox.
+The paper rect is computed from the **tight bounding box** (`foldableTightBBox`) — iterating all polygon vertices and glue tab outer corners for exact bounds, rather than the approximate circumscribed-radius overlay bbox.
 
 ---
 
