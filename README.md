@@ -36,7 +36,7 @@ A single-file browser app that loads equirectangular images and videos and rende
   - [SQUAD Quaternion Spline — Technical Deep Dive](#squad-quaternion-spline--technical-deep-dive)
 - [Projection Modes](#projection-modes)
   - [Base projections](#base-projections)
-  - [Polyhedron projection modes](#polyhedron-projection-modes-10-geometries--preview--foldable)
+  - [Polyhedron projection modes](#polyhedron-projection-modes-11-geometries--preview--foldable)
   - [Polyhedron Preview Modes — Technical Deep Dive](#polyhedron-preview-modes--technical-deep-dive)
   - [Stereographic Projection — Technical Deep Dive](#stereographic-projection--technical-deep-dive)
   - [Foldable Buckyball-32 Projection — Technical Deep Dive](#foldable-buckyball-32-projection--technical-deep-dive)
@@ -63,7 +63,7 @@ A single-file browser app that loads equirectangular images and videos and rende
 
 For each screen pixel the fragment shader:
 
-1. Computes a **ray direction** based on the active projection mode — one of 25: equirectangular, perspective, azimuthal equidistant, azimuthal collage, stereographic, plus 10 polyhedra (dodec-12, rhombic-12, truncoct-14, ico-20, pentagonal-24, rhombic-30, buckyball-32, deltoidal-60, pentahex-60, rhombicosi-62) each with a preview and foldable mode
+1. Computes a **ray direction** based on the active projection mode — one of 27: equirectangular, perspective, azimuthal equidistant, azimuthal collage, stereographic, plus 11 polyhedra (dodec-12, rhombic-12, truncoct-14, ico-20, pentagonal-24, rhombic-30, buckyball-32, deltoidal-60, pentahex-60, rhombicosi-62, deltoidal-24) each with a preview and foldable mode
 2. Applies a **quaternion-derived rotation matrix** (controlled by mouse or keyboard) to orient the ray
 3. Optionally applies **horizon leveling** via a second quaternion
 4. Converts the ray direction to **spherical coordinates** (θ, φ)
@@ -239,7 +239,7 @@ Non-quaternion attributes (FOV, zoom, stereographic coefficients, etc.) use a st
 
 ## Projection Modes
 
-> **25 projection modes** — cycle with the dropdown.
+> **27 projection modes** — cycle with the dropdown.
 
 ### Base projections
 
@@ -251,7 +251,7 @@ Non-quaternion attributes (FOV, zoom, stereographic coefficients, etc.) use a st
 | 3 | **Azimuthal Collage** | Two overlapping azimuthal equidistant discs side-by-side (front/back hemispheres) with rotation, overlap blend slider (0–1), zoom (1×–10×), and auto-fit scaling |
 | 4 | **Stereographic** | Generalised stereographic with Scaramuzza polynomial lens distortion; D parameter (D=2 conformal, D=1 gnomonic) and a¹–a⁴ coefficients |
 
-### Polyhedron projection modes (10 geometries × preview + foldable)
+### Polyhedron projection modes (11 geometries × preview + foldable)
 
 |  | Geometry | Foldable | Faces |
 |---|---|---|---|
@@ -260,6 +260,7 @@ Non-quaternion attributes (FOV, zoom, stereographic coefficients, etc.) use a st
 | **Truncoct-14** | truncated octahedron | 8 hexagons + 6 squares | 14 |
 | **Icosahedron-20** | regular icosahedron | 20 equilateral triangles | 20 |
 | **Pentagonal-24** | pentagonal icositetrahedron | 24 congruent irregular pentagons (4×114.8° + 1×80.8°) | 24 |
+| **Deltoidal-24** | deltoidal icositetrahedron | 24 congruent kites (3×81.6° + 1×115.3°) | 24 |
 | **Rhombic-30** | rhombic triacontahedron | 30 golden rhombi | 30 |
 | **Buckyball-32** | truncated icosahedron | 12 pentagons + 20 hexagons | 32 |
 | **Deltoidal-60** | deltoidal hexecontahedron | 60 congruent kites | 60 |
@@ -272,7 +273,7 @@ All preview modes: SDF sphere-tracing with Blinn-Phong lighting, bevelled edges,
 
 ### Polyhedron Preview Modes — Technical Deep Dive
 
-All 10 preview modes render a **3D polyhedron** floating in front of the panorama background via SDF sphere-tracing. They serve as tangible previews of the face partitioning used by the corresponding foldable modes — you can rotate the ball to inspect how the panorama maps onto each face before printing.
+All 11 preview modes render a **3D polyhedron** floating in front of the panorama background via SDF sphere-tracing. They serve as tangible previews of the face partitioning used by the corresponding foldable modes — you can rotate the ball to inspect how the panorama maps onto each face before printing.
 
 | Geometry | Polyhedron | Faces | Face distances |
 |---|---|---|---|
@@ -281,6 +282,7 @@ All 10 preview modes render a **3D polyhedron** floating in front of the panoram
 | Truncoct-14 | Truncated octahedron | 8 hexagons + 6 squares | √3/√5 (hex), 2/√5 (sq) |
 | Icosahedron-20 | Regular icosahedron | 20 equilateral triangles | 0.7947 (all equal) |
 | Pentagonal-24 | Pentagonal icositetrahedron | 24 irregular pentagons | 0.8503 (all equal) |
+| Deltoidal-24 | Deltoidal icositetrahedron | 24 congruent kites | 0.8629 (all equal) |
 | Rhombic-30 | Rhombic triacontahedron | 30 golden rhombi | 0.8507 (all equal) |
 | Buckyball-32 | Truncated icosahedron | 12 pentagons + 20 hexagons | 0.9393 (pent), 0.9149 (hex) |
 | Deltoidal-60 | Deltoidal hexecontahedron | 60 congruent kites | 0.9499 (all equal) |
@@ -426,7 +428,7 @@ Finally, the `viewMatrix` (derived from the camera quaternion) orients the ray i
 
 The `screenToLocalDir()` function in JavaScript contains an exact mirror of the GLSL stereographic pipeline for use by **double-click fly-to** and **pixel-locked drag** (mapping a screen pixel back to a sphere direction). The JS variables `stereoA0`–`stereoA3` and `stereoD` correspond to the shader uniforms. The output `[rd0, rd2, -rd1]` applies the same +90° pre-rotation.
 
-For foldable modes, the dedicated `screenToFoldableDir()` function mirrors the shader's per-face gnomonic back-projection: it loops over all face polygons, performs point-in-polygon tests matching the GLSL (angular sector for regular polygons, L1 norm for rhombic, bilateral-symmetry edge tests for irregular), and reconstructs the 3D sphere direction via the same tangent-frame gnomonic formula. PreRot matrices are read back from the GPU via `gl.getUniform()`. This provides pixel-perfect drag in all 10 foldable net views.
+For foldable modes, the dedicated `screenToFoldableDir()` function mirrors the shader's per-face gnomonic back-projection: it loops over all face polygons, performs point-in-polygon tests matching the GLSL (angular sector for regular polygons, L1 norm for rhombic, bilateral-symmetry edge tests for irregular), and reconstructs the 3D sphere direction via the same tangent-frame gnomonic formula. PreRot matrices are read back from the GPU via `gl.getUniform()`. This provides pixel-perfect drag in all 11 foldable net views.
 
 #### Parameter Presets (Copy / Paste / Reset)
 
@@ -628,7 +630,7 @@ The export button renders the current view at high resolution and downloads the 
 |---|---|
 | **PNG** | Standard lossless image; default for all projections |
 | **CMYK TIFF** | Uncompressed TIFF with `PhotometricInterpretation = CMYK`, `SamplesPerPixel = 4`, and configurable DPI resolution metadata; suitable for professional print workflows (ISO 12647-2:2013) |
-| **SVG Cutline** | Vector SVG of the foldable net's physical cut lines; available in all 10 foldable projection modes; includes face boundary edges, glue tab outlines, and an evenodd clip path |
+| **SVG Cutline** | Vector SVG of the foldable net's physical cut lines; available in all 11 foldable projection modes; includes face boundary edges, glue tab outlines, and an evenodd clip path |
 | **PDF (CMYK + Cutline)** | Combined CMYK raster image and vector cutline overlay in a single PDF/X-compatible file; FlateDecode-compressed; available only in foldable projection modes; optional ICC profile embedding; configurable paper size (A0–A4 or fit-to-content) and non-printable margin |
 
 ### DPI Setting
@@ -666,7 +668,7 @@ Three categories of gnomonic projection are implemented, matching the three fami
 |---|---|---|---|
 | Regular polygon | Angular sector fold | `alignedRP × scale × (gnoCircumR / flatCircumR)` | Bucky-32, Truncoct-14, Ico-20, Dodec-12, RC-62 |
 | Rhombic | L1 norm | `tangentRP × (scale / halfDiag)` | Rhombic-30, Rhombic-12 |
-| Irregular polygon | Bilateral-symmetry edge test | `canonFC × GNO_S` with `theta = faceOffset − π/2` | Pent-24, Delt-60, PH-60 |
+| Irregular polygon | Bilateral-symmetry edge test | `canonFC × GNO_S` with `theta = faceOffset − π/2` | Pent-24, Delt-60, PH-60, Delt-24 |
 
 ### PDF Export
 
@@ -723,7 +725,7 @@ Exported filenames follow the pattern: `{source}-{projection}-{W}x{H}.png` (or `
 | 🔢 **Y / P / R sliders** | Live Euler-angle readout; drag to set orientation, double-click to reset; copy/paste quaternion |
 | 💾 **Multi-file cache** | Multiple panoramas cached in IndexedDB; switch between cached files via file list; last-viewed file restored on reload; "clear cache" link to delete all cached data and reset viewer state; favorite flag (★) per file |
 | ⚙️ **Per-file config** | Camera orientation, FOV, projection mode, grid, globe, leveling, favorite flag, and all projection parameters persisted per file |
-| ✂️ **Cut line overlay** | 3-state toggle (Off / Overlay / Only) rendering physical cut outlines for all 10 foldable nets; tab edges, polygon edges, and ownership-aware boundary logic |
+| ✂️ **Cut line overlay** | 3-state toggle (Off / Overlay / Only) rendering physical cut outlines for all 11 foldable nets; tab edges, polygon edges, and ownership-aware boundary logic |
 | 🎨 **Test pattern** | Built-in checkerboard fallback with meridian/equator markers |
 
 ---
@@ -750,6 +752,7 @@ A standalone HTML tool (`net-layouter.html`) backed by a shared geometry definit
 | **Truncoct-14** | 14 | 8 hexagons + 6 squares | — (truncated octahedron) |
 | **Icosahedron-20** | 20 | congruent equilateral triangles | regular dodecahedron |
 | **Pentagonal-24** | 24 | congruent irregular pentagons (4×114.8° + 1×80.8°) | snub cube |
+| **Deltoidal-24** | 24 | congruent kites (3×81.6° + 1×115.3°) | rhombicuboctahedron |
 | **Rhombic-30** | 30 | congruent golden rhombi | icosahedron |
 | **Buckyball-32** | 32 | 20 hexagons + 12 pentagons | — (truncated icosahedron) |
 | **Deltoidal-60** | 60 | congruent kites | rhombicosidodecahedron |

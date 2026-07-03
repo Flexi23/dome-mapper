@@ -801,6 +801,47 @@ function computeLayout() {
 	draw();
 }
 
+// Fallback for geometries shipped without paper-format presets (e.g. freshly added
+// solids): build a plain BFS spanning-tree net and pick an arbitrary (most-antipodal)
+// pole pair via defaultPoles(), so the tool always shows something instead of a blank
+// canvas. The user can then rebuild/save their own layout interactively.
+function buildDefaultParentTree() {
+	const N = geo.nFaces;
+	const parents = new Array(N).fill(-2);
+	const seed = 0;
+	parents[seed] = -1;
+	const visited = new Set([seed]);
+	const queue = [seed];
+	while (queue.length) {
+		const p = queue.shift();
+		for (const nb of geo.adj[p]) {
+			if (!visited.has(nb)) { visited.add(nb); parents[nb] = p; queue.push(nb); }
+		}
+	}
+	return parents;
+}
+
+function computeDefaultLayout() {
+	if (!geo) return;
+	tabOwnership = {};
+	const parents = buildDefaultParentTree();
+	const seed = seedFromParents(parents);
+	const layout = guidedUnfold(seed, parents);
+	layout.seed = seed;
+	layout.mirrored = false;
+	layout.label = 'Default';
+	currentLayout = layout;
+	rebuildVertexMap();
+	const poles = defaultPoles(geo.c3);
+	layout.northPole = resolvePole(poles.northPole);
+	layout.southPole = resolvePole(poles.southPole);
+	layout.lonOffset = 0;
+	optimizeAndApplyRotation(currentLayout);
+	updateDeleteBtnVisibility();
+	updatePoleLabels();
+	draw();
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Canvas transforms
 // ═══════════════════════════════════════════════════════════════════════
@@ -1334,6 +1375,9 @@ function hitTestFace(mx, my) {
 }
 
 canvas.addEventListener('mousemove', e => {
+	// Defensive: pole/meridian edit modes require a computed layout (e.g. a freshly
+	// selected geometry with no presets and no layout yet). Self-heal if out of sync.
+	if ((merEditMode || poleEditMode) && !currentLayout) { merEditMode = false; poleEditMode = null; }
 	// ── Meridian edit mode ──
 	if (merEditMode) {
 		const [wx, wy] = toWorld(e.clientX, e.clientY);
@@ -1473,7 +1517,7 @@ canvas.addEventListener('mousemove', e => {
 		tooltip.style.top = (e.clientY + 14) + 'px';
 		tooltip.innerHTML = label;
 		canvas.style.cursor = 'pointer';
-	} else if (!poleEditMode && !merEditMode && !glueTabMode && currentLayout.northPole) {
+	} else if (!poleEditMode && !merEditMode && !glueTabMode && currentLayout && currentLayout.northPole) {
 		const [wx, wy] = toWorld(e.clientX, e.clientY);
 		const hitR = 12 / viewScale;
 		let overPole = null;
@@ -1735,9 +1779,11 @@ function switchGeometry(geoId) {
 	vertexMap = null;
 	exitPoleEditMode();
 	populatePresets();
-	if (geo.presets.length > 0) {
-		presetSelect.value = '0';
+	if (presetSelect.options.length > 0) {
+		presetSelect.value = presetSelect.options[0].value;
 		computeLayout();
+	} else {
+		computeDefaultLayout();
 	}
 }
 
@@ -1843,6 +1889,7 @@ function exitPoleEditMode() {
 }
 
 function togglePoleEdit(which) {
+	if (!currentLayout) return;
 	if (poleEditMode === which && !merEditMode) {
 		exitPoleEditMode();
 	} else {
@@ -1868,6 +1915,7 @@ function togglePoleEdit(which) {
 }
 
 function toggleMeridianEdit() {
+	if (!currentLayout) return;
 	if (merEditMode) {
 		exitPoleEditMode();
 	} else {

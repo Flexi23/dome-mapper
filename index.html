@@ -1091,6 +1091,8 @@
 					<option value="icosahedron-20 foldable">icosahedron-20 foldable</option>
 					<option value="pentagonal-24 preview">pentagonal-24 preview</option>
 					<option value="pentagonal-24 foldable">pentagonal-24 foldable</option>
+					<option value="deltoidal-24 preview">deltoidal-24 preview</option>
+					<option value="deltoidal-24 foldable">deltoidal-24 foldable</option>
 					<option value="rhombic-30 preview">rhombic-30 preview</option>
 					<option value="rhombic-30 foldable">rhombic-30 foldable</option>
 					<option value="buckyball-32 preview">buckyball-32 preview</option>
@@ -1218,7 +1220,7 @@
 		</div>
 	</div>
 	<div id="progress" style="display:none">
-		<div style="color:#556;font-size:15px;">loading panorama…</div>
+		<div style="color:#556;font-size:15px;" id="progress-caption">loading panorama…</div>
 		<div class="track">
 			<div class="fill" id="progress-fill"></div>
 		</div>
@@ -1227,7 +1229,7 @@
 
 	<!-- ── Vertex Shader ── -->
 	<script id="shader-vs" type="x-shader/x-vertex">#version 300 es
-in vec2 position;
+layout(location = 0) in vec2 position;
 void main() {
 	gl_Position = vec4(position, 0.0, 1.0);
 }
@@ -1615,6 +1617,42 @@ const vec3 delt60Faces[60] = vec3[60](
 	vec3( 0.0, -D60_C,  D60_E),    // 57
 	vec3( 0.0,  D60_C, -D60_E),    // 58
 	vec3( 0.0, -D60_C, -D60_E)     // 59
+);
+
+// ─── Deltoidal-24 (Deltoidal Icositetrahedron: 24 congruent kite faces) ───
+// Face normals = rhombicuboctahedron vertex directions (dual polyhedron): all signed
+// permutations of (1, 1, 1+√2), normalized. 2 component magnitudes suffice (cube symmetry).
+const float DELT24_S = 0.35740674433659325;  // 1/R
+const float DELT24_L = 0.8628562094610168;   // (1+√2)/R
+const float RFACE_DELT24 = 0.8628562094610168;  // face-plane distance at circumradius = 1
+
+uniform mat3 delt24PreRot;
+
+const vec3 delt24Faces[24] = vec3[24](
+	vec3( DELT24_S,  DELT24_S,  DELT24_L),  //  0
+	vec3( DELT24_S,  DELT24_S, -DELT24_L),  //  1
+	vec3( DELT24_S, -DELT24_S,  DELT24_L),  //  2
+	vec3( DELT24_S, -DELT24_S, -DELT24_L),  //  3
+	vec3(-DELT24_S,  DELT24_S,  DELT24_L),  //  4
+	vec3(-DELT24_S,  DELT24_S, -DELT24_L),  //  5
+	vec3(-DELT24_S, -DELT24_S,  DELT24_L),  //  6
+	vec3(-DELT24_S, -DELT24_S, -DELT24_L),  //  7
+	vec3( DELT24_L,  DELT24_S,  DELT24_S),  //  8
+	vec3(-DELT24_L,  DELT24_S,  DELT24_S),  //  9
+	vec3( DELT24_L,  DELT24_S, -DELT24_S),  // 10
+	vec3(-DELT24_L,  DELT24_S, -DELT24_S),  // 11
+	vec3( DELT24_L, -DELT24_S,  DELT24_S),  // 12
+	vec3(-DELT24_L, -DELT24_S,  DELT24_S),  // 13
+	vec3( DELT24_L, -DELT24_S, -DELT24_S),  // 14
+	vec3(-DELT24_L, -DELT24_S, -DELT24_S),  // 15
+	vec3( DELT24_S,  DELT24_L,  DELT24_S),  // 16
+	vec3( DELT24_S, -DELT24_L,  DELT24_S),  // 17
+	vec3(-DELT24_S,  DELT24_L,  DELT24_S),  // 18
+	vec3(-DELT24_S, -DELT24_L,  DELT24_S),  // 19
+	vec3( DELT24_S,  DELT24_L, -DELT24_S),  // 20
+	vec3( DELT24_S, -DELT24_L, -DELT24_S),  // 21
+	vec3(-DELT24_S,  DELT24_L, -DELT24_S),  // 22
+	vec3(-DELT24_S, -DELT24_L, -DELT24_S)   // 23
 );
 
 // ─── Pentahex-60 (Pentagonal Hexecontahedron: 60 congruent irregular pentagonal faces) ───
@@ -2050,7 +2088,7 @@ void main() {
 
 	// Projection cascade — threshold N.5 selects mode index N.
 	// Keep in sync with JS projectionModes array & M_* constants.
-	if (projection > 23.5) {
+	if (projection > 25.5) {
 		// ── Foldable rhombicosidodecahedron-62 net (20 tri + 30 sq + 12 pent, regular polygons) ──
 
 		vec2 uv = lensUV;
@@ -2165,7 +2203,7 @@ void main() {
 		col = applyViewGrid(col, lensNorm);
 		fragColor = vec4(col, 1.0);
 		return;
-	} else if (projection > 22.5) {
+	} else if (projection > 24.5) {
 		// ── Rhombicosidodecahedron-62 preview (SDF-raymarched, 20 tri + 30 sq + 12 pent) ──
 
 		vec2 uv = lensUV;
@@ -2282,7 +2320,7 @@ void main() {
 		col = applyViewGrid(col, lensNorm);
 		fragColor = vec4(col, 1.0);
 		return;
-	} else if (projection > 21.5) {
+	} else if (projection > 23.5) {
 		// ── Foldable pentahex-60 net (flat 2D layout, 60 irregular pentagon faces) ──
 
 		vec2 uv = lensUV;
@@ -2405,7 +2443,7 @@ void main() {
 		col = applyViewGrid(col, lensNorm);
 		fragColor = vec4(col, 1.0);
 		return;
-	} else if (projection > 20.5) {
+	} else if (projection > 22.5) {
 		// ── Pentahex-60 preview (SDF-raymarched pentagonal hexecontahedron, 60 irregular pentagon faces) ──
 
 		vec2 uv = lensUV;
@@ -2514,7 +2552,7 @@ void main() {
 		col = applyViewGrid(col, lensNorm);
 		fragColor = vec4(col, 1.0);
 		return;
-	} else if (projection > 19.5) {
+	} else if (projection > 21.5) {
 		// ── Foldable deltoidal-60 net (flat 2D layout, 60 kite faces) ──
 
 		vec2 uv = lensUV;
@@ -2641,7 +2679,7 @@ void main() {
 		col = applyViewGrid(col, lensNorm);
 		fragColor = vec4(col, 1.0);
 		return;
-	} else if (projection > 18.5) {
+	} else if (projection > 20.5) {
 		// ── Deltoidal-60 preview (SDF-raymarched deltoidal hexecontahedron, 60 kite faces) ──
 
 		vec2 uv = lensUV;
@@ -2756,7 +2794,7 @@ void main() {
 		col = applyViewGrid(col, lensNorm);
 		fragColor = vec4(col, 1.0);
 		return;
-	} else if (projection > 17.5) {
+	} else if (projection > 19.5) {
 		// ── Foldable Buckyball net (flat 2D layout) ──
 		//
 		// Renders all 32 faces of the truncated icosahedron as a flat 2D net.
@@ -2922,7 +2960,7 @@ void main() {
 		col = applyViewGrid(col, lensNorm);
 		fragColor = vec4(col, 1.0);
 		return;
-	} else if (projection > 16.5) {
+	} else if (projection > 18.5) {
 		// ── Buckyball preview (SDF-raymarched truncated icosahedron) ──
 		//
 		// Like the globe, the ball geometry is evaluated in VIEW SPACE.
@@ -3093,7 +3131,7 @@ void main() {
 		col = applyViewGrid(col, lensNorm);
 		fragColor = vec4(col, 1.0);
 		return;
-	} else if (projection > 15.5) {
+	} else if (projection > 17.5) {
 		// ── Foldable Rhombic Triacontahedron net (flat 2D layout, 30 golden rhombi) ──
 		//
 		// Each face is a golden rhombus (diagonals in ratio φ:1).
@@ -3229,7 +3267,7 @@ void main() {
 		col = applyViewGrid(col, lensNorm);
 		fragColor = vec4(col, 1.0);
 		return;
-	} else if (projection > 14.5) {
+	} else if (projection > 16.5) {
 		// ── Rhombic-30 preview (SDF-raymarched rhombic triacontahedron) ──
 		//
 		// Analogous to the buckyball preview: SDF sphere-trace of a 30-face
@@ -3317,6 +3355,248 @@ void main() {
 		float bevelZone = 0.016;
 		float bevel = smoothstep(bevelZone, 0.0, edgeDist);
 		vec3 secN = vFaces[secI];
+		vec3 normal = normalize(mix(faceN, faceN + secN, bevel * 0.45));
+
+		// Texture mapping
+		vec3 objDir = normalize(hitPos);
+		vec3 texDir = viewMatrix * objDir;
+		vec3 col = samplePanorama(texDir);
+		col = applyGrid(col, dirToEquirect(texDir));
+
+		// Edge wireframe
+		float edgeW = 0.0025;
+		float edgeLine = smoothstep(edgeW * 0.15, edgeW, edgeDist);
+		edgeLine = mix(1.0, edgeLine, foldableOverlayAlpha);
+		col = mix(vec3(0.06), col, edgeLine);
+
+		// Lighting
+		vec3 V = normalize(eye - hitPos);
+		vec3 L = normalize(vec3(0.4, 0.9, 0.7));
+		float NdotL = max(0.0, dot(normal, L));
+		float NdotV = max(0.0, dot(normal, V));
+		float diff = NdotL * 0.4 + 0.6;
+		col *= diff;
+		vec3 H = normalize(L + V);
+		float spec = pow(max(0.0, dot(normal, H)), 60.0);
+		col += vec3(0.18) * spec;
+		float rim = pow(1.0 - NdotV, 3.5);
+		col += vec3(0.07, 0.09, 0.14) * rim;
+
+		col = applyViewGrid(col, lensNorm);
+		fragColor = vec4(col, 1.0);
+		return;
+	} else if (projection > 15.5) {
+		// ── Foldable deltoidal-24 net (flat 2D layout, 24 kite faces) ──
+
+		vec2 uv = lensUV;
+		uv.x *= aspect;
+		float bbHalfW = max(abs(foldableBBox.x), abs(foldableBBox.z));
+		float bbHalfH = max(abs(foldableBBox.y), abs(foldableBBox.w));
+		float fitScale = max(bbHalfW / aspect, bbHalfH);
+		uv *= fitScale;
+
+		float invS = 1.0 / foldableScale;
+		float insideAny = 0.0;
+		float bestSDF = 0.0;
+		float nearestOutsideD = 1e9;
+		int bestI = 0;
+		float bestDist = 1e9;
+		vec2 bestRP = vec2(0.0);
+
+		// Kite metrics (canonical coords)
+		float kvHalfW  = 0.5 * invS;                 // V0.x (sq-right)
+		float kvDPent  = 0.5054494651244235 * invS;  // V1.y (cube-tip, pointy)
+		float kvSqY    = -0.07402136039391502 * invS; // V0.y = V2.y
+		float kvTriY   = -0.3909444784529831 * invS;  // V3.y (tri, blunt)
+
+		for (int i = 0; i < 24; i++) {
+			vec2 ctr = foldableNet[i].xy;
+			float rot = foldableNet[i].z;
+			vec2 p = uv - ctr;
+			float cs = cos(-rot), sn = sin(-rot);
+			vec2 rp = vec2(p.x*cs - p.y*sn, p.x*sn + p.y*cs);
+
+			// Bilateral-symmetry PIP for kite: fold x, test two edges
+			float ax = abs(rp.x);
+			// Edge V1→V0: from (0, dPent) to (halfW, sqY)
+			float e1 = kvHalfW * (rp.y - kvDPent) - (kvSqY - kvDPent) * ax;
+			// Edge V0→V3: from (halfW, sqY) to (0, triY)
+			float e2 = (-kvHalfW) * (rp.y - kvSqY) - (kvTriY - kvSqY) * (ax - kvHalfW);
+
+			{ float outsideD = max(max(e1, e2), kvTriY - rp.y); if (outsideD > 0.0 && outsideD < nearestOutsideD) nearestOutsideD = outsideD; }
+			if (rp.y > kvTriY && e1 <= 0.0 && e2 <= 0.0) {
+				float cd = length(p);
+				if (cd < bestDist) {
+					bestDist = cd;
+					bestI = i;
+					bestRP = rp;
+					bestSDF = min(min(-e1, -e2), rp.y - kvTriY);
+					insideAny = 1.0;
+				}
+			}
+		}
+
+		vec3 col = vec3(1.0);
+
+		if (insideAny > 0.5) {
+			vec3 N = delt24Faces[bestI];
+			float faceOffset = foldableNet[bestI].w;
+			vec3 tUp = abs(N.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+			vec3 T1 = normalize(cross(N, tUp));
+			vec3 T2 = cross(N, T1);
+
+			// Gnomonic back-projection: canonical → tangent plane → sphere direction
+			const float DELT24_GNO_S = 1.1589416510366775;
+
+			vec2 canonFC = bestRP * foldableScale;
+
+			// Rotate canonical Y (cube-tip at +Y = PI/2) to tangent-frame tip direction
+			float theta = faceOffset - PI * 0.5;
+			float co = cos(theta), so = sin(theta);
+			vec2 gno = vec2(canonFC.x*co - canonFC.y*so, canonFC.x*so + canonFC.y*co) * DELT24_GNO_S;
+
+			vec3 dir = normalize(N + gno.x * T1 + gno.y * T2);
+			dir = viewMatrix * delt24PreRot * dir;
+
+			col = samplePanorama(dir);
+			col = applyGrid(col, dirToEquirect(dir));
+		}
+
+		// Composite overlay
+		vec2 overlayUV = (uv - foldableBBox.xy) / (foldableBBox.zw - foldableBBox.xy);
+		overlayUV.y = 1.0 - overlayUV.y;
+		float inBB = step(0.0, overlayUV.x) * step(overlayUV.x, 1.0) * step(0.0, overlayUV.y) * step(overlayUV.y, 1.0);
+		if (cutLineMode > 1.5) {
+			vec4 cl = texture(cutLineOverlay, overlayUV);
+			col = vec3(1.0) * (1.0 - cl.a * inBB) + cl.rgb * inBB;
+		} else {
+			vec4 tabTex = texture(foldableTabOverlay, overlayUV);
+			float tabMask = (1.0 - insideAny) * inBB;
+			col = col * (1.0 - tabTex.a * tabMask) + tabTex.rgb * tabMask;
+			if (insideAny > 0.5 && nearestOutsideD > fwidth(bestSDF) * 2.0) {
+				float fw = fwidth(bestSDF);
+				float aa = smoothstep(0.0, fw, bestSDF);
+				vec3 bgCol = vec3(1.0) * (1.0 - tabTex.a) + tabTex.rgb;
+				col = mix(bgCol, col, aa);
+			}
+			vec4 overlay = texture(foldableOverlay, overlayUV);
+			float oa = overlay.a * foldableOverlayAlpha * inBB;
+			col = col * (1.0 - oa) + overlay.rgb * foldableOverlayAlpha * inBB;
+			if (cutLineMode > 0.5) {
+				vec4 cl = texture(cutLineOverlay, overlayUV);
+				col = col * (1.0 - cl.a * inBB) + cl.rgb * inBB;
+			}
+		}
+
+		// Paper format outline (dashed green rectangle)
+		if (foldablePaperRect.z > foldablePaperRect.x) {
+			float pw = 0.004 * fitScale;
+			float dL = abs(uv.x - foldablePaperRect.x);
+			float dR = abs(uv.x - foldablePaperRect.z);
+			float dB = abs(uv.y - foldablePaperRect.y);
+			float dT = abs(uv.y - foldablePaperRect.w);
+			bool nearV = uv.y > foldablePaperRect.y - pw && uv.y < foldablePaperRect.w + pw;
+			bool nearH = uv.x > foldablePaperRect.x - pw && uv.x < foldablePaperRect.z + pw;
+			float onEdge = 0.0;
+			float peri = 0.0;
+			if (dL < pw && nearV) { onEdge = 1.0; peri = uv.y; }
+			else if (dR < pw && nearV) { onEdge = 1.0; peri = uv.y; }
+			else if (dB < pw && nearH) { onEdge = 1.0; peri = uv.x; }
+			else if (dT < pw && nearH) { onEdge = 1.0; peri = uv.x; }
+			if (onEdge > 0.5) {
+				float dash = step(0.5, fract(peri / fitScale * 30.0));
+				col = mix(col, vec3(0.4, 0.8, 0.4), 0.5 * dash);
+			}
+		}
+
+		col = applyViewGrid(col, lensNorm);
+		fragColor = vec4(col, 1.0);
+		return;
+	} else if (projection > 14.5) {
+		// ── Deltoidal-24 preview (SDF-raymarched deltoidal icositetrahedron, 24 kite faces) ──
+
+		vec2 uv = lensUV;
+		uv.x *= aspect;
+		float halfFov = fov * 0.5;
+		float scl = tan(halfFov);
+
+		vec3 rdLocal = normalize(vec3(-uv.x * scl, uv.y * scl, -1.0));
+
+		const mat3 camQuatOffsetMat = mat3(
+			0.0, 0.0, 1.0,
+			0.0, 1.0, 0.0,
+		   -1.0, 0.0, 0.0
+		);
+		mat3 worldRot = camQuatOffsetMat * previewMatrix * delt24PreRot;
+		vec3 vF24[24];
+		for (int i = 0; i < 24; i++) {
+			vF24[i] = transpose(viewMatrix) * worldRot * delt24Faces[i];
+		}
+
+		float camDist = 2.5;
+		vec3 eye = vec3(0.0, 0.0, camDist);
+		vec3 rdW = rdLocal;
+
+		float bSph = dot(eye, rdW);
+		float cSph = dot(eye, eye) - 1.135;
+		float discSph = bSph * bSph - cSph;
+
+		vec3 perspDir = viewMatrix * rdLocal;
+		vec3 bgCol = samplePanorama(perspDir);
+		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
+
+		// Project wireframe onto background
+		{
+			vec3 bgDir = normalize(rdLocal);
+			float bgMaxD = -1e9, bgSecD = -1e9;
+			for (int i = 0; i < 24; i++) {
+				float di = dot(bgDir, vF24[i]) - RFACE_DELT24;
+				if (di > bgMaxD) { bgSecD = bgMaxD; bgMaxD = di; }
+				else if (di > bgSecD) { bgSecD = di; }
+			}
+			float bgEdgeDist = bgMaxD - bgSecD;
+			float bgEdgeW = 0.003;
+			float bgEdgeLine = smoothstep(bgEdgeW * 0.15, bgEdgeW, bgEdgeDist);
+			bgEdgeLine = mix(1.0, bgEdgeLine, foldableOverlayAlpha);
+			bgCol = mix(vec3(0.06), bgCol, bgEdgeLine);
+		}
+
+		if (discSph < 0.0) { bgCol = applyViewGrid(bgCol, lensNorm); fragColor = vec4(bgCol, 1.0); return; }
+		float t = max(0.0, -bSph - sqrt(discSph));
+		float tMax = -bSph + sqrt(discSph);
+
+		// Sphere-trace the deltoidal icositetrahedron SDF
+		bool hit = false;
+		for (int step = 0; step < 80; step++) {
+			vec3 p = eye + t * rdW;
+			float d = -1e9;
+			for (int i = 0; i < 24; i++) {
+				d = max(d, dot(p, vF24[i]) - RFACE_DELT24);
+			}
+			if (d < 0.0004) { hit = true; break; }
+			t += d;
+			if (t > tMax) break;
+		}
+
+		if (!hit) { bgCol = applyViewGrid(bgCol, lensNorm); fragColor = vec4(bgCol, 1.0); return; }
+
+		vec3 hitPos = eye + t * rdW;
+
+		// Identify active face + second-closest
+		float maxD = -1e9, secD = -1e9;
+		int bestI = 0, secI = 0;
+		for (int i = 0; i < 24; i++) {
+			float di = dot(hitPos, vF24[i]) - RFACE_DELT24;
+			if (di > maxD) { secD = maxD; secI = bestI; maxD = di; bestI = i; }
+			else if (di > secD) { secD = di; secI = i; }
+		}
+
+		vec3 faceN = vF24[bestI];
+		float edgeDist = maxD - secD;
+
+		float bevelZone = 0.016;
+		float bevel = smoothstep(bevelZone, 0.0, edgeDist);
+		vec3 secN = vF24[secI];
 		vec3 normal = normalize(mix(faceN, faceN + secN, bevel * 0.45));
 
 		// Texture mapping
@@ -4778,23 +5058,163 @@ void main() {
 			return s;
 		}
 
-		const vs = compileShader(document.getElementById('shader-vs').textContent, gl.VERTEX_SHADER);
-		const fs = compileShader(document.getElementById('shader-fs').textContent, gl.FRAGMENT_SHADER);
+		const vsSrcEl = document.getElementById('shader-vs');
+		const fsSrcEl = document.getElementById('shader-fs');
+		if (!vsSrcEl || !fsSrcEl) {
+			document.body.innerHTML = '<h2 style="color:red;padding:2em">Shader source not found (id="shader-vs"/"shader-fs" missing from DOM). Try a hard refresh (Ctrl+Shift+R).</h2>';
+			throw new Error('Shader script elements not found in DOM');
+		}
+		const vs = compileShader(vsSrcEl.textContent, gl.VERTEX_SHADER);
 
-		const program = gl.createProgram();
-		gl.attachShader(program, vs);
-		gl.attachShader(program, fs);
-		gl.linkProgram(program);
+		// ══════════════════════════════════════════════════════════
+		// Split the single uber fragment shader into small per-family
+		// programs instead of one ~4000-line, 27-way branch cascade.
+		// Chrome/Edge (ANGLE/D3D11) were losing the WebGL context on
+		// startup because compiling that one giant shader could exceed
+		// the GPU driver's compile-time watchdog (TDR). Compiling ~12
+		// much smaller programs — one per projection "family" — avoids
+		// that single huge compile, and lets us show real progress
+		// ("Compiling shader: dodecahedron-12 (3/12)…") while it happens.
+		//
+		// Each polyhedron's [preview, foldable] mode pair shares ONE
+		// program (they share the same face-array/pre-rotation uniform
+		// and net-layout data — no reason to duplicate that). The 5
+		// "flat" modes (equirect / perspective / azimuthal / collage /
+		// stereographic) share a small "core" program.
+		// ══════════════════════════════════════════════════════════
+		const FAMILIES = [
+			{ id: 'core',       label: 'equirectangular / perspective / azimuthal / stereographic', modes: [0, 1, 2, 3, 4] },
+			{ id: 'dodec12',    label: 'dodecahedron-12',  modes: [5, 6] },
+			{ id: 'rd12',       label: 'rhombic-12',       modes: [7, 8] },
+			{ id: 'truncoct14', label: 'truncoct-14',      modes: [9, 10] },
+			{ id: 'ico20',      label: 'icosahedron-20',   modes: [11, 12] },
+			{ id: 'pent24',     label: 'pentagonal-24',    modes: [13, 14] },
+			{ id: 'delt24',     label: 'deltoidal-24',     modes: [15, 16] },
+			{ id: 'rhombic30',  label: 'rhombic-30',       modes: [17, 18] },
+			{ id: 'bucky32',    label: 'buckyball-32',     modes: [19, 20] },
+			{ id: 'delt60',     label: 'deltoidal-60',     modes: [21, 22] },
+			{ id: 'pentahex60', label: 'pentahex-60',      modes: [23, 24] },
+			{ id: 'rc62',       label: 'rhombicosi-62',    modes: [25, 26] },
+		];
+		const MODE_COUNT = 27;
+		const modeToFamily = new Array(MODE_COUNT);
+		FAMILIES.forEach((f, fi) => f.modes.forEach(m => { modeToFamily[m] = fi; }));
+
+		// Parses the original monolithic shader-fs text (kept as the single
+		// source of truth — no hand-copied GLSL) into: the shared preamble
+		// (uniforms + helper functions, identical in every program), the
+		// common per-frame setup code, the shared tail (grid/globe
+		// compositing, used only by the "core" family), and the 27
+		// individual mode bodies (brace-matched, so nesting is safe).
+		function splitFragmentShader(fullSrc) {
+			const mainToken = 'void main() {';
+			const mainOpenIdx = fullSrc.indexOf(mainToken);
+			if (mainOpenIdx < 0) throw new Error('shader split: "void main() {" not found');
+			const preamble = fullSrc.slice(0, mainOpenIdx);
+			const braceIdx = mainOpenIdx + mainToken.length - 1;
+			let depth = 0, mainCloseIdx = -1;
+			for (let i = braceIdx; i < fullSrc.length; i++) {
+				if (fullSrc[i] === '{') depth++;
+				else if (fullSrc[i] === '}') { depth--; if (depth === 0) { mainCloseIdx = i; break; } }
+			}
+			if (mainCloseIdx < 0) throw new Error('shader split: unmatched main() brace');
+			const mainBody = fullSrc.slice(braceIdx + 1, mainCloseIdx);
+
+			const firstIfToken = 'if (projection > 25.5) {';
+			const cascadeStart = mainBody.indexOf(firstIfToken);
+			if (cascadeStart < 0) throw new Error('shader split: cascade start not found');
+			const commonSetup = mainBody.slice(0, cascadeStart);
+
+			const tailToken = 'vec3 color = samplePanorama(rd);';
+			const tailStart = mainBody.indexOf(tailToken);
+			if (tailStart < 0) throw new Error('shader split: tail not found');
+			const tail = mainBody.slice(tailStart);
+			const cascade = mainBody.slice(cascadeStart, tailStart);
+
+			const headerRe = /(?:^|\} else )if \(projection > ([\d.]+)\) \{/g;
+			const headers = [];
+			let hm;
+			while ((hm = headerRe.exec(cascade))) {
+				headers.push({ start: hm.index, bodyStart: hm.index + hm[0].length, threshold: parseFloat(hm[1]) });
+			}
+			const finalElseToken = '} else {';
+			const finalElseIdx = cascade.lastIndexOf(finalElseToken);
+			if (finalElseIdx < 0) throw new Error('shader split: final else not found');
+			headers.push({ start: finalElseIdx, bodyStart: finalElseIdx + finalElseToken.length, threshold: null });
+
+			if (headers.length !== MODE_COUNT) {
+				throw new Error('shader split: expected ' + MODE_COUNT + ' branches, found ' + headers.length);
+			}
+			const lastBraceIdx = cascade.lastIndexOf('}');
+			const modeBody = new Array(MODE_COUNT);
+			for (let i = 0; i < headers.length; i++) {
+				const bodyEnd = (i + 1 < headers.length) ? headers[i + 1].start : lastBraceIdx;
+				const modeIndex = headers[i].threshold == null ? 0 : Math.round(headers[i].threshold + 0.5);
+				modeBody[modeIndex] = cascade.slice(headers[i].bodyStart, bodyEnd);
+			}
+			for (let i = 0; i < MODE_COUNT; i++) {
+				if (modeBody[i] == null) throw new Error('shader split: missing body for mode ' + i);
+			}
+			return { preamble, commonSetup, tail, modeBody };
+		}
+
+		const { preamble, commonSetup, tail, modeBody } = splitFragmentShader(fsSrcEl.textContent);
+
+		function buildFamilySource(family) {
+			let body;
+			if (family.id === 'core') {
+				body = 'if (projection > 3.5) {\n' + modeBody[4] +
+					'\n} else if (projection > 2.5) {\n' + modeBody[3] +
+					'\n} else if (projection > 1.5) {\n' + modeBody[2] +
+					'\n} else if (projection > 0.5) {\n' + modeBody[1] +
+					'\n} else {\n' + modeBody[0] +
+					'\n}\n' + tail;
+			} else {
+				const previewIdx = family.modes[0], foldableIdx = family.modes[1];
+				body = 'if (projection > ' + (foldableIdx - 0.5) + ') {\n' + modeBody[foldableIdx] +
+					'\n} else {\n' + modeBody[previewIdx] +
+					'\n}\n';
+			}
+			return preamble + 'void main() {\n' + commonSetup + body + '\n}\n';
+		}
+
+		const programs = FAMILIES.map(family => {
+			const fs = compileShader(buildFamilySource(family), gl.FRAGMENT_SHADER);
+			const p = gl.createProgram();
+			gl.attachShader(p, vs);
+			gl.attachShader(p, fs);
+			gl.linkProgram(p);
+			return p;
+		});
+
 		// Async link with KHR_parallel_shader_compile: linkProgram itself is
-		// non-blocking; the next call that touches the program (useProgram /
+		// non-blocking; the next call that touches a program (useProgram /
 		// getUniformLocation / draw) blocks until the driver finishes
-		// compiling. We poll COMPLETION_STATUS_KHR via rAF so the main thread
-		// stays responsive during the (often >1s) compile.
+		// compiling. We poll COMPLETION_STATUS_KHR via rAF, one program at a
+		// time, so the main thread stays responsive and we can show progress.
 		const parallelExt = gl.getExtension('KHR_parallel_shader_compile');
-		function whenProgramReady(cb) {
+		const progressEl0 = document.getElementById('progress');
+		const progressFill0 = document.getElementById('progress-fill');
+		const progressLabel0 = document.getElementById('progress-label');
+		const progressCaption0 = document.getElementById('progress-caption');
+		function showCompileProgress(ratio, text) {
+			progressEl0.style.display = '';
+			progressFill0.style.width = Math.round(ratio * 100) + '%';
+			progressLabel0.textContent = text;
+		}
+		function resetCompileProgress() {
+			progressEl0.style.display = 'none';
+			progressEl0.classList.remove('done');
+			progressFill0.style.width = '0%';
+			progressLabel0.textContent = '0%';
+			if (progressCaption0) progressCaption0.textContent = 'loading panorama…';
+		}
+		if (progressCaption0) progressCaption0.textContent = 'preparing shaders…';
+
+		function whenProgramReady(prog, cb) {
 			if (!parallelExt) { cb(); return; }
 			const tick = () => {
-				if (gl.getProgramParameter(program, parallelExt.COMPLETION_STATUS_KHR)) {
+				if (gl.getProgramParameter(prog, parallelExt.COMPLETION_STATUS_KHR)) {
 					cb();
 				} else {
 					requestAnimationFrame(tick);
@@ -4802,11 +5222,20 @@ void main() {
 			};
 			requestAnimationFrame(tick);
 		}
-		whenProgramReady(function () {
-			if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-				console.error(gl.getProgramInfoLog(program));
-			}
-			gl.useProgram(program);
+
+		function waitForAllPrograms(i, done) {
+			if (i >= programs.length) { done(); return; }
+			const family = FAMILIES[i];
+			whenProgramReady(programs[i], () => {
+				if (!gl.getProgramParameter(programs[i], gl.LINK_STATUS)) {
+					console.error('Shader link failed for "' + family.id + '":', gl.getProgramInfoLog(programs[i]));
+				}
+				showCompileProgress((i + 1) / programs.length, 'Compiling shader: ' + family.label + ' (' + (i + 1) + '/' + programs.length + ')');
+				waitForAllPrograms(i + 1, done);
+			});
+		}
+		waitForAllPrograms(0, function () {
+			resetCompileProgress();
 			startApp();
 		});
 
@@ -4816,54 +5245,141 @@ void main() {
 		const quad = gl.createBuffer();
 		gl.bindBuffer(gl.ARRAY_BUFFER, quad);
 		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-		const aPos = gl.getAttribLocation(program, 'position');
+		const aPos = 0; // pinned via `layout(location = 0)` in the vertex shader — same for every program
 		gl.enableVertexAttribArray(aPos);
 		gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
 
-		// Uniforms
-		const uResolution = gl.getUniformLocation(program, 'resolution');
-		const uFov = gl.getUniformLocation(program, 'fov');
-		const uViewMatrix = gl.getUniformLocation(program, 'viewMatrix');
-		const uPreviewMatrix = gl.getUniformLocation(program, 'previewMatrix');
-		const uEquirect = gl.getUniformLocation(program, 'equirect');
-		const uEquirectNearest = gl.getUniformLocation(program, 'equirectNearest');
-		const uHasTexture = gl.getUniformLocation(program, 'hasTexture');
-		const uPixelate = gl.getUniformLocation(program, 'pixelate');
-		const uGlobeRadius = gl.getUniformLocation(program, 'globeRadius');
-		const uGlobeOpacity = gl.getUniformLocation(program, 'globeOpacity');
-		const uGlobeReflect = gl.getUniformLocation(program, 'globeReflect');
-		const uProjection = gl.getUniformLocation(program, 'projection');
-		const uShowGrid = gl.getUniformLocation(program, 'showGrid');
-		const uFoldableNet = gl.getUniformLocation(program, 'foldableNet');
-		const uFoldablePreRot = gl.getUniformLocation(program, 'foldablePreRot');
-		const uRhombicPreRot = gl.getUniformLocation(program, 'rhombicPreRot');
-		const uIcoPreRot = gl.getUniformLocation(program, 'icoPreRot');
-		const uTruncOctPreRot = gl.getUniformLocation(program, 'truncOctPreRot');
-		const uRhombic12PreRot = gl.getUniformLocation(program, 'rhombic12PreRot');
-		const uDodec12PreRot = gl.getUniformLocation(program, 'dodec12PreRot');
-		const uPent24PreRot = gl.getUniformLocation(program, 'pent24PreRot');
-		const uDelt60PreRot = gl.getUniformLocation(program, 'delt60PreRot');
-		const uPentahex60PreRot = gl.getUniformLocation(program, 'pentahex60PreRot');
-		const uRhombicosi62PreRot = gl.getUniformLocation(program, 'rhombicosi62PreRot');
-		const uFoldableScale = gl.getUniformLocation(program, 'foldableScale');
-		const uFoldableOverlay = gl.getUniformLocation(program, 'foldableOverlay');
-		const uFoldableBBox = gl.getUniformLocation(program, 'foldableBBox');
-		const uFoldablePaperRect = gl.getUniformLocation(program, 'foldablePaperRect');
-		const uFoldableOverlayAlpha = gl.getUniformLocation(program, 'foldableOverlayAlpha');
-		const uCutLineOverlay = gl.getUniformLocation(program, 'cutLineOverlay');
-		const uFoldableTabOverlay = gl.getUniformLocation(program, 'foldableTabOverlay');
-		const uCutLineMode = gl.getUniformLocation(program, 'cutLineMode');
-		const uExportClip = gl.getUniformLocation(program, 'exportClip');
-		const uLevelMatrix = gl.getUniformLocation(program, 'levelMatrix');
-		const uPointer = gl.getUniformLocation(program, 'pointer');
-		const uMagnifierRadius = gl.getUniformLocation(program, 'magnifierRadius');
-		const uRefractivity = gl.getUniformLocation(program, 'refractivity');
-		const uCollageRotation = gl.getUniformLocation(program, 'collageRotation');
-		const uCollageFlip = gl.getUniformLocation(program, 'collageFlip');
-		const uAzimuthalMask = gl.getUniformLocation(program, 'azimuthalMask');
-		const uAzimuthalZoom = gl.getUniformLocation(program, 'azimuthalZoom');
-		const uStereoD = gl.getUniformLocation(program, 'stereoD');
-		const uStereoScaramuzza = gl.getUniformLocation(program, 'stereoScaramuzza');
+		// Uniform locations for the CURRENTLY ACTIVE program. Each family has
+		// its own compiled program (see FAMILIES above), so locations must be
+		// re-queried whenever the active program changes — bindUniformLocations()
+		// does that, keeping these as plain free variables so the rest of the
+		// app (frame(), event handlers, uploadXNet() functions, …) can keep
+		// referencing them exactly as before.
+		let uResolution, uFov, uViewMatrix, uPreviewMatrix, uEquirect, uEquirectNearest,
+			uHasTexture, uPixelate, uGlobeRadius, uGlobeOpacity, uGlobeReflect, uProjection,
+			uShowGrid, uFoldableNet, uFoldablePreRot, uRhombicPreRot, uIcoPreRot, uTruncOctPreRot,
+			uRhombic12PreRot, uDodec12PreRot, uPent24PreRot, uDelt60PreRot, uPentahex60PreRot,
+			uRhombicosi62PreRot, uDelt24PreRot, uFoldableScale, uFoldableOverlay, uFoldableBBox,
+			uFoldablePaperRect, uFoldableOverlayAlpha, uCutLineOverlay, uFoldableTabOverlay,
+			uCutLineMode, uExportClip, uLevelMatrix, uPointer, uMagnifierRadius, uRefractivity,
+			uCollageRotation, uCollageFlip, uAzimuthalMask, uAzimuthalZoom, uStereoD, uStereoScaramuzza;
+		function bindUniformLocations(prog) {
+			uResolution = gl.getUniformLocation(prog, 'resolution');
+			uFov = gl.getUniformLocation(prog, 'fov');
+			uViewMatrix = gl.getUniformLocation(prog, 'viewMatrix');
+			uPreviewMatrix = gl.getUniformLocation(prog, 'previewMatrix');
+			uEquirect = gl.getUniformLocation(prog, 'equirect');
+			uEquirectNearest = gl.getUniformLocation(prog, 'equirectNearest');
+			uHasTexture = gl.getUniformLocation(prog, 'hasTexture');
+			uPixelate = gl.getUniformLocation(prog, 'pixelate');
+			uGlobeRadius = gl.getUniformLocation(prog, 'globeRadius');
+			uGlobeOpacity = gl.getUniformLocation(prog, 'globeOpacity');
+			uGlobeReflect = gl.getUniformLocation(prog, 'globeReflect');
+			uProjection = gl.getUniformLocation(prog, 'projection');
+			uShowGrid = gl.getUniformLocation(prog, 'showGrid');
+			uFoldableNet = gl.getUniformLocation(prog, 'foldableNet');
+			uFoldablePreRot = gl.getUniformLocation(prog, 'foldablePreRot');
+			uRhombicPreRot = gl.getUniformLocation(prog, 'rhombicPreRot');
+			uIcoPreRot = gl.getUniformLocation(prog, 'icoPreRot');
+			uTruncOctPreRot = gl.getUniformLocation(prog, 'truncOctPreRot');
+			uRhombic12PreRot = gl.getUniformLocation(prog, 'rhombic12PreRot');
+			uDodec12PreRot = gl.getUniformLocation(prog, 'dodec12PreRot');
+			uPent24PreRot = gl.getUniformLocation(prog, 'pent24PreRot');
+			uDelt60PreRot = gl.getUniformLocation(prog, 'delt60PreRot');
+			uPentahex60PreRot = gl.getUniformLocation(prog, 'pentahex60PreRot');
+			uRhombicosi62PreRot = gl.getUniformLocation(prog, 'rhombicosi62PreRot');
+			uDelt24PreRot = gl.getUniformLocation(prog, 'delt24PreRot');
+			uFoldableScale = gl.getUniformLocation(prog, 'foldableScale');
+			uFoldableOverlay = gl.getUniformLocation(prog, 'foldableOverlay');
+			uFoldableBBox = gl.getUniformLocation(prog, 'foldableBBox');
+			uFoldablePaperRect = gl.getUniformLocation(prog, 'foldablePaperRect');
+			uFoldableOverlayAlpha = gl.getUniformLocation(prog, 'foldableOverlayAlpha');
+			uCutLineOverlay = gl.getUniformLocation(prog, 'cutLineOverlay');
+			uFoldableTabOverlay = gl.getUniformLocation(prog, 'foldableTabOverlay');
+			uCutLineMode = gl.getUniformLocation(prog, 'cutLineMode');
+			uExportClip = gl.getUniformLocation(prog, 'exportClip');
+			uLevelMatrix = gl.getUniformLocation(prog, 'levelMatrix');
+			uPointer = gl.getUniformLocation(prog, 'pointer');
+			uMagnifierRadius = gl.getUniformLocation(prog, 'magnifierRadius');
+			uRefractivity = gl.getUniformLocation(prog, 'refractivity');
+			uCollageRotation = gl.getUniformLocation(prog, 'collageRotation');
+			uCollageFlip = gl.getUniformLocation(prog, 'collageFlip');
+			uAzimuthalMask = gl.getUniformLocation(prog, 'azimuthalMask');
+			uAzimuthalZoom = gl.getUniformLocation(prog, 'azimuthalZoom');
+			uStereoD = gl.getUniformLocation(prog, 'stereoD');
+			uStereoScaramuzza = gl.getUniformLocation(prog, 'stereoScaramuzza');
+		}
+
+		// Projection modes as array for cycling
+		const projectionModes = ['equirectangular', 'perspective', 'azimuthal', 'azimuthal collage', 'stereographic', 'dodecahedron-12 preview', 'dodecahedron-12 foldable', 'rhombic-12 preview', 'rhombic-12 foldable', 'truncoct-14 preview', 'truncoct-14 foldable', 'icosahedron-20 preview', 'icosahedron-20 foldable', 'pentagonal-24 preview', 'pentagonal-24 foldable', 'deltoidal-24 preview', 'deltoidal-24 foldable', 'rhombic-30 preview', 'rhombic-30 foldable', 'buckyball-32 preview', 'buckyball-32 foldable', 'deltoidal-60 preview', 'deltoidal-60 foldable', 'pentahex-60 preview', 'pentahex-60 foldable', 'rhombicosi-62 preview', 'rhombicosi-62 foldable'];
+		// Mode index constants — derived from array order so reordering "just works" in JS.
+		// The GLSL shader uses these as float uniform `projection` with cascading > N.5 checks;
+		// if you reorder the array, reorder the shader cascade to match. Also keep FAMILIES
+		// (above) in sync — each polyhedron's [preview, foldable] pair shares one program.
+		const M_EQUIRECT  = projectionModes.indexOf('equirectangular');
+		const M_PERSP     = projectionModes.indexOf('perspective');
+		const M_AZIMUTHAL = projectionModes.indexOf('azimuthal');
+		const M_COLLAGE   = projectionModes.indexOf('azimuthal collage');
+		const M_STEREO    = projectionModes.indexOf('stereographic');
+		const M_DODEC_PREVIEW = projectionModes.indexOf('dodecahedron-12 preview');
+		const M_DODEC_FOLDABLE = projectionModes.indexOf('dodecahedron-12 foldable');
+		const M_RD12_PREVIEW = projectionModes.indexOf('rhombic-12 preview');
+		const M_RD12_FOLDABLE = projectionModes.indexOf('rhombic-12 foldable');
+		const M_TRUNCOCT_PREVIEW = projectionModes.indexOf('truncoct-14 preview');
+		const M_TRUNCOCT_FOLDABLE = projectionModes.indexOf('truncoct-14 foldable');
+		const M_ICO_PREVIEW = projectionModes.indexOf('icosahedron-20 preview');
+		const M_ICO_FOLDABLE = projectionModes.indexOf('icosahedron-20 foldable');
+		const M_PENT24_PREVIEW = projectionModes.indexOf('pentagonal-24 preview');
+		const M_PENT24_FOLDABLE = projectionModes.indexOf('pentagonal-24 foldable');
+		const M_DELT24_PREVIEW = projectionModes.indexOf('deltoidal-24 preview');
+		const M_DELT24_FOLDABLE = projectionModes.indexOf('deltoidal-24 foldable');
+		const M_RHOMBIC_PREVIEW = projectionModes.indexOf('rhombic-30 preview');
+		const M_RHOMBIC_FOLDABLE = projectionModes.indexOf('rhombic-30 foldable');
+		const M_PREVIEW   = projectionModes.indexOf('buckyball-32 preview');
+		const M_FOLDABLE  = projectionModes.indexOf('buckyball-32 foldable');
+		const M_DELT60_PREVIEW = projectionModes.indexOf('deltoidal-60 preview');
+		const M_DELT60_FOLDABLE = projectionModes.indexOf('deltoidal-60 foldable');
+		const M_PH60_PREVIEW = projectionModes.indexOf('pentahex-60 preview');
+		const M_PH60_FOLDABLE = projectionModes.indexOf('pentahex-60 foldable');
+		const M_RC62_PREVIEW = projectionModes.indexOf('rhombicosi-62 preview');
+		const M_RC62_FOLDABLE = projectionModes.indexOf('rhombicosi-62 foldable');
+		let projectionModeIndex = M_STEREO;
+
+		// ── Bind each family's program once, in turn, to run its one-time
+		// net-layout upload (uploadXNet() functions below — plain function
+		// declarations are hoisted, so they're callable here even though
+		// defined later in this function) against the RIGHT program object:
+		// uniform values live per-program, not globally, so each polyhedron's
+		// net data/textures/samplers must be (re-)uploaded into its own family
+		// program once that program exists.
+		const familyUploadFns = {
+			dodec12: () => uploadDodec12Net(),
+			rd12: () => uploadRhombic12Net(),
+			truncoct14: () => uploadTruncOctNet(),
+			ico20: () => uploadIco20Net(),
+			pent24: () => uploadPent24Net(),
+			delt24: () => uploadDelt24Net(),
+			rhombic30: () => uploadRhombic30Net(),
+			bucky32: () => uploadBuckyNet(),
+			delt60: () => uploadDelt60Net(),
+			pentahex60: () => uploadPentahex60Net(),
+			rc62: () => uploadRhombicosi62Net(),
+		};
+		FAMILIES.forEach((family, fi) => {
+			gl.useProgram(programs[fi]);
+			bindUniformLocations(programs[fi]);
+			gl.uniform1i(uEquirect, 0);
+			gl.uniform1i(uEquirectNearest, 2);
+			gl.uniform1i(uFoldableOverlay, 1);
+			gl.uniform1i(uCutLineOverlay, 3);
+			gl.uniform1i(uFoldableTabOverlay, 4);
+			if (familyUploadFns[family.id]) familyUploadFns[family.id]();
+		});
+		// Track + activate the default mode's program (stereographic → "core").
+		let currentFamilyIndex = modeToFamily[projectionModeIndex];
+		let currentProgram = programs[currentFamilyIndex];
+		gl.useProgram(currentProgram);
+		bindUniformLocations(currentProgram);
 
 		// ── Shared: compute pre-rotation matrix from north-pole direction ──
 		function computePreRot(northPoleDir, lonOffset) {
@@ -4891,7 +5407,7 @@ void main() {
 		// parent tree (DIN A layout from buckyball-net-layouter.html) into a
 		// 2D net, uploads face positions/rotations as a GLSL uniform array,
 		// and renders the overlay (edges + glue tabs) to a 2D canvas texture.
-		(function uploadBuckyNet() {
+		function uploadBuckyNet() {
 			// Golden ratio and derived constants for face center coordinates
 			const PHI = (1 + Math.sqrt(5)) / 2;
 			// Pentagon centers: icosahedron vertices normalized to unit sphere
@@ -5554,10 +6070,10 @@ void main() {
 
 			window.bucky32Presets = bucky32Presets;
 			window.populateBuckySelect = populateBuckySelect;
-		})();
+		}
 
 		// ── Compute rhombic triacontahedron flat net layout (30 golden rhombi) ──
-		(function() {
+		function uploadRhombic30Net() {
 			const PHI = (1 + Math.sqrt(5)) / 2;
 			const iA = 1 / Math.sqrt(1 + PHI * PHI);  // short half-diagonal ≈ 0.5257
 			const iB = PHI * iA;                        // long half-diagonal  ≈ 0.8507
@@ -6134,10 +6650,10 @@ void main() {
 
 			window.rhombic30Presets = rhombic30Presets;
 			window.populateRhombicSelect = populateRhombicSelect;
-		})();
+		}
 
 		// ── Compute truncated octahedron flat net layout (14 faces: 8 hex + 6 sq) ──
-		(function uploadTruncOctNet() {
+		function uploadTruncOctNet() {
 			const G = GEOMETRIES.truncoct14;
 			const { c3, adj, frames, presets } = G;
 			const N_FACES = G.nFaces;
@@ -6595,10 +7111,10 @@ void main() {
 
 			window.truncOct14Presets = truncOct14Presets;
 			window.populateTruncOctSelect = populateTruncOctSelect;
-		})();
+		}
 
 		// ── Compute icosahedron flat net layout (20 equilateral triangles) ──
-		(function uploadIco20Net() {
+		function uploadIco20Net() {
 			const G = GEOMETRIES.icosahedron20;
 			const { c3, adj, frames, presets } = G;
 			const N_FACES = 20;
@@ -7060,10 +7576,10 @@ void main() {
 
 			window.ico20Presets = ico20Presets;
 			window.populateIcoSelect = populateIcoSelect;
-		})();
+		}
 
 		// ── Compute rhombic dodecahedron flat net layout (12 rhombi) ──
-		(function() {
+		function uploadRhombic12Net() {
 			const G = GEOMETRIES.rhombic12;
 			const { c3, adj, frames, presets } = G;
 			const N_FACES = 12;
@@ -7530,10 +8046,10 @@ void main() {
 
 			window.rhombic12Presets = rhombic12Presets;
 			window.populateRhombic12Select = populateRhombic12Select;
-		})();
+		}
 
 		// ── Compute dodecahedron flat net layout (12 regular pentagons) ──
-		(function uploadDodec12Net() {
+		function uploadDodec12Net() {
 			const G = GEOMETRIES.dodecahedron12;
 			const { c3, adj, frames, presets } = G;
 			const N_FACES = 12;
@@ -8022,10 +8538,10 @@ void main() {
 
 			window.dodec12Presets = dodec12Presets;
 			window.populateDodecSelect = populateDodecSelect;
-		})();
+		}
 
 		// ── Pentagonal-24 net layout (irregular pentagons → pentagonal icositetrahedron) ──
-		(function uploadPent24Net() {
+		function uploadPent24Net() {
 			const G = GEOMETRIES.pentagonal24;
 			const { c3, adj, frames, presets } = G;
 			const N_FACES = 24;
@@ -8471,9 +8987,9 @@ void main() {
 
 			window.pent24Presets = pent24Presets;
 			window.populatePent24Select = populatePent24Select;
-		})();
+		}
 
-		(function uploadDelt60Net() {
+		function uploadDelt60Net() {
 			const G = GEOMETRIES.deltoidal60;
 			const { c3, adj, frames, presets, faceOffsets, kiteVtx } = G;
 			const N_FACES = 60;
@@ -8824,9 +9340,9 @@ void main() {
 
 			window.delt60Presets = delt60Presets;
 			window.populateDelt60Select = populateDelt60Select;
-		})();
+		}
 
-		(function uploadPentahex60Net() {
+		function uploadPentahex60Net() {
 			const G = GEOMETRIES.pentahex60;
 			const { c3, adj, frames, presets, faceOffsets, pentVtx } = G;
 			const N_FACES = 60;
@@ -9177,9 +9693,9 @@ void main() {
 
 			window.ph60Presets = ph60Presets;
 			window.populatePentahex60Select = populatePentahex60Select;
-		})();
+		}
 
-		(function uploadRhombicosi62Net() {
+		function uploadRhombicosi62Net() {
 			const G = GEOMETRIES.rhombicosi62;
 			const { c3, adj, frames, presets } = G;
 			const N_FACES = 62;
@@ -9594,7 +10110,365 @@ void main() {
 
 			window.rc62Presets = rc62Presets;
 			window.populateRhombicosi62Select = populateRhombicosi62Select;
-		})();
+		}
+
+		function uploadDelt24Net() {
+			const G = GEOMETRIES.deltoidal24;
+			const { c3, adj, frames, presets, faceOffsets, kiteVtx } = G;
+			const N_FACES = 24;
+			const N_SIDES = 4;
+			const INRADIUS = G.apothem();
+			const dPent = G.circumR();
+			const tabInsetLong = 0.12;
+			const tabInsetShort = 0.15;
+
+			function edgeIdx(i, j) { return G.edgeIdx(i, j); }
+			function tabInsetForEdge(k) { return (k < 2) ? tabInsetLong : tabInsetShort; }
+
+			function faceVerts(fx, fy, rot, scl) {
+				const cr = Math.cos(rot), sr = Math.sin(rot);
+				return kiteVtx.map(([lx, ly]) => ({
+					x: fx + (lx * cr - ly * sr) / scl,
+					y: fy + (lx * sr + ly * cr) / scl
+				}));
+			}
+
+			function computeDelt24Layout(parentTree, importAngle, tabsMap, paperAspect) {
+				const layout = unfoldNet(G, parentTree, false);
+				const { res: lRes, placed: lPlaced, parent: lParent, seed: layoutSeed } = layout;
+
+				let angle;
+				if (importAngle != null) {
+					angle = importAngle;
+				} else {
+					angle = optimizeNetAngle(G, layout, paperAspect || Math.sqrt(2));
+				}
+				applyNetAngle(layout, angle, N_FACES);
+
+				let mnX = 1e9, mxX = -1e9, mnY = 1e9, mxY = -1e9;
+				for (let i = 0; i < N_FACES; i++) {
+					if (!lPlaced[i]) continue;
+					mnX = Math.min(mnX, lRes[i].x - dPent); mxX = Math.max(mxX, lRes[i].x + dPent);
+					mnY = Math.min(mnY, lRes[i].y - dPent); mxY = Math.max(mxY, lRes[i].y + dPent);
+				}
+
+				const cx = (mnX + mxX) / 2, cy = (mnY + mxY) / 2;
+				const scaleVal = (mxY - mnY) / 2 / 0.95;
+
+				const data = new Float32Array(24 * 4);
+				for (let i = 0; i < N_FACES; i++) {
+					if (!lPlaced[i]) { data[i*4] = 9; data[i*4+1] = 9; continue; }
+					data[i*4] = (lRes[i].x - cx) / scaleVal;
+					data[i*4+1] = (lRes[i].y - cy) / scaleVal;
+					data[i*4+2] = lRes[i].r;
+					data[i*4+3] = faceOffsets[i];
+				}
+				gl.uniform4fv(uFoldableNet, data);
+				gl.uniform1f(uFoldableScale, scaleVal);
+
+				let bbX0 = Infinity, bbX1 = -Infinity, bbY0 = Infinity, bbY1 = -Infinity;
+				for (let i = 0; i < N_FACES; i++) {
+					if (!lPlaced[i]) continue;
+					const vs = faceVerts(data[i*4], data[i*4+1], data[i*4+2], scaleVal);
+					for (const v of vs) {
+						bbX0 = Math.min(bbX0, v.x); bbX1 = Math.max(bbX1, v.x);
+						bbY0 = Math.min(bbY0, v.y); bbY1 = Math.max(bbY1, v.y);
+					}
+				}
+				const bbPad = 0.02 + INRADIUS / scaleVal * 0.35;
+				bbX0 -= bbPad; bbX1 += bbPad; bbY0 -= bbPad; bbY1 += bbPad;
+				const bbW = bbX1 - bbX0, bbH = bbY1 - bbY0;
+
+				const edgeNeighbor = [];
+				for (let i = 0; i < N_FACES; i++) {
+					edgeNeighbor.push(new Array(N_SIDES).fill(null));
+					if (!lPlaced[i]) continue;
+					for (const j of adj[i]) {
+						const k = edgeIdx(i, j);
+						const isInternal = lPlaced[j] && (lParent[j] === i || lParent[i] === j);
+						edgeNeighbor[i][k] = { j, isInternal };
+					}
+				}
+
+				const OVH = 2048, OVW = Math.round(OVH * bbW / bbH);
+				const oCanvas = document.createElement('canvas');
+				oCanvas.width = OVW; oCanvas.height = OVH;
+				const ctx = oCanvas.getContext('2d');
+				const ovSX = OVW / bbW, ovSY = OVH / bbH;
+				function ovX(x) { return (x - bbX0) * ovSX; }
+				function ovY(y) { return OVH - (y - bbY0) * ovSY; }
+				ctx.clearRect(0, 0, OVW, OVH);
+				const tabCanvas = document.createElement('canvas');
+				tabCanvas.width = OVW; tabCanvas.height = OVH;
+				const tabCtx = tabCanvas.getContext('2d');
+
+				const scaledTabH = INRADIUS / scaleVal * 0.3;
+
+				ctx.save();
+				tabCtx.beginPath();
+				ctx.rect(0, 0, OVW, OVH);
+				for (let i = 0; i < N_FACES; i++) {
+					if (!lPlaced[i]) continue;
+					const vs = faceVerts(data[i*4], data[i*4+1], data[i*4+2], scaleVal);
+					tabCtx.moveTo(ovX(vs[0].x), ovY(vs[0].y));
+					for (let k = 1; k < N_SIDES; k++) tabCtx.lineTo(ovX(vs[k].x), ovY(vs[k].y));
+					tabCtx.closePath();
+				}
+				ctx.clip('evenodd');
+				tabCtx.fillStyle = 'rgba(255, 180, 200, 1.0)';
+				ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+				ctx.lineWidth = 1;
+				ctx.setLineDash([6, 4]);
+				for (let i = 0; i < N_FACES; i++) {
+					if (!lPlaced[i]) continue;
+					const fx = data[i*4], fy = data[i*4+1], rot = data[i*4+2];
+					const vs = faceVerts(fx, fy, rot, scaleVal);
+					for (let k = 0; k < N_SIDES; k++) {
+						const info = edgeNeighbor[i][k];
+						if (info && info.isInternal) continue;
+						if (info) {
+							const ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							if (tabsMap && ek in tabsMap) { if (tabsMap[ek] !== i) continue; }
+							else { if (info.j < i) continue; }
+						}
+						const v1 = vs[k], v2 = vs[(k + 1) % N_SIDES];
+						const emx = (v1.x+v2.x)/2-fx, emy = (v1.y+v2.y)/2-fy;
+						const eml = Math.sqrt(emx*emx + emy*emy) || 1;
+						const nx = emx/eml, ny = emy/eml;
+						const dx = v2.x-v1.x, dy = v2.y-v1.y;
+						const tI = tabInsetForEdge(k);
+						const o1x = v1.x+nx*scaledTabH+dx*tI, o1y = v1.y+ny*scaledTabH+dy*tI;
+						const o2x = v2.x+nx*scaledTabH-dx*tI, o2y = v2.y+ny*scaledTabH-dy*tI;
+						tabCtx.beginPath();
+						tabCtx.moveTo(ovX(v1.x), ovY(v1.y));
+						tabCtx.lineTo(ovX(o1x), ovY(o1y));
+						tabCtx.lineTo(ovX(o2x), ovY(o2y));
+						tabCtx.lineTo(ovX(v2.x), ovY(v2.y));
+						tabCtx.closePath();
+						tabCtx.fill(); ctx.stroke();
+					}
+				}
+				ctx.setLineDash([]);
+				ctx.restore();
+
+				ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+				ctx.lineWidth = 1.5;
+				ctx.lineJoin = 'round';
+				for (let i = 0; i < N_FACES; i++) {
+					if (!lPlaced[i]) continue;
+					const vs = faceVerts(data[i*4], data[i*4+1], data[i*4+2], scaleVal);
+					ctx.beginPath();
+					ctx.moveTo(ovX(vs[0].x), ovY(vs[0].y));
+					for (let k = 1; k <= N_SIDES; k++) ctx.lineTo(ovX(vs[k % N_SIDES].x), ovY(vs[k % N_SIDES].y));
+					ctx.closePath();
+					ctx.stroke();
+				}
+
+				let netX0 = Infinity, netX1 = -Infinity, netY0 = Infinity, netY1 = -Infinity;
+				for (let i = 0; i < N_FACES; i++) {
+					if (!lPlaced[i]) continue;
+					const vs = faceVerts(data[i*4], data[i*4+1], data[i*4+2], scaleVal);
+					for (const v of vs) {
+						netX0 = Math.min(netX0, v.x); netX1 = Math.max(netX1, v.x);
+						netY0 = Math.min(netY0, v.y); netY1 = Math.max(netY1, v.y);
+					}
+					for (let k = 0; k < N_SIDES; k++) {
+						const info = edgeNeighbor[i][k];
+						if (info && info.isInternal) continue;
+						let hasTab = true;
+						if (info) {
+							const ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							if (tabsMap && ek in tabsMap) hasTab = (tabsMap[ek] === i);
+							else hasTab = (i < info.j);
+						}
+						if (hasTab) {
+							const v1 = vs[k], v2 = vs[(k + 1) % N_SIDES];
+							const emx = (v1.x+v2.x)/2-data[i*4], emy = (v1.y+v2.y)/2-data[i*4+1];
+							const eml = Math.sqrt(emx*emx + emy*emy) || 1;
+							const nx = emx/eml, ny = emy/eml;
+							const dx = v2.x-v1.x, dy = v2.y-v1.y;
+							const tI = tabInsetForEdge(k);
+							const o1x = v1.x+nx*scaledTabH+dx*tI, o1y = v1.y+ny*scaledTabH+dy*tI;
+							const o2x = v2.x+nx*scaledTabH-dx*tI, o2y = v2.y+ny*scaledTabH-dy*tI;
+							netX0 = Math.min(netX0, o1x, o2x); netX1 = Math.max(netX1, o1x, o2x);
+							netY0 = Math.min(netY0, o1y, o2y); netY1 = Math.max(netY1, o1y, o2y);
+						}
+					}
+				}
+
+				let paperX0 = 0, paperY0 = 0, paperX1 = 0, paperY1 = 0;
+				if (paperAspect > 0) {
+					const netW = netX1 - netX0, netH = netY1 - netY0;
+					const ps = Math.min(paperAspect / netW, 1 / netH);
+					const pW2 = paperAspect / ps / 2, pH2 = 1 / ps / 2;
+					const pcx = (netX0 + netX1) / 2, pcy = (netY0 + netY1) / 2;
+					paperX0 = pcx - pW2; paperY0 = pcy - pH2;
+					paperX1 = pcx + pW2; paperY1 = pcy + pH2;
+				}
+				gl.uniform4f(uFoldablePaperRect, paperX0, paperY0, paperX1, paperY1);
+
+				const overlayTex = gl.createTexture();
+				gl.activeTexture(gl.TEXTURE1);
+				gl.bindTexture(gl.TEXTURE_2D, overlayTex);
+				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, oCanvas);
+				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+				gl.uniform4f(uFoldableBBox, bbX0, bbY0, bbX1, bbY1);
+
+				// Upload tab overlay texture (glue tabs only)
+				const tabOverlayTex = gl.createTexture();
+				gl.activeTexture(gl.TEXTURE4);
+				gl.bindTexture(gl.TEXTURE_2D, tabOverlayTex);
+				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tabCanvas);
+				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+				gl.uniform1i(uFoldableTabOverlay, 4);
+
+				const clCanvas = document.createElement('canvas');
+				clCanvas.width = OVW; clCanvas.height = OVH;
+				const clCtx = clCanvas.getContext('2d');
+				clCtx.clearRect(0, 0, OVW, OVH);
+				clCtx.strokeStyle = 'rgba(0, 0, 0, 1.0)';
+				clCtx.lineWidth = 2;
+				clCtx.lineJoin = 'round';
+
+				clCtx.save();
+				clCtx.beginPath();
+				clCtx.rect(0, 0, OVW, OVH);
+				for (let i = 0; i < N_FACES; i++) {
+					if (!lPlaced[i]) continue;
+					const vs = faceVerts(data[i*4], data[i*4+1], data[i*4+2], scaleVal);
+					clCtx.moveTo(ovX(vs[0].x), ovY(vs[0].y));
+					for (let k = 1; k < N_SIDES; k++) clCtx.lineTo(ovX(vs[k].x), ovY(vs[k].y));
+					clCtx.closePath();
+				}
+				clCtx.clip('evenodd');
+				for (let i = 0; i < N_FACES; i++) {
+					if (!lPlaced[i]) continue;
+					const vs = faceVerts(data[i*4], data[i*4+1], data[i*4+2], scaleVal);
+					for (let k = 0; k < N_SIDES; k++) {
+						const info = edgeNeighbor[i][k];
+						if (info && info.isInternal) continue;
+						if (info) {
+							const ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							if (tabsMap && ek in tabsMap) { if (tabsMap[ek] !== i) continue; }
+							else { if (info.j < i) continue; }
+						}
+						const v1 = vs[k], v2 = vs[(k + 1) % N_SIDES];
+						const emx = (v1.x+v2.x)/2-data[i*4], emy = (v1.y+v2.y)/2-data[i*4+1];
+						const eml = Math.sqrt(emx*emx + emy*emy) || 1;
+						const nx = emx/eml, ny = emy/eml;
+						const dx = v2.x-v1.x, dy = v2.y-v1.y;
+						const tI = tabInsetForEdge(k);
+						const o1x = v1.x+nx*scaledTabH+dx*tI, o1y = v1.y+ny*scaledTabH+dy*tI;
+						const o2x = v2.x+nx*scaledTabH-dx*tI, o2y = v2.y+ny*scaledTabH-dy*tI;
+						clCtx.beginPath();
+						clCtx.moveTo(ovX(v1.x), ovY(v1.y));
+						clCtx.lineTo(ovX(o1x), ovY(o1y));
+						clCtx.lineTo(ovX(o2x), ovY(o2y));
+						clCtx.lineTo(ovX(v2.x), ovY(v2.y));
+						clCtx.stroke();
+					}
+				}
+				clCtx.restore();
+				for (let i = 0; i < N_FACES; i++) {
+					if (!lPlaced[i]) continue;
+					const vs = faceVerts(data[i*4], data[i*4+1], data[i*4+2], scaleVal);
+					for (let k = 0; k < N_SIDES; k++) {
+						const info = edgeNeighbor[i][k];
+						if (info && info.isInternal) continue;
+						if (info && lPlaced[info.j]) {
+							const ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							let iOwnTab;
+							if (tabsMap && ek in tabsMap) iOwnTab = (tabsMap[ek] === i);
+							else iOwnTab = !(info.j < i);
+							if (iOwnTab) continue;
+						}
+						const v1 = vs[k], v2 = vs[(k + 1) % N_SIDES];
+						clCtx.beginPath();
+						clCtx.moveTo(ovX(v1.x), ovY(v1.y));
+						clCtx.lineTo(ovX(v2.x), ovY(v2.y));
+						clCtx.stroke();
+					}
+				}
+
+				const cutLineTex = gl.createTexture();
+				gl.activeTexture(gl.TEXTURE3);
+				gl.bindTexture(gl.TEXTURE_2D, cutLineTex);
+				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, clCanvas);
+				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+				window._delt24Data = data;
+				window._delt24Scale = scaleVal;
+				window._delt24BBox = [bbX0, bbY0, bbX1, bbY1];
+				window._delt24OverlayTex = overlayTex;
+				window._delt24TabOverlayTex = tabOverlayTex;
+				window._delt24CutLineTex = cutLineTex;
+				window._delt24Placed = lPlaced.slice();
+				window._delt24EdgeNeighbor = edgeNeighbor;
+				window._delt24TabH = scaledTabH;
+				window._delt24TabInsetLong = tabInsetLong;
+				window._delt24TabInsetShort = tabInsetShort;
+				window._delt24TabsMap = tabsMap || null;
+				window._delt24TightBBox = { x0: netX0, y0: netY0, x1: netX1, y1: netY1 };
+				window._delt24PaperRect = { x0: paperX0, y0: paperY0, x1: paperX1, y1: paperY1 };
+
+				return { seed: layoutSeed, rootRot: lRes[layoutSeed].r };
+			}
+
+			const delt24Presets = presets;
+
+			function populateDelt24Select() {
+				const sel = document.getElementById('geo-layout-select');
+				if (!sel) return;
+				sel.innerHTML = '';
+				for (let i = 0; i < delt24Presets.length; i++) {
+					const opt = document.createElement('option');
+					opt.value = i;
+					opt.textContent = delt24Presets[i].label;
+					sel.appendChild(opt);
+				}
+			}
+			populateDelt24Select();
+
+			// No shipped presets for deltoidal-24 (build/import layouts via net-layouter.html).
+			if (delt24Presets.length > 0) {
+				const defaultPreset = delt24Presets[0];
+				computeDelt24Layout(defaultPreset.parents, null, defaultPreset.tabs, defaultPreset.aspect);
+				if (defaultPreset.northPole) {
+					gl.uniformMatrix3fv(uDelt24PreRot, false, computePreRot(defaultPreset.northPole.dir, defaultPreset.lonOffset));
+				} else {
+					gl.uniformMatrix3fv(uDelt24PreRot, false, new Float32Array([1,0,0, 0,1,0, 0,0,1]));
+				}
+			} else {
+				gl.uniformMatrix3fv(uDelt24PreRot, false, new Float32Array([1,0,0, 0,1,0, 0,0,1]));
+			}
+
+			window.importDelt24Layout = function(parentTree, importAngle, alignHorizon, tabsMap, paperAspect, northPoleDir, lonOffset) {
+				computeDelt24Layout(parentTree, importAngle, tabsMap, paperAspect || 0);
+				if (northPoleDir) {
+					gl.uniformMatrix3fv(uDelt24PreRot, false, computePreRot(northPoleDir, lonOffset));
+				}
+				foldableDelt24Quat = [0, 0, 0, 1];
+				needsRedraw = true;
+			};
+
+			window.delt24Presets = delt24Presets;
+			window.populateDelt24Select = populateDelt24Select;
+		}
 
 		// ── Upload the correct net layout data based on current projection mode ──
 		// Called when switching between foldable/preview modes. Routes to the
@@ -9611,51 +10485,37 @@ void main() {
 			const isDelt60 = projectionModeIndex === M_DELT60_FOLDABLE || projectionModeIndex === M_DELT60_PREVIEW;
 			const isPH60 = projectionModeIndex === M_PH60_FOLDABLE || projectionModeIndex === M_PH60_PREVIEW;
 			const isRC62 = projectionModeIndex === M_RC62_FOLDABLE || projectionModeIndex === M_RC62_PREVIEW;
-			const d = isRC62 ? window._rc62Data : isPH60 ? window._ph60Data : isDelt60 ? window._delt60Data : isPent24 ? window._pent24Data : isDodec ? window._dodec12Data : isRD12 ? window._rhombic12Data : isIco ? window._ico20Data : isTruncOct ? window._truncOct14Data : isRhombic ? window._rhombic30Data : window._bucky32Data;
-			const s = isRC62 ? window._rc62Scale : isPH60 ? window._ph60Scale : isDelt60 ? window._delt60Scale : isPent24 ? window._pent24Scale : isDodec ? window._dodec12Scale : isRD12 ? window._rhombic12Scale : isIco ? window._ico20Scale : isTruncOct ? window._truncOct14Scale : isRhombic ? window._rhombic30Scale : window._bucky32Scale;
-			const bb = isRC62 ? window._rc62BBox : isPH60 ? window._ph60BBox : isDelt60 ? window._delt60BBox : isPent24 ? window._pent24BBox : isDodec ? window._dodec12BBox : isRD12 ? window._rhombic12BBox : isIco ? window._ico20BBox : isTruncOct ? window._truncOct14BBox : isRhombic ? window._rhombic30BBox : window._bucky32BBox;
-			const tex = isRC62 ? window._rc62OverlayTex : isPH60 ? window._ph60OverlayTex : isDelt60 ? window._delt60OverlayTex : isPent24 ? window._pent24OverlayTex : isDodec ? window._dodec12OverlayTex : isRD12 ? window._rhombic12OverlayTex : isIco ? window._ico20OverlayTex : isTruncOct ? window._truncOct14OverlayTex : isRhombic ? window._rhombic30OverlayTex : window._bucky32OverlayTex;
+			const isDelt24 = projectionModeIndex === M_DELT24_FOLDABLE || projectionModeIndex === M_DELT24_PREVIEW;
+			const d = isDelt24 ? window._delt24Data : isRC62 ? window._rc62Data : isPH60 ? window._ph60Data : isDelt60 ? window._delt60Data : isPent24 ? window._pent24Data : isDodec ? window._dodec12Data : isRD12 ? window._rhombic12Data : isIco ? window._ico20Data : isTruncOct ? window._truncOct14Data : isRhombic ? window._rhombic30Data : window._bucky32Data;
+			const s = isDelt24 ? window._delt24Scale : isRC62 ? window._rc62Scale : isPH60 ? window._ph60Scale : isDelt60 ? window._delt60Scale : isPent24 ? window._pent24Scale : isDodec ? window._dodec12Scale : isRD12 ? window._rhombic12Scale : isIco ? window._ico20Scale : isTruncOct ? window._truncOct14Scale : isRhombic ? window._rhombic30Scale : window._bucky32Scale;
+			const bb = isDelt24 ? window._delt24BBox : isRC62 ? window._rc62BBox : isPH60 ? window._ph60BBox : isDelt60 ? window._delt60BBox : isPent24 ? window._pent24BBox : isDodec ? window._dodec12BBox : isRD12 ? window._rhombic12BBox : isIco ? window._ico20BBox : isTruncOct ? window._truncOct14BBox : isRhombic ? window._rhombic30BBox : window._bucky32BBox;
+			const tex = isDelt24 ? window._delt24OverlayTex : isRC62 ? window._rc62OverlayTex : isPH60 ? window._ph60OverlayTex : isDelt60 ? window._delt60OverlayTex : isPent24 ? window._pent24OverlayTex : isDodec ? window._dodec12OverlayTex : isRD12 ? window._rhombic12OverlayTex : isIco ? window._ico20OverlayTex : isTruncOct ? window._truncOct14OverlayTex : isRhombic ? window._rhombic30OverlayTex : window._bucky32OverlayTex;
 			if (!d) return;
 			gl.uniform4fv(uFoldableNet, d);
 			gl.uniform1f(uFoldableScale, s);
 			gl.uniform4f(uFoldableBBox, bb[0], bb[1], bb[2], bb[3]);
 			gl.activeTexture(gl.TEXTURE1);
 			gl.bindTexture(gl.TEXTURE_2D, tex);
-			const clTex = isRC62 ? window._rc62CutLineTex : isPH60 ? window._ph60CutLineTex : isDelt60 ? window._delt60CutLineTex : isPent24 ? window._pent24CutLineTex : isDodec ? window._dodec12CutLineTex : isRD12 ? window._rhombic12CutLineTex : isIco ? window._ico20CutLineTex : isTruncOct ? window._truncOct14CutLineTex : isRhombic ? window._rhombic30CutLineTex : window._bucky32CutLineTex;
+			const clTex = isDelt24 ? window._delt24CutLineTex : isRC62 ? window._rc62CutLineTex : isPH60 ? window._ph60CutLineTex : isDelt60 ? window._delt60CutLineTex : isPent24 ? window._pent24CutLineTex : isDodec ? window._dodec12CutLineTex : isRD12 ? window._rhombic12CutLineTex : isIco ? window._ico20CutLineTex : isTruncOct ? window._truncOct14CutLineTex : isRhombic ? window._rhombic30CutLineTex : window._bucky32CutLineTex;
 			if (clTex) {
 				gl.activeTexture(gl.TEXTURE3);
 				gl.bindTexture(gl.TEXTURE_2D, clTex);
 			}
-			const tabTex = isRC62 ? window._rc62TabOverlayTex : isPH60 ? window._ph60TabOverlayTex : isDelt60 ? window._delt60TabOverlayTex : isPent24 ? window._pent24TabOverlayTex : isDodec ? window._dodec12TabOverlayTex : isRD12 ? window._rhombic12TabOverlayTex : isIco ? window._ico20TabOverlayTex : isTruncOct ? window._truncOct14TabOverlayTex : isRhombic ? window._rhombic30TabOverlayTex : window._bucky32TabOverlayTex;
+			const tabTex = isDelt24 ? window._delt24TabOverlayTex : isRC62 ? window._rc62TabOverlayTex : isPH60 ? window._ph60TabOverlayTex : isDelt60 ? window._delt60TabOverlayTex : isPent24 ? window._pent24TabOverlayTex : isDodec ? window._dodec12TabOverlayTex : isRD12 ? window._rhombic12TabOverlayTex : isIco ? window._ico20TabOverlayTex : isTruncOct ? window._truncOct14TabOverlayTex : isRhombic ? window._rhombic30TabOverlayTex : window._bucky32TabOverlayTex;
 			if (tabTex) {
 				gl.activeTexture(gl.TEXTURE4);
 				gl.bindTexture(gl.TEXTURE_2D, tabTex);
 			}
 			window.foldableBBox = { x0: bb[0], y0: bb[1], x1: bb[2], y1: bb[3] };
-			const tbb = isRC62 ? window._rc62TightBBox : isPH60 ? window._ph60TightBBox : isDelt60 ? window._delt60TightBBox : isPent24 ? window._pent24TightBBox : isDodec ? window._dodec12TightBBox : isRD12 ? window._rhombic12TightBBox : isIco ? window._ico20TightBBox : isTruncOct ? window._truncOct14TightBBox : isRhombic ? window._rhombic30TightBBox : window._bucky32TightBBox;
+			const tbb = isDelt24 ? window._delt24TightBBox : isRC62 ? window._rc62TightBBox : isPH60 ? window._ph60TightBBox : isDelt60 ? window._delt60TightBBox : isPent24 ? window._pent24TightBBox : isDodec ? window._dodec12TightBBox : isRD12 ? window._rhombic12TightBBox : isIco ? window._ico20TightBBox : isTruncOct ? window._truncOct14TightBBox : isRhombic ? window._rhombic30TightBBox : window._bucky32TightBBox;
 			if (tbb) window.foldableTightBBox = tbb;
-			const pr = isRC62 ? window._rc62PaperRect : isPH60 ? window._ph60PaperRect : isDelt60 ? window._delt60PaperRect : isPent24 ? window._pent24PaperRect : isDodec ? window._dodec12PaperRect : isRD12 ? window._rhombic12PaperRect : isIco ? window._ico20PaperRect : isTruncOct ? window._truncOct14PaperRect : isRhombic ? window._rhombic30PaperRect : window._bucky32PaperRect;
+			const pr = isDelt24 ? window._delt24PaperRect : isRC62 ? window._rc62PaperRect : isPH60 ? window._ph60PaperRect : isDelt60 ? window._delt60PaperRect : isPent24 ? window._pent24PaperRect : isDodec ? window._dodec12PaperRect : isRD12 ? window._rhombic12PaperRect : isIco ? window._ico20PaperRect : isTruncOct ? window._truncOct14PaperRect : isRhombic ? window._rhombic30PaperRect : window._bucky32PaperRect;
 			if (pr) gl.uniform4f(uFoldablePaperRect, pr.x0, pr.y0, pr.x1, pr.y1);
 			else gl.uniform4f(uFoldablePaperRect, 0, 0, 0, 0);
 		}
-		// Initialize with buckyball-32 data (default mode is not foldable anyway).
-		// Can't call uploadActiveNetData() here because projectionModeIndex
-		// isn't declared yet — upload bucky-32 data directly instead.
-		{
-			const d = window._bucky32Data, s = window._bucky32Scale;
-			const bb = window._bucky32BBox, t = window._bucky32OverlayTex;
-			gl.uniform4fv(uFoldableNet, d);
-			gl.uniform1f(uFoldableScale, s);
-			gl.uniform4f(uFoldableBBox, bb[0], bb[1], bb[2], bb[3]);
-			gl.activeTexture(gl.TEXTURE1);
-			gl.bindTexture(gl.TEXTURE_2D, t);
-			if (window._bucky32TabOverlayTex) {
-				gl.activeTexture(gl.TEXTURE4);
-				gl.bindTexture(gl.TEXTURE_2D, window._bucky32TabOverlayTex);
-			}
-			window.foldableBBox = { x0: bb[0], y0: bb[1], x1: bb[2], y1: bb[3] };
-			if (window._bucky32TightBBox) window.foldableTightBBox = window._bucky32TightBBox;
-		}
+		// Bucky-32 net data is already uploaded into the bucky32 family's own
+		// program by the FAMILIES.forEach() init loop above — no separate
+		// "default mode" upload needed here any more.
 
 		// Placeholder texture (1×1 black)
 		const tex = gl.createTexture();
@@ -9797,6 +10657,8 @@ void main() {
 		let foldablePentahex60Quat = [0, 0, 0, 1];
 		// Quaternion for the rhombicosi-62 net (M_RC62_FOLDABLE).
 		let foldableRhombicosi62Quat = [0, 0, 0, 1];
+		// Quaternion for the deltoidal-24 net (M_DELT24_FOLDABLE).
+		let foldableDelt24Quat = [0, 0, 0, 1];
 
 		// Return the "active" quaternion for the current projection mode.
 		function activeQuat() {
@@ -9810,6 +10672,7 @@ void main() {
 			if (projectionModeIndex === M_DELT60_FOLDABLE || projectionModeIndex === M_DELT60_PREVIEW) return foldableDelt60Quat;
 			if (projectionModeIndex === M_PH60_FOLDABLE || projectionModeIndex === M_PH60_PREVIEW) return foldablePentahex60Quat;
 			if (projectionModeIndex === M_RC62_FOLDABLE || projectionModeIndex === M_RC62_PREVIEW) return foldableRhombicosi62Quat;
+			if (projectionModeIndex === M_DELT24_FOLDABLE || projectionModeIndex === M_DELT24_PREVIEW) return foldableDelt24Quat;
 			if (projectionModeIndex === M_PREVIEW) return foldable32facesQuat;
 			return camQuat;
 		}
@@ -9824,11 +10687,12 @@ void main() {
 			if (projectionModeIndex === M_DELT60_FOLDABLE || projectionModeIndex === M_DELT60_PREVIEW) { foldableDelt60Quat = q; return; }
 			if (projectionModeIndex === M_PH60_FOLDABLE || projectionModeIndex === M_PH60_PREVIEW) { foldablePentahex60Quat = q; return; }
 			if (projectionModeIndex === M_RC62_FOLDABLE || projectionModeIndex === M_RC62_PREVIEW) { foldableRhombicosi62Quat = q; return; }
+			if (projectionModeIndex === M_DELT24_FOLDABLE || projectionModeIndex === M_DELT24_PREVIEW) { foldableDelt24Quat = q; return; }
 			if (projectionModeIndex === M_PREVIEW) { foldable32facesQuat = q; return; }
 			camQuat = q;
 		}
 		function isFoldableMode() {
-			return projectionModeIndex === M_DODEC_FOLDABLE || projectionModeIndex === M_RD12_FOLDABLE || projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_ICO_FOLDABLE || projectionModeIndex === M_PENT24_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_DELT60_FOLDABLE || projectionModeIndex === M_PH60_FOLDABLE || projectionModeIndex === M_RC62_FOLDABLE;
+			return projectionModeIndex === M_DODEC_FOLDABLE || projectionModeIndex === M_RD12_FOLDABLE || projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_ICO_FOLDABLE || projectionModeIndex === M_PENT24_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_DELT60_FOLDABLE || projectionModeIndex === M_PH60_FOLDABLE || projectionModeIndex === M_RC62_FOLDABLE || projectionModeIndex === M_DELT24_FOLDABLE;
 		}
 
 		let fovDeg = 135;
@@ -9889,37 +10753,9 @@ void main() {
 		let needsRedraw = true;
 		function requestRedraw() { needsRedraw = true; }
 
-		// Projection modes as array for cycling
-		const projectionModes = ['equirectangular', 'perspective', 'azimuthal', 'azimuthal collage', 'stereographic', 'dodecahedron-12 preview', 'dodecahedron-12 foldable', 'rhombic-12 preview', 'rhombic-12 foldable', 'truncoct-14 preview', 'truncoct-14 foldable', 'icosahedron-20 preview', 'icosahedron-20 foldable', 'pentagonal-24 preview', 'pentagonal-24 foldable', 'rhombic-30 preview', 'rhombic-30 foldable', 'buckyball-32 preview', 'buckyball-32 foldable', 'deltoidal-60 preview', 'deltoidal-60 foldable', 'pentahex-60 preview', 'pentahex-60 foldable', 'rhombicosi-62 preview', 'rhombicosi-62 foldable'];
-		// Mode index constants — derived from array order so reordering "just works" in JS.
-		// The GLSL shader uses these as float uniform `projection` with cascading > N.5 checks;
-		// if you reorder the array, reorder the shader cascade to match.
-		const M_EQUIRECT  = projectionModes.indexOf('equirectangular');
-		const M_PERSP     = projectionModes.indexOf('perspective');
-		const M_AZIMUTHAL = projectionModes.indexOf('azimuthal');
-		const M_COLLAGE   = projectionModes.indexOf('azimuthal collage');
-		const M_STEREO    = projectionModes.indexOf('stereographic');
-		const M_DODEC_PREVIEW = projectionModes.indexOf('dodecahedron-12 preview');
-		const M_DODEC_FOLDABLE = projectionModes.indexOf('dodecahedron-12 foldable');
-		const M_RD12_PREVIEW = projectionModes.indexOf('rhombic-12 preview');
-		const M_RD12_FOLDABLE = projectionModes.indexOf('rhombic-12 foldable');
-		const M_TRUNCOCT_PREVIEW = projectionModes.indexOf('truncoct-14 preview');
-		const M_TRUNCOCT_FOLDABLE = projectionModes.indexOf('truncoct-14 foldable');
-		const M_ICO_PREVIEW = projectionModes.indexOf('icosahedron-20 preview');
-		const M_ICO_FOLDABLE = projectionModes.indexOf('icosahedron-20 foldable');
-		const M_PENT24_PREVIEW = projectionModes.indexOf('pentagonal-24 preview');
-		const M_PENT24_FOLDABLE = projectionModes.indexOf('pentagonal-24 foldable');
-		const M_RHOMBIC_PREVIEW = projectionModes.indexOf('rhombic-30 preview');
-		const M_RHOMBIC_FOLDABLE = projectionModes.indexOf('rhombic-30 foldable');
-		const M_PREVIEW   = projectionModes.indexOf('buckyball-32 preview');
-		const M_FOLDABLE  = projectionModes.indexOf('buckyball-32 foldable');
-		const M_DELT60_PREVIEW = projectionModes.indexOf('deltoidal-60 preview');
-		const M_DELT60_FOLDABLE = projectionModes.indexOf('deltoidal-60 foldable');
-		const M_PH60_PREVIEW = projectionModes.indexOf('pentahex-60 preview');
-		const M_PH60_FOLDABLE = projectionModes.indexOf('pentahex-60 foldable');
-		const M_RC62_PREVIEW = projectionModes.indexOf('rhombicosi-62 preview');
-		const M_RC62_FOLDABLE = projectionModes.indexOf('rhombicosi-62 foldable');
-		let projectionModeIndex = M_STEREO;
+		// projectionModes / M_* mode-index constants / projectionModeIndex are
+		// now declared earlier (right after bindUniformLocations()), since the
+		// per-family program setup needs them before this point.
 
 		// Collage parameters
 		let collageRotationDeg = 0;
@@ -10302,8 +11138,19 @@ void main() {
 			delt60:      { geo: 'deltoidal60',    n: 60, presets: 'delt60Presets',   populate: 'populateDelt60Select',        import: 'importDelt60Layout' },
 			pentahex60:  { geo: 'pentahex60',     n: 60, presets: 'ph60Presets',     populate: 'populatePentahex60Select',    import: 'importPentahex60Layout' },
 			rhombicosi62:{ geo: 'rhombicosi62',   n: 62, presets: 'rc62Presets',     populate: 'populateRhombicosi62Select',  import: 'importRhombicosi62Layout' },
+			delt24:      { geo: 'deltoidal24',    n: 24, presets: 'delt24Presets',   populate: 'populateDelt24Select',        import: 'importDelt24Layout' },
 		};
 		function updateProjectionUI() {
+			// Switch the active GL program if the new mode belongs to a
+			// different family (see FAMILIES / modeToFamily above). Uniform
+			// values live per-program, so locations must be re-queried too.
+			const newFamilyIndex = modeToFamily[projectionModeIndex];
+			if (newFamilyIndex !== currentFamilyIndex) {
+				currentFamilyIndex = newFamilyIndex;
+				currentProgram = programs[currentFamilyIndex];
+				gl.useProgram(currentProgram);
+				bindUniformLocations(currentProgram);
+			}
 			const isPerspective = projectionModeIndex === M_PERSP;
 			const isAzimuthal = projectionModeIndex === M_AZIMUTHAL;
 			const isCollage = projectionModeIndex === M_COLLAGE;
@@ -10328,8 +11175,10 @@ void main() {
 			const isPH60Preview = projectionModeIndex === M_PH60_PREVIEW;
 			const isRC62 = projectionModeIndex === M_RC62_FOLDABLE;
 			const isRC62Preview = projectionModeIndex === M_RC62_PREVIEW;
-			const isFoldable = isDodec || isRd12 || isTruncOct || isIco || isPent24 || isRhombic || isBucky || isDelt60 || isPH60 || isRC62;
-			const isAnyPreview = isDodecPreview || isRd12Preview || isTruncOctPreview || isIcoPreview || isPent24Preview || isRhombicPreview || isBuckyPreview || isDelt60Preview || isPH60Preview || isRC62Preview;
+			const isDelt24 = projectionModeIndex === M_DELT24_FOLDABLE;
+			const isDelt24Preview = projectionModeIndex === M_DELT24_PREVIEW;
+			const isFoldable = isDodec || isRd12 || isTruncOct || isIco || isPent24 || isRhombic || isBucky || isDelt60 || isPH60 || isRC62 || isDelt24;
+			const isAnyPreview = isDodecPreview || isRd12Preview || isTruncOctPreview || isIcoPreview || isPent24Preview || isRhombicPreview || isBuckyPreview || isDelt60Preview || isPH60Preview || isRC62Preview || isDelt24Preview;
 			fovRow.style.display = (isPerspective || isAnyPreview) ? 'contents' : 'none';
 			pixelateRow.style.display = (isStereo || isPerspective || isAzimuthal || isCollage) ? 'contents' : 'none';
 
@@ -10339,7 +11188,7 @@ void main() {
 			stereographicRow.style.display = isStereo ? 'contents' : 'none';
 			netRow.style.display = (isFoldable || isAnyPreview) ? 'contents' : 'none';
 			cutlineRow.style.display = isFoldable ? 'contents' : 'none';
-			const newGeoKey = isDodec ? 'dodec12' : isRd12 ? 'rhombic12' : isTruncOct ? 'truncoct' : isIco ? 'ico' : isPent24 ? 'pent24' : isRhombic ? 'rhombic' : isBucky ? 'bucky' : isDelt60 ? 'delt60' : isPH60 ? 'pentahex60' : isRC62 ? 'rhombicosi62' : null;
+			const newGeoKey = isDodec ? 'dodec12' : isRd12 ? 'rhombic12' : isTruncOct ? 'truncoct' : isIco ? 'ico' : isPent24 ? 'pent24' : isRhombic ? 'rhombic' : isBucky ? 'bucky' : isDelt60 ? 'delt60' : isPH60 ? 'pentahex60' : isRC62 ? 'rhombicosi62' : isDelt24 ? 'delt24' : null;
 			geoLayoutRow.style.display = newGeoKey ? 'contents' : 'none';
 			if (newGeoKey && newGeoKey !== currentGeoKey) {
 				currentGeoKey = newGeoKey;
@@ -10441,6 +11290,8 @@ void main() {
 				window.importPentahex60Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset);
 			} else if (geo === 'rhombicosi62' && window.importRhombicosi62Layout) {
 				window.importRhombicosi62Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset);
+			} else if (geo === 'deltoidal24' && window.importDelt24Layout) {
+				window.importDelt24Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset);
 			}
 		};
 
@@ -10471,12 +11322,15 @@ void main() {
 				: projectionModeIndex === M_DELT60_FOLDABLE ? foldableDelt60Quat
 				: projectionModeIndex === M_PH60_FOLDABLE ? foldablePentahex60Quat
 				: projectionModeIndex === M_RC62_FOLDABLE ? foldableRhombicosi62Quat
+				: projectionModeIndex === M_DELT24_FOLDABLE ? foldableDelt24Quat
 				: camQuat;
 			return quatToMat3(quatNormalize(quatMul(camQuatOffset, q)));
 		}
 		function previewMatrix() {
 			const q = (projectionModeIndex === M_RC62_PREVIEW || projectionModeIndex === M_RC62_FOLDABLE)
 				? foldableRhombicosi62Quat
+				: (projectionModeIndex === M_DELT24_PREVIEW || projectionModeIndex === M_DELT24_FOLDABLE)
+				? foldableDelt24Quat
 				: (projectionModeIndex === M_PH60_PREVIEW || projectionModeIndex === M_PH60_FOLDABLE)
 				? foldablePentahex60Quat
 				: (projectionModeIndex === M_DELT60_PREVIEW || projectionModeIndex === M_DELT60_FOLDABLE)
@@ -10544,6 +11398,14 @@ void main() {
 			const ax = Math.abs(rpx);
 			return rpy > -inR && halfW * (rpy - dPent) - (triY - dPent) * ax <= 0
 				&& (halfSE - halfW) * (rpy - triY) - (-inR - triY) * (ax - halfW) <= 0;
+		}
+		// Point-in-kite (deltoidal-24, bilateral symmetry)
+		function _pipDelt24(rpx, rpy, invS) {
+			const halfW = 0.5 * invS, dPent = 0.5054494651244235 * invS;
+			const sqY = -0.07402136039391502 * invS, triY = -0.3909444784529831 * invS;
+			const ax = Math.abs(rpx);
+			return rpy > triY && halfW * (rpy - dPent) - (sqY - dPent) * ax <= 0
+				&& (-halfW) * (rpy - sqY) - (triY - sqY) * (ax - halfW) <= 0;
 		}
 
 		// JS-side face normals (matching GLSL constant arrays exactly)
@@ -10701,6 +11563,17 @@ void main() {
 			[-_BUCKY_A,0,-_BUCKY_B],[0,-_BUCKY_B,-_BUCKY_A],[-_BUCKY_B,-_BUCKY_A,0]
 		];
 
+		// Deltoidal-24 face normals (rhombicuboctahedron vertices: signed perms of (1,1,1+√2))
+		const _D24S = 0.35740674433659325, _D24L = 0.8628562094610168;
+		const _fDelt24 = [
+			[_D24S,_D24S,_D24L],[_D24S,_D24S,-_D24L],[_D24S,-_D24S,_D24L],[_D24S,-_D24S,-_D24L],
+			[-_D24S,_D24S,_D24L],[-_D24S,_D24S,-_D24L],[-_D24S,-_D24S,_D24L],[-_D24S,-_D24S,-_D24L],
+			[_D24L,_D24S,_D24S],[-_D24L,_D24S,_D24S],[_D24L,_D24S,-_D24S],[-_D24L,_D24S,-_D24S],
+			[_D24L,-_D24S,_D24S],[-_D24L,-_D24S,_D24S],[_D24L,-_D24S,-_D24S],[-_D24L,-_D24S,-_D24S],
+			[_D24S,_D24L,_D24S],[_D24S,-_D24L,_D24S],[-_D24S,_D24L,_D24S],[-_D24S,-_D24L,_D24S],
+			[_D24S,_D24L,-_D24S],[_D24S,-_D24L,-_D24S],[-_D24S,_D24L,-_D24S],[-_D24S,-_D24L,-_D24S]
+		];
+
 		// Convert screen coords to sphere direction for foldable net modes.
 		// Replicates the shader's point-in-polygon test and gnomonic back-projection.
 		function screenToFoldableDir(cx, cy) {
@@ -10724,6 +11597,7 @@ void main() {
 			else if (m === M_DELT60_FOLDABLE)    { netData = window._delt60Data;     scale = window._delt60Scale;     faces = _fDelt60;     nFaces = 60; preRotLoc = uDelt60PreRot; }
 			else if (m === M_PH60_FOLDABLE)      { netData = window._ph60Data;       scale = window._ph60Scale;       faces = _fPH60;       nFaces = 60; preRotLoc = uPentahex60PreRot; }
 			else if (m === M_RC62_FOLDABLE)      { netData = window._rc62Data;       scale = window._rc62Scale;       faces = _fRC62;       nFaces = 62; preRotLoc = uRhombicosi62PreRot; }
+			else if (m === M_DELT24_FOLDABLE)    { netData = window._delt24Data;     scale = window._delt24Scale;     faces = _fDelt24;     nFaces = 24; preRotLoc = uDelt24PreRot; }
 			else return null;
 			if (!netData || !scale) return null;
 
@@ -10755,6 +11629,7 @@ void main() {
 				else if (m === M_DELT60_FOLDABLE)   inside = _pipDelt60(rpx, rpy, invS);
 				else if (m === M_PH60_FOLDABLE)     inside = _pipPH60(rpx, rpy, invS);
 				else if (m === M_RC62_FOLDABLE)     inside = _pipRegular(rpx, rpy, i < 20 ? 3 : i < 50 ? 4 : 5, invS);
+				else if (m === M_DELT24_FOLDABLE)   inside = _pipDelt24(rpx, rpy, invS);
 				if (inside) {
 					const cd = Math.hypot(px, py);
 					if (cd < bestDist) { bestDist = cd; bestI = i; bestRPx = rpx; bestRPy = rpy; }
@@ -10816,6 +11691,12 @@ void main() {
 				const theta = faceOff - Math.PI * 0.5;
 				const co = Math.cos(theta), so = Math.sin(theta);
 				gx = (fcx * co - fcy * so) * GNO_S; gy = (fcx * so + fcy * co) * GNO_S;
+			} else if (m === M_DELT24_FOLDABLE) {
+				const GNO_S = 1.1589416510366775;
+				const fcx = bestRPx * scale, fcy = bestRPy * scale;
+				const theta = faceOff - Math.PI * 0.5;
+				const co = Math.cos(theta), so = Math.sin(theta);
+				gx = (fcx * co - fcy * so) * GNO_S; gy = (fcx * so + fcy * co) * GNO_S;
 			}
 
 			// Back-project to unit sphere direction
@@ -10826,7 +11707,7 @@ void main() {
 			const dir = [dx / len, dy / len, dz / len];
 
 			// Apply preRot (read from GPU uniform — only during pointer events, not per frame)
-			const preRot = gl.getUniform(program, preRotLoc);
+			const preRot = gl.getUniform(currentProgram, preRotLoc);
 			if (preRot) return _mat3MulVec(preRot, dir);
 			return dir;
 		}
@@ -11060,11 +11941,11 @@ void main() {
 				const rd2 = -sinT * Math.cos(angle);
 			return [rd0, rd2, -rd1]; // pre-rotation P=+90° (optical axis Y→Z)
 			}
-			if (projectionModeIndex === M_PERSP || projectionModeIndex === M_PREVIEW || projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_TRUNCOCT_PREVIEW || projectionModeIndex === M_ICO_PREVIEW || projectionModeIndex === M_RD12_PREVIEW || projectionModeIndex === M_DODEC_PREVIEW || projectionModeIndex === M_PENT24_PREVIEW || projectionModeIndex === M_DELT60_PREVIEW || projectionModeIndex === M_PH60_PREVIEW || projectionModeIndex === M_RC62_PREVIEW) {
+			if (projectionModeIndex === M_PERSP || projectionModeIndex === M_PREVIEW || projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_TRUNCOCT_PREVIEW || projectionModeIndex === M_ICO_PREVIEW || projectionModeIndex === M_RD12_PREVIEW || projectionModeIndex === M_DODEC_PREVIEW || projectionModeIndex === M_PENT24_PREVIEW || projectionModeIndex === M_DELT60_PREVIEW || projectionModeIndex === M_PH60_PREVIEW || projectionModeIndex === M_RC62_PREVIEW || projectionModeIndex === M_DELT24_PREVIEW) {
 				// Perspective / preview: same ray construction
 				return screenToPerspDir(cx, cy);
 			}
-			if (projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_ICO_FOLDABLE || projectionModeIndex === M_RD12_FOLDABLE || projectionModeIndex === M_DODEC_FOLDABLE || projectionModeIndex === M_PENT24_FOLDABLE || projectionModeIndex === M_DELT60_FOLDABLE || projectionModeIndex === M_PH60_FOLDABLE || projectionModeIndex === M_RC62_FOLDABLE) {
+			if (projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_ICO_FOLDABLE || projectionModeIndex === M_RD12_FOLDABLE || projectionModeIndex === M_DODEC_FOLDABLE || projectionModeIndex === M_PENT24_FOLDABLE || projectionModeIndex === M_DELT60_FOLDABLE || projectionModeIndex === M_PH60_FOLDABLE || projectionModeIndex === M_RC62_FOLDABLE || projectionModeIndex === M_DELT24_FOLDABLE) {
 				return screenToFoldableDir(cx, cy);
 			}
 			return null;
@@ -11113,6 +11994,7 @@ void main() {
 				: (projectionModeIndex === M_DELT60_FOLDABLE || projectionModeIndex === M_DELT60_PREVIEW) ? foldableDelt60Quat
 				: (projectionModeIndex === M_PH60_FOLDABLE || projectionModeIndex === M_PH60_PREVIEW) ? foldablePentahex60Quat
 				: (projectionModeIndex === M_RC62_FOLDABLE || projectionModeIndex === M_RC62_PREVIEW) ? foldableRhombicosi62Quat
+				: (projectionModeIndex === M_DELT24_FOLDABLE || projectionModeIndex === M_DELT24_PREVIEW) ? foldableDelt24Quat
 				: camQuat;
 			const viewQ = quatNormalize(quatMul(camQuatOffset, q));
 			return quatRotVec(viewQ, local);
@@ -11308,7 +12190,7 @@ void main() {
 
 		let _previewDragBg = false;
 		function isPreviewMode() {
-			return projectionModeIndex === M_DODEC_PREVIEW || projectionModeIndex === M_RD12_PREVIEW || projectionModeIndex === M_TRUNCOCT_PREVIEW || projectionModeIndex === M_ICO_PREVIEW || projectionModeIndex === M_PENT24_PREVIEW || projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_PREVIEW || projectionModeIndex === M_DELT60_PREVIEW || projectionModeIndex === M_PH60_PREVIEW || projectionModeIndex === M_RC62_PREVIEW;
+			return projectionModeIndex === M_DODEC_PREVIEW || projectionModeIndex === M_RD12_PREVIEW || projectionModeIndex === M_TRUNCOCT_PREVIEW || projectionModeIndex === M_ICO_PREVIEW || projectionModeIndex === M_PENT24_PREVIEW || projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_PREVIEW || projectionModeIndex === M_DELT60_PREVIEW || projectionModeIndex === M_PH60_PREVIEW || projectionModeIndex === M_RC62_PREVIEW || projectionModeIndex === M_DELT24_PREVIEW;
 		}
 		// Conjugate a view-space rotation q into faces-quat space:
 		// camQuat · q · camQuat⁻¹
@@ -11348,7 +12230,8 @@ void main() {
 					&& projectionModeIndex !== M_PENT24_FOLDABLE
 					&& projectionModeIndex !== M_DELT60_FOLDABLE
 					&& projectionModeIndex !== M_PH60_FOLDABLE
-					&& projectionModeIndex !== M_RC62_FOLDABLE;
+					&& projectionModeIndex !== M_RC62_FOLDABLE
+					&& projectionModeIndex !== M_DELT24_FOLDABLE;
 				_pinchTwoFingerLock = canLock;
 				if (canLock) {
 					dragging = false;
@@ -11429,7 +12312,7 @@ void main() {
 					if (projectionModeIndex === M_PERSP || projectionModeIndex === M_PREVIEW
 						|| projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_TRUNCOCT_PREVIEW
 						|| projectionModeIndex === M_ICO_PREVIEW || projectionModeIndex === M_RD12_PREVIEW
-						|| projectionModeIndex === M_DODEC_PREVIEW || projectionModeIndex === M_PENT24_PREVIEW || projectionModeIndex === M_DELT60_PREVIEW) {
+						|| projectionModeIndex === M_DODEC_PREVIEW || projectionModeIndex === M_PENT24_PREVIEW || projectionModeIndex === M_DELT60_PREVIEW || projectionModeIndex === M_DELT24_PREVIEW) {
 						fovDeg = solvePerspFov(p1.x, p1.y, p2.x, p2.y, _pinchCosAngle);
 						fovSlider.value = fovDeg;
 						fovVal.textContent = Math.round(fovDeg) + '°';
@@ -11589,7 +12472,7 @@ void main() {
 			}
 			if (projectionModeIndex !== M_EQUIRECT) {
 				// Perspective / preview: FOV zoom
-				if (projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_ICO_FOLDABLE || projectionModeIndex === M_RD12_FOLDABLE || projectionModeIndex === M_DODEC_FOLDABLE || projectionModeIndex === M_PENT24_FOLDABLE || projectionModeIndex === M_DELT60_FOLDABLE) return;
+				if (projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_ICO_FOLDABLE || projectionModeIndex === M_RD12_FOLDABLE || projectionModeIndex === M_DODEC_FOLDABLE || projectionModeIndex === M_PENT24_FOLDABLE || projectionModeIndex === M_DELT60_FOLDABLE || projectionModeIndex === M_DELT24_FOLDABLE) return;
 				fovDeg = Math.max(20, Math.min(170, fovDeg + e.deltaY * 0.05));
 				fovSlider.value = fovDeg;
 				fovVal.textContent = Math.round(fovDeg) + '°';
@@ -11642,6 +12525,7 @@ void main() {
 					: (projectionModeIndex === M_DELT60_FOLDABLE || projectionModeIndex === M_DELT60_PREVIEW) ? foldableDelt60Quat
 					: (projectionModeIndex === M_PH60_FOLDABLE || projectionModeIndex === M_PH60_PREVIEW) ? foldablePentahex60Quat
 					: (projectionModeIndex === M_RC62_FOLDABLE || projectionModeIndex === M_RC62_PREVIEW) ? foldableRhombicosi62Quat
+					: (projectionModeIndex === M_DELT24_FOLDABLE || projectionModeIndex === M_DELT24_PREVIEW) ? foldableDelt24Quat
 					: camQuat;
 				const viewQ = quatNormalize(quatMul(camQuatOffset, q));
 				const centerWorld = quatRotVec(viewQ, [0, 0, -1]);
@@ -11811,6 +12695,8 @@ void main() {
 		function activeFacesQuat() {
 			return (projectionModeIndex === M_RC62_PREVIEW || projectionModeIndex === M_RC62_FOLDABLE)
 				? foldableRhombicosi62Quat
+				: (projectionModeIndex === M_DELT24_PREVIEW || projectionModeIndex === M_DELT24_FOLDABLE)
+				? foldableDelt24Quat
 				: (projectionModeIndex === M_PH60_PREVIEW || projectionModeIndex === M_PH60_FOLDABLE)
 				? foldablePentahex60Quat
 				: (projectionModeIndex === M_DELT60_PREVIEW || projectionModeIndex === M_DELT60_FOLDABLE)
@@ -11831,6 +12717,8 @@ void main() {
 		function setActiveFacesQuat(q) {
 			if (projectionModeIndex === M_RC62_PREVIEW || projectionModeIndex === M_RC62_FOLDABLE)
 				foldableRhombicosi62Quat = q;
+			else if (projectionModeIndex === M_DELT24_PREVIEW || projectionModeIndex === M_DELT24_FOLDABLE)
+				foldableDelt24Quat = q;
 			else if (projectionModeIndex === M_PH60_PREVIEW || projectionModeIndex === M_PH60_FOLDABLE)
 				foldablePentahex60Quat = q;
 			else if (projectionModeIndex === M_DELT60_PREVIEW || projectionModeIndex === M_DELT60_FOLDABLE)
@@ -12054,6 +12942,7 @@ void main() {
 						foldableDelt60Quat: [...foldableDelt60Quat],
 						foldablePentahex60Quat: [...foldablePentahex60Quat],
 						foldableRhombicosi62Quat: [...foldableRhombicosi62Quat],
+						foldableDelt24Quat: [...foldableDelt24Quat],
 						levelQuat: [...levelQuat],
 						isLeveled,
 						fovDeg,
@@ -12103,6 +12992,7 @@ void main() {
 			if (cfg.foldableDelt60Quat && cfg.foldableDelt60Quat.length === 4) foldableDelt60Quat = cfg.foldableDelt60Quat;
 			if (cfg.foldablePentahex60Quat && cfg.foldablePentahex60Quat.length === 4) foldablePentahex60Quat = cfg.foldablePentahex60Quat;
 			if (cfg.foldableRhombicosi62Quat && cfg.foldableRhombicosi62Quat.length === 4) foldableRhombicosi62Quat = cfg.foldableRhombicosi62Quat;
+			if (cfg.foldableDelt24Quat && cfg.foldableDelt24Quat.length === 4) foldableDelt24Quat = cfg.foldableDelt24Quat;
 			if (cfg.levelQuat && cfg.levelQuat.length === 4) levelQuat = cfg.levelQuat;
 			if (typeof cfg.isLeveled === 'boolean') isLeveled = cfg.isLeveled;
 			if (typeof cfg.fovDeg === 'number') {
@@ -14288,7 +15178,8 @@ void main() {
 			const isDelt60 = projectionModeIndex === M_DELT60_FOLDABLE;
 			const isPH60 = projectionModeIndex === M_PH60_FOLDABLE;
 			const isRC62 = projectionModeIndex === M_RC62_FOLDABLE;
-			if (!isBucky32 && !isRhombic && !isTruncOct && !isRD12 && !isDodec && !isPent24 && !isDelt60 && !isPH60 && !isRC62) return null;
+			const isDelt24 = projectionModeIndex === M_DELT24_FOLDABLE;
+			if (!isBucky32 && !isRhombic && !isTruncOct && !isRD12 && !isDodec && !isPent24 && !isDelt60 && !isPH60 && !isRC62 && !isDelt24) return null;
 
 			// ── Step 1: Compute tight bounding box from stored layout data ──
 			// This iterates all polygon vertices AND glue-tab outer corners to
@@ -14577,6 +15468,51 @@ void main() {
 							var _dx = _v2x-_v1x, _dy = _v2y-_v1y;
 							var _o1x = _v1x+_nx*_rc62TH+_dx*_rc62TI, _o1y = _v1y+_ny*_rc62TH+_dy*_rc62TI;
 							var _o2x = _v2x+_nx*_rc62TH-_dx*_rc62TI, _o2y = _v2y+_ny*_rc62TH-_dy*_rc62TI;
+							netX0 = Math.min(netX0, _o1x, _o2x); netX1 = Math.max(netX1, _o1x, _o2x);
+							netY0 = Math.min(netY0, _o1y, _o2y); netY1 = Math.max(netY1, _o1y, _o2y);
+						}
+					}
+				}
+			} else if (isDelt24) {
+				// Deltoidal-24: kite vertices + asymmetric tab corners
+				var _d24Vtx = [[0.5,-0.07402136039391502],[0,0.5054494651244235],[-0.5,-0.07402136039391502],[0,-0.3909444784529831]];
+				var _d24Data = window._delt24Data;
+				var _d24Scale = window._delt24Scale;
+				var _d24Placed = window._delt24Placed;
+				var _d24ENbr = window._delt24EdgeNeighbor;
+				var _d24TH = window._delt24TabH;
+				var _d24TIL = window._delt24TabInsetLong;
+				var _d24TIS = window._delt24TabInsetShort;
+				var _d24TMap = window._delt24TabsMap;
+				if (!_d24Data || !_d24Placed) return null;
+				for (var ii = 0; ii < 24; ii++) {
+					if (!_d24Placed[ii]) continue;
+					var _fx = _d24Data[ii*4], _fy = _d24Data[ii*4+1], _rot = _d24Data[ii*4+2];
+					var _cr2 = Math.cos(_rot), _sr2 = Math.sin(_rot);
+					for (var kk = 0; kk < 4; kk++) {
+						var _lx = _d24Vtx[kk][0] / _d24Scale, _ly = _d24Vtx[kk][1] / _d24Scale;
+						var _vx = _fx + _lx*_cr2 - _ly*_sr2, _vy = _fy + _lx*_sr2 + _ly*_cr2;
+						netX0 = Math.min(netX0, _vx); netX1 = Math.max(netX1, _vx);
+						netY0 = Math.min(netY0, _vy); netY1 = Math.max(netY1, _vy);
+						var _inf = _d24ENbr[ii][kk];
+						if (_inf && _inf.isInternal) continue;
+						var _hasTab = true;
+						if (_inf) {
+							var _ek = Math.min(ii, _inf.j) + '-' + Math.max(ii, _inf.j);
+							if (_d24TMap && _ek in _d24TMap) _hasTab = (_d24TMap[_ek] === ii);
+							else _hasTab = (ii < _inf.j);
+						}
+						if (_hasTab) {
+							var _v1x = _vx, _v1y = _vy;
+							var _nlx = _d24Vtx[(kk+1)%4][0] / _d24Scale, _nly = _d24Vtx[(kk+1)%4][1] / _d24Scale;
+							var _v2x = _fx + _nlx*_cr2 - _nly*_sr2, _v2y = _fy + _nlx*_sr2 + _nly*_cr2;
+							var _emx = (_v1x+_v2x)/2-_fx, _emy = (_v1y+_v2y)/2-_fy;
+							var _eml = Math.sqrt(_emx*_emx + _emy*_emy);
+							var _nx = _emx/_eml, _ny = _emy/_eml;
+							var _dx = _v2x-_v1x, _dy = _v2y-_v1y;
+							var _tIns = (kk < 2) ? _d24TIL : _d24TIS;
+							var _o1x = _v1x+_nx*_d24TH+_dx*_tIns, _o1y = _v1y+_ny*_d24TH+_dy*_tIns;
+							var _o2x = _v2x+_nx*_d24TH-_dx*_tIns, _o2y = _v2y+_ny*_d24TH-_dy*_tIns;
 							netX0 = Math.min(netX0, _o1x, _o2x); netX1 = Math.max(netX1, _o1x, _o2x);
 							netY0 = Math.min(netY0, _o1y, _o2y); netY1 = Math.max(netY1, _o1y, _o2y);
 						}
@@ -15108,6 +16044,79 @@ void main() {
 						edgePaths += '<path d="M' + p(v1x, v1y) + 'L' + p(v2x, v2y) + '"/>\n';
 					}
 				}
+			} else if (isDelt24) {
+				var d24Vtx = [[.5,-.07402136039391502],[0,.5054494651244235],[-.5,-.07402136039391502],[0,-.3909444784529831]];
+				var data   = window._delt24Data;
+				var scale  = window._delt24Scale;
+				var placed = window._delt24Placed;
+				var eNbr   = window._delt24EdgeNeighbor;
+				var tH     = window._delt24TabH;
+				var tIL    = window._delt24TabInsetLong;
+				var tIS    = window._delt24TabInsetShort;
+				var tMap   = window._delt24TabsMap;
+
+				function kite24V(fx, fy, rot) {
+					var cr = Math.cos(rot), sr = Math.sin(rot);
+					var vs = [];
+					for (var k = 0; k < 4; k++) {
+						var lx = d24Vtx[k][0] / scale, ly = d24Vtx[k][1] / scale;
+						vs.push([fx + lx*cr - ly*sr, fy + lx*sr + ly*cr]);
+					}
+					return vs;
+				}
+
+				// 4a. Clip polygons (kite interiors)
+				for (var i = 0; i < 24; i++) {
+					if (!placed[i]) continue;
+					var verts = kite24V(data[i*4], data[i*4+1], data[i*4+2]);
+					clipPolygons += 'M' + p(verts[0][0], verts[0][1]);
+					for (var k = 1; k < 4; k++) clipPolygons += 'L' + p(verts[k][0], verts[k][1]);
+					clipPolygons += 'Z';
+				}
+
+				// 4b. Tab outlines (kite — long edges 0,1 / short edges 2,3)
+				for (var i = 0; i < 24; i++) {
+					if (!placed[i]) continue;
+					var fx = data[i*4], fy = data[i*4+1];
+					var verts = kite24V(fx, fy, data[i*4+2]);
+					for (var k = 0; k < 4; k++) {
+						var info = eNbr[i][k];
+						if (info && info.isInternal) continue;
+						if (info) {
+							var ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							if (tMap && ek in tMap) { if (tMap[ek] !== i) continue; }
+							else { if (info.j < i) continue; }
+						}
+						var v1 = verts[k], v2 = verts[(k+1) % 4];
+						var emx = (v1[0]+v2[0])/2 - fx, emy = (v1[1]+v2[1])/2 - fy;
+						var eml = Math.sqrt(emx*emx + emy*emy);
+						var nx = emx/eml, ny = emy/eml;
+						var dx = v2[0]-v1[0], dy = v2[1]-v1[1];
+						var tIns = (k < 2) ? tIL : tIS;
+						var o1x = v1[0]+nx*tH+dx*tIns, o1y = v1[1]+ny*tH+dy*tIns;
+						var o2x = v2[0]+nx*tH-dx*tIns, o2y = v2[1]+ny*tH-dy*tIns;
+						tabPaths += '<path d="M' + p(v1[0], v1[1]) + 'L' + p(o1x, o1y) + 'L' + p(o2x, o2y) + 'L' + p(v2[0], v2[1]) + '"/>\n';
+					}
+				}
+
+				// 4c. Face boundary edges (kite)
+				for (var i = 0; i < 24; i++) {
+					if (!placed[i]) continue;
+					var verts = kite24V(data[i*4], data[i*4+1], data[i*4+2]);
+					for (var k = 0; k < 4; k++) {
+						var info = eNbr[i][k];
+						if (info && info.isInternal) continue;
+						if (info && placed[info.j]) {
+							var ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							var iOwnTab;
+							if (tMap && ek in tMap) iOwnTab = (tMap[ek] === i);
+							else iOwnTab = (i < info.j);
+							if (iOwnTab) continue;
+						}
+						var v1 = verts[k], v2 = verts[(k+1) % 4];
+						edgePaths += '<path d="M' + p(v1[0], v1[1]) + 'L' + p(v2[0], v2[1]) + '"/>\n';
+					}
+				}
 			}
 
 			// ── Step 5: Assemble final SVG document ──
@@ -15131,8 +16140,8 @@ void main() {
 			const isAzimuthal = projectionModeIndex === M_AZIMUTHAL;
 			const isCollage = projectionModeIndex === M_COLLAGE;
 			const isStereo = projectionModeIndex === M_STEREO;
-			const isBuckyPreview = projectionModeIndex === M_PREVIEW || projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_TRUNCOCT_PREVIEW || projectionModeIndex === M_ICO_PREVIEW || projectionModeIndex === M_RD12_PREVIEW || projectionModeIndex === M_DODEC_PREVIEW || projectionModeIndex === M_PENT24_PREVIEW || projectionModeIndex === M_DELT60_PREVIEW || projectionModeIndex === M_PH60_PREVIEW || projectionModeIndex === M_RC62_PREVIEW;
-			const isBucky = projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_ICO_FOLDABLE || projectionModeIndex === M_RD12_FOLDABLE || projectionModeIndex === M_DODEC_FOLDABLE || projectionModeIndex === M_PENT24_FOLDABLE || projectionModeIndex === M_DELT60_FOLDABLE || projectionModeIndex === M_PH60_FOLDABLE || projectionModeIndex === M_RC62_FOLDABLE;
+			const isBuckyPreview = projectionModeIndex === M_PREVIEW || projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_TRUNCOCT_PREVIEW || projectionModeIndex === M_ICO_PREVIEW || projectionModeIndex === M_RD12_PREVIEW || projectionModeIndex === M_DODEC_PREVIEW || projectionModeIndex === M_PENT24_PREVIEW || projectionModeIndex === M_DELT60_PREVIEW || projectionModeIndex === M_PH60_PREVIEW || projectionModeIndex === M_RC62_PREVIEW || projectionModeIndex === M_DELT24_PREVIEW;
+			const isBucky = projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_ICO_FOLDABLE || projectionModeIndex === M_RD12_FOLDABLE || projectionModeIndex === M_DODEC_FOLDABLE || projectionModeIndex === M_PENT24_FOLDABLE || projectionModeIndex === M_DELT60_FOLDABLE || projectionModeIndex === M_PH60_FOLDABLE || projectionModeIndex === M_RC62_FOLDABLE || projectionModeIndex === M_DELT24_FOLDABLE;
 			let w, h;
 
 			if (isEquirect) {

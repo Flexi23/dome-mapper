@@ -7,7 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.26.2] - 2026-04-26
+## [0.27.0] - 2026-07-03
+
+### Added
+- **Deltoidal-24 foldable + preview** — deltoidal icositetrahedron (24 congruent kite faces, dual of the rhombicuboctahedron); exact analytical `faceOffsets` derivation (the cube-type/pointy-tip dual vertex direction is a coordinate axis ± sign, tracked during vertex generation, rather than the "largest angular gap between neighbors" heuristic used for the icosahedral duals, which gives the wrong tip direction for this solid); GLSL gnomonic back-projection with bilateral-symmetry point-in-kite test; SDF-raymarched preview mode; BFS net unfolding with long/short edge-pairing (0↔1 cube↔square, 2↔3 square↔triangle); layout selector. Projection dropdown now has **27 modes** (11 polyhedra × preview + foldable, plus 5 base projections).
+- **Net layouter default-layout fallback** — `net-layouter.html` now builds a plain BFS spanning-tree net with an auto-picked (most-antipodal) pole pair for any geometry shipped without paper-format presets, instead of showing a blank canvas; defensive null-checks added around pole/meridian edit mode so switching to a preset-less geometry mid-edit doesn't throw.
+
+### Performance
+- **Fragment shader split into per-projection-family programs** — the single ~4400-line, 27-way `if/else` cascade fragment shader (one `gl.createProgram()` for everything) was replaced with ~12 much smaller programs: one shared "core" program for the 5 flat/azimuthal/stereographic modes, and one program per polyhedron (its preview + foldable mode pair share a program, since they use the same face data). Compiling the single giant shader could exceed the GPU driver's compile-time watchdog (Windows TDR), which was causing Chrome and Edge (ANGLE/D3D11) to intermittently lose the WebGL context on first load. The split is done at runtime by parsing the existing shader source (brace-matching, not hand-duplicated GLSL), so the shader stays a single source of truth.
+- **Shader-compile progress readout** — the loading bar now shows `"Compiling shader: <family> (n/12)"` while stepping through the projection families at startup, reusing the existing progress UI.
+
+### Fixed
+- **README TOC anchor for the polyhedron projection modes section** — link still pointed at the old "10 geometries" anchor slug after the section heading was updated to 11 geometries (stale since the deltoidal-24 addition).
+
 
 ### Performance
 - **Async shader compilation** — main program link uses `KHR_parallel_shader_compile` with `requestAnimationFrame`-polled `COMPLETION_STATUS_KHR`, deferring the rest of app init (`startApp()`) until the driver finishes. Total cold startup measured 1699 ms → 307 ms (5.5× speedup); the previously blocking ~1.4 s shader compile now runs in parallel with geometry init and texture loading on a worker thread.

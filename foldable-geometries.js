@@ -969,6 +969,190 @@ GEOMETRIES.deltoidal60 = (function() {
 })();
 
 // ─────────────────────────────────────────────────────────────────────
+// Deltoidal-24 (Deltoidal Icositetrahedron: 24 congruent kite faces)
+// Dual of the rhombicuboctahedron (polar reciprocal via face-plane distance).
+// Each face is a convex kite with vertices from 3 orbits:
+//   cube-type (6, degree 4, pointy tip, 81.579°), edge-type (12, degree 4, sides, 81.579° each),
+//   tri-type (8, degree 3, blunt tip, 115.263°).
+// Vertex order: V0=sq-right, V1=cube(pointy tip), V2=sq-left, V3=tri(blunt).
+// Edge pairing: long edges 0↔1 (sq↔cube), short edges 2↔3 (sq↔tri).
+// ─────────────────────────────────────────────────────────────────────
+GEOMETRIES.deltoidal24 = (function() {
+	const N_FACES = 24;
+	const BIG = 1 + Math.SQRT2;
+
+	// Rhombicuboctahedron vertices (= dual face normals): all signed permutations of (1, 1, BIG).
+	// Track which axis holds the BIG component (and its sign) per face — this is the exact
+	// direction of the cube-type (pointy-tip) dual vertex for that face, needed below.
+	const rawVerts = [];
+	const bigAxis = [], bigSign = [];
+	for (const [a, b, c] of [[0, 1, 2], [1, 2, 0], [2, 0, 1]])
+		for (const s1 of [1, -1]) for (const s2 of [1, -1]) for (const s3 of [1, -1]) {
+			const v = [0, 0, 0]; v[a] = s1; v[b] = s2; v[c] = s3 * BIG; rawVerts.push(v);
+			bigAxis.push(c); bigSign.push(s3);
+		}
+
+	const c3 = rawVerts.map(norm3);
+
+	// Adjacency: RCO edge length² = 4 (in unnormalized coordinates)
+	const adj = Array.from({ length: N_FACES }, () => []);
+	for (let i = 0; i < N_FACES; i++)
+		for (let j = i + 1; j < N_FACES; j++) {
+			const d = sub3(rawVerts[i], rawVerts[j]);
+			if (Math.abs(dot3(d, d) - 4) < 0.01) { adj[i].push(j); adj[j].push(i); }
+		}
+
+	const frames = buildFrames(c3, N_FACES);
+
+	// Kite shape from polar reciprocal of the rhombicuboctahedron (face-plane distance duality).
+	// Canonical orientation: cube-type (pointy tip) at +Y, tri-type (blunt) at -Y.
+	// V0=sq-right, V1=cube(pointy tip), V2=sq-left, V3=tri(blunt)  (CCW order)
+	const kiteVtx = [
+		[0.5, -0.07402136039391502],   // V0: sq-right (edge-type)
+		[0, 0.5054494651244235],       // V1: cube-type (pointy tip, 81.579°)
+		[-0.5, -0.07402136039391502],  // V2: sq-left (edge-type)
+		[0, -0.3909444784529831]       // V3: tri-type (blunt, 115.263°)
+	];
+
+	// Edge direction angles: atan2(V[(k+1)%4] - V[k]) — actual edge vectors, not neighbor directions
+	const edgeDirAngles = [];
+	for (let k = 0; k < 4; k++) {
+		const a = kiteVtx[k], b = kiteVtx[(k + 1) % 4];
+		edgeDirAngles.push(Math.atan2(b[1] - a[1], b[0] - a[0]));
+	}
+
+	// Sector boundaries for edgeIdx, relative to cube-tip direction (faceOffset) in [0, 2π).
+	let _relV2 = Math.atan2(kiteVtx[2][1], kiteVtx[2][0]) - Math.PI / 2;
+	if (_relV2 < 0) _relV2 += 2 * Math.PI;
+	const SECT1 = _relV2;
+	const SECT3 = 2 * Math.PI - SECT1;
+
+	// Face offsets: angle to the cube-type (pointy tip) direction for each face, computed EXACTLY
+	// (not via the "largest angular gap between neighbors" heuristic used for the icosahedral
+	// duals — that heuristic does not reliably locate the tip direction for this solid's
+	// proportions). The cube-type dual vertex always sits along the coordinate axis (and sign)
+	// that holds this face's BIG component, so its direction is known analytically.
+	const faceOffsets = [];
+	for (let fi = 0; fi < N_FACES; fi++) {
+		const N = c3[fi], [T1, T2] = frames[fi];
+		const qdir = [0, 0, 0]; qdir[bigAxis[fi]] = bigSign[fi];
+		const d = sub3(qdir, scale3(N, dot3(qdir, N)));
+		const pn = norm3(d);
+		faceOffsets.push(Math.atan2(dot3(pn, T2), dot3(pn, T1)));
+	}
+
+	function edgeIdx(i, j) {
+		const N = c3[i], [T1, T2] = frames[i];
+		const d = sub3(c3[j], scale3(N, dot3(c3[j], N)));
+		const pn = norm3(d);
+		let a = Math.atan2(dot3(pn, T2), dot3(pn, T1));
+		let rel = a - faceOffsets[i];
+		if (rel < 0) rel += 2 * Math.PI;
+		if (rel >= 2 * Math.PI) rel -= 2 * Math.PI;
+		if (rel < SECT1) return 1;
+		if (rel < Math.PI) return 2;
+		if (rel < SECT3) return 3;
+		return 0;
+	}
+
+	// Kite metrics
+	const shortEdge = Math.sqrt((kiteVtx[3][0] - kiteVtx[0][0]) ** 2 + (kiteVtx[3][1] - kiteVtx[0][1]) ** 2);
+	const longEdge = Math.sqrt((kiteVtx[0][0] - kiteVtx[1][0]) ** 2 + (kiteVtx[0][1] - kiteVtx[1][1]) ** 2);
+	const kiteArea = 0.5 * Math.abs(
+		kiteVtx[0][0] * (kiteVtx[1][1] - kiteVtx[3][1]) +
+		kiteVtx[1][0] * (kiteVtx[2][1] - kiteVtx[0][1]) +
+		kiteVtx[2][0] * (kiteVtx[3][1] - kiteVtx[1][1]) +
+		kiteVtx[3][0] * (kiteVtx[0][1] - kiteVtx[2][1])
+	);
+	// Inradius = distance from center to edge line (equal for all edges on Catalan solid)
+	function edgeLineInradius(k) {
+		const a = kiteVtx[k], b = kiteVtx[(k + 1) % 4];
+		const dx = b[0] - a[0], dy = b[1] - a[1];
+		return Math.abs(a[0] * dy - a[1] * dx) / Math.sqrt(dx * dx + dy * dy);
+	}
+	const INRADIUS = edgeLineInradius(0);
+	const dPent = kiteVtx[1][1];   // circumradius = cube-tip vertex distance
+	const halfW = kiteVtx[0][0];   // half-width (sq-right x)
+
+	const _tabH = INRADIUS * 0.3;
+	const tabInsetLong = 0.12;
+	const tabInsetShort = 0.15;
+	const singleTabArea = ((shortEdge + longEdge) / 2) * _tabH * 0.5;
+
+	const _ghostPlace = (i, j, res, mirrored) =>
+		irregularGhostPlace(kiteVtx, 4, edgeDirAngles, edgeIdx, i, j, res, mirrored);
+	const _collisionCheck = (j, px, py, pr, placed, res) =>
+		irregularCollisionCheck(N_FACES, INRADIUS, halfW, dPent, placed, res, j, px, py);
+
+	const presets = [
+		{"label":"DIN A (1:√2)","parents":[-1,10,0,14,0,11,4,23,0,4,8,9,2,6,12,13,0,12,4,13,10,14,11,19],"tabs":{},"mirrored":false,"angle":-0.7679448708775047,"aspect":1.4142857142857144,"lonOffset":1.5707963267948966,"northPole":{"type":"vertex","dir":[0,-1,0]},"southPole":{"type":"vertex","dir":[0,1,0]}}
+	];
+	presets.forEach(p => { if (!p.northPole) Object.assign(p, defaultPoles(c3)); });
+
+	return {
+		id: 'deltoidal24',
+		name: 'Deltoidal-24',
+		nFaces: N_FACES,
+		storageKey: 'deltoidal24-custom-layouts',
+		c3, adj, frames, faceOffsets, kiteVtx,
+		nSides() { return 4; },
+		edgeIdx,
+		apothem() { return INRADIUS; },
+		circumR() { return dPent; },
+		tabH: _tabH,
+		tabInset: tabInsetLong,
+		singleTabArea,
+		initialRotation: 0,
+
+		irregularFace: true,
+		ghostPlace: _ghostPlace,
+		tryPlace(i, j, res, placed, mirrored) {
+			const pos = _ghostPlace(i, j, res, mirrored);
+			if (_collisionCheck(j, pos.x, pos.y, pos.r, placed, res)) return null;
+			return pos;
+		},
+		polyVerts(fx, fy, rot, face, mirrored) {
+			const cr = Math.cos(rot), sr = Math.sin(rot);
+			const m = mirrored ? -1 : 1;
+			return kiteVtx.map(([lx, ly]) => ({
+				x: fx + m * lx * cr - ly * sr,
+				y: fy + m * lx * sr + ly * cr
+			}));
+		},
+		faceArea() { return kiteArea; },
+		tabInsets(i, k) {
+			// Edges 0,1 are long (sq↔cube), edges 2,3 are short (sq↔tri)
+			return k < 2 ? [tabInsetLong, tabInsetLong] : [tabInsetShort, tabInsetShort];
+		},
+		edgeSlot(i, k) { return k; },
+		faceLabel() { return 'kite'; },
+		faceColor(i, isSelf, isTarget) {
+			if (isSelf) return 'rgba(190, 90, 70, 0.9)';
+			if (isTarget) return 'rgba(220, 110, 90, 0.45)';
+			return 'rgba(65, 35, 30, 0.85)';
+		},
+		ghostColor() { return 'rgba(220, 110, 90, 0.25)'; },
+		pip(rpx, rpy, i, invS) {
+			const hw = kiteVtx[0][0] * invS, dp = kiteVtx[1][1] * invS;
+			const sqY = kiteVtx[0][1] * invS, triY = kiteVtx[3][1] * invS;
+			const ax = Math.abs(rpx);
+			return rpy > triY && hw * (rpy - dp) - (sqY - dp) * ax <= 0
+				&& (-hw) * (rpy - sqY) - (triY - sqY) * (ax - hw) <= 0;
+		},
+		gnoProject(i, rpx, rpy, scale, faceOff) {
+			// GNO_S = 1/RFACE_DELT24 (face-plane distance at circumradius=1); kiteVtx are raw
+			// tangent-plane offsets in the same convention, so dir = normalize(N + gno·T) reconstructs exactly.
+			const GNO_S = 1.1589416510366775;
+			const fcx = rpx * scale, fcy = rpy * scale;
+			const theta = faceOff - Math.PI * 0.5;
+			const co = Math.cos(theta), so = Math.sin(theta);
+			return { gx: (fcx * co - fcy * so) * GNO_S, gy: (fcx * so + fcy * co) * GNO_S, rF: 1 };
+		},
+		presets,
+	};
+})();
+
+// ─────────────────────────────────────────────────────────────────────
 // Pentahex-60 (Pentagonal Hexecontahedron: 60 congruent irregular pentagons)
 // Dual of the snub dodecahedron (polar reciprocal via midsphere).
 // Each face is a convex pentagon with bilateral symmetry:
