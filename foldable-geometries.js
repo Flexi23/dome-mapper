@@ -2077,3 +2077,132 @@ GEOMETRIES.snubcube38 = (function() {
 	};
 })();
 
+// ─────────────────────────────────────────────────────────────────────
+// Rhombicuboctahedron-26 (8 triangles + 18 squares)
+// Dual of the deltoidal-24 (deltoidal icositetrahedron); its own 24 vertices
+// are the signed permutations of (1, 1, 1+√2) already used for delt24Faces.
+// Face normals from octahedral/cube symmetry: 8 triangles = cube-diagonal
+// directions, 6 "axis-type" squares = cube-face directions (cube faces,
+// shrunk by the cantellation), 12 "edge-type" squares = cube-edge directions
+// (new faces inserted at each cube edge). Squares never touch squares of the
+// same sub-type, nor do triangles touch axis-type squares directly — only
+// edge-type squares bridge both (vertex figure 3.4.4.4, matching a real
+// rhombicuboctahedron: each vertex has 1 triangle + 3 squares in a fan).
+// ─────────────────────────────────────────────────────────────────────
+GEOMETRIES.rhombicubo26 = (function() {
+	const N_FACES = 26;
+	const INV_SQRT3 = 1 / Math.sqrt(3);
+	const INV_SQRT2 = 1 / Math.sqrt(2);
+
+	const c3 = [
+		// 8 triangles (cube-diagonal type)
+		[INV_SQRT3, INV_SQRT3, INV_SQRT3], [INV_SQRT3, INV_SQRT3, -INV_SQRT3],
+		[INV_SQRT3, -INV_SQRT3, INV_SQRT3], [INV_SQRT3, -INV_SQRT3, -INV_SQRT3],
+		[-INV_SQRT3, INV_SQRT3, INV_SQRT3], [-INV_SQRT3, INV_SQRT3, -INV_SQRT3],
+		[-INV_SQRT3, -INV_SQRT3, INV_SQRT3], [-INV_SQRT3, -INV_SQRT3, -INV_SQRT3],
+		// 6 axis-type squares (cube-face type)
+		[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
+		// 12 edge-type squares (cube-edge type)
+		[INV_SQRT2, INV_SQRT2, 0], [INV_SQRT2, -INV_SQRT2, 0], [-INV_SQRT2, INV_SQRT2, 0], [-INV_SQRT2, -INV_SQRT2, 0],
+		[INV_SQRT2, 0, INV_SQRT2], [INV_SQRT2, 0, -INV_SQRT2], [-INV_SQRT2, 0, INV_SQRT2], [-INV_SQRT2, 0, -INV_SQRT2],
+		[0, INV_SQRT2, INV_SQRT2], [0, INV_SQRT2, -INV_SQRT2], [0, -INV_SQRT2, INV_SQRT2], [0, -INV_SQRT2, -INV_SQRT2]
+	];
+	const nSides = i => i < 8 ? 3 : 4;
+
+	// The rhombicuboctahedron's own 24 vertices: signed permutations of
+	// (1, 1, 1+√2) — same construction as delt24Faces (dual relationship).
+	// Used by uploadRcubo26Net() to determine each face's texture rotation.
+	const L = 1 + Math.sqrt(2);
+	const verts = [];
+	const permIdx = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+	const seenVerts = new Set();
+	for (const [a, b, c] of permIdx)
+		for (const s1 of [1, -1]) for (const s2 of [1, -1]) for (const s3 of [1, -1]) {
+			const v = [0, 0, 0]; v[a] = s1; v[b] = s2; v[c] = s3 * L;
+			const key = v.map(x => x.toFixed(6)).join(',');
+			if (!seenVerts.has(key)) { seenVerts.add(key); verts.push(norm3(v)); }
+		}
+
+	// Adjacency: a single 0.85 rad threshold cleanly separates the two
+	// adjacent angular distances (35.26° tri↔edge-sq, 45° axis-sq↔edge-sq)
+	// from the smallest non-adjacent distance (54.74°, axis-sq↔tri).
+	const adj = Array.from({ length: N_FACES }, () => []);
+	for (let i = 0; i < N_FACES; i++)
+		for (let j = i + 1; j < N_FACES; j++) {
+			const d = Math.acos(Math.min(1, Math.max(-1, dot3(c3[i], c3[j]))));
+			if (d < 0.85) { adj[i].push(j); adj[j].push(i); }
+		}
+
+	const frames = buildFrames(c3, N_FACES);
+
+	// Face-plane distances (fraction of vertex circumradius), derived from the
+	// solid's own vertices (signed perms of (1,1,1+√2), circumradius ξ):
+	// squares sit at L/ξ (L=1+√2, matching delt24's RFACE_DELT24 exactly —
+	// consistent with the dual relationship), triangles at (2+L)/(√3·ξ).
+	const xi = Math.sqrt(2 + L * L);
+	const RFACE_TRI = (2 + L) / (Math.sqrt(3) * xi);
+	const RFACE_SQ = L / xi;
+
+	const ap3 = regularApothem(3), ap4 = regularApothem(4);
+	const cr3 = regularCircumR(3), cr4 = regularCircumR(4);
+	const tabH = ap3 * 0.3;
+	const tabInset = 0.15;
+	const singleTabArea = (1 - tabInset) * tabH;
+
+	function edgeIdx(i, j) { return regularEdgeIdx(c3, frames, nSides, i, j); }
+	function apothem(i) { return nSides(i) === 3 ? ap3 : ap4; }
+	function circumR(i) { return nSides(i) === 3 ? cr3 : cr4; }
+
+	// Hand-tuned DIN A preset (net-layouter.html export); net-layouter.html and
+	// uploadRhombicubo26Net() both fall back to an auto BFS spanning-tree net
+	// with an auto-picked pole pair for any paper format without a matching preset.
+	const presets = [
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[-1,14,15,15,16,23,17,21,14,16,14,15,18,23,0,8,5,11,8,8,9,13,10,10,11,11],tabs:{"9-17":17,"6-20":20,"7-25":25,"13-19":19,"3-25":25,"1-23":23,"5-21":21,"4-20":20,"12-22":22,"0-18":18,"12-24":24,"2-18":18,"2-24":2},mirrored:false,angle:1.064650843716541,lonOffset:0,northPole:{type:'center',face:12,dir:[0,0,1]},southPole:{type:'center',face:13,dir:[0,0,-1]}},
+	];
+
+	return {
+		id: 'rhombicubo26',
+		name: 'Rhombicuboctahedron-26',
+		nFaces: N_FACES,
+		storageKey: 'rhombicubo26-custom-layouts',
+		c3, adj, frames, verts,
+		nSides,
+		edgeIdx,
+		apothem,
+		circumR,
+		tabH,
+		tabInset,
+		singleTabArea,
+		initialRotation: 0,
+
+		ghostPlace(i, j, res, mirrored) {
+			return regularGhostPlace(nSides, apothem, edgeIdx, i, j, res, mirrored);
+		},
+		tryPlace(i, j, res, placed, mirrored) {
+			return regularTryPlace(this, i, j, res, placed, mirrored);
+		},
+		polyVerts(fx, fy, rot, i) {
+			return regularPolyVerts(fx, fy, rot, nSides(i), circumR(i));
+		},
+		faceArea(i) { return regularArea(nSides(i)); },
+		tabInsets(i, k) { return [tabInset, tabInset]; },
+		edgeSlot(i, k, mirrored) { return regularEdgeSlot(nSides(i), k, mirrored); },
+		faceLabel(i) { return nSides(i) === 3 ? 'tri' : 'sq'; },
+		faceColor(i, isSelf, isTarget) {
+			const n = nSides(i);
+			if (isSelf) return n === 3 ? 'rgba(180, 80, 80, 0.9)' : 'rgba(80, 100, 180, 0.9)';
+			if (isTarget) return n === 3 ? 'rgba(220, 80, 80, 0.45)' : 'rgba(60, 140, 220, 0.45)';
+			return n === 3 ? 'rgba(65, 40, 40, 0.85)' : 'rgba(40, 55, 75, 0.85)';
+		},
+		ghostColor(i) { return nSides(i) === 3 ? 'rgba(220, 80, 80, 0.25)' : 'rgba(60, 140, 220, 0.25)'; },
+		pip(rpx, rpy, i, invS) { return pipRegular(rpx, rpy, nSides(i), invS); },
+		gnoProject(i, rpx, rpy, scale, faceOff) {
+			const rF = nSides(i) === 3 ? RFACE_TRI : RFACE_SQ;
+			const gS = scale * Math.sqrt(1 - rF * rF) * 2 * Math.sin(Math.PI / nSides(i));
+			const co = Math.cos(faceOff), so = Math.sin(faceOff);
+			return { gx: (rpx * co - rpy * so) * gS, gy: (rpx * so + rpy * co) * gS, rF };
+		},
+		presets,
+	};
+})();
+

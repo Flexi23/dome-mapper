@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-07-04
+
+### Added
+- **Rhombicuboctahedron-26 foldable + preview** — rhombicuboctahedron (8 triangles + 18 squares, dual of the deltoidal-24); face normals derived analytically from octahedral/cube symmetry (8 cube-diagonal-type triangles, 6 cube-face-type squares, 12 cube-edge-type squares — the same "expansion" pattern used for rhombicosi-62, here applied to the cube/octahedron instead of the icosahedron); adjacency resolved via a single angular threshold that cleanly separates the two genuinely-adjacent face-type-pair distances (35.26°, 45°) from the smallest non-adjacent distance (54.74°); reuses the solid's own 24 vertices (signed permutations of (1,1,1+√2), already used for delt24Faces) for texture-rotation alignment; squares and triangles are both regular polygons, so the existing regular-polygon net-unfolding/gnomonic-projection machinery is reused as-is; GLSL SDF-raymarched preview mode; new `rcubo26` shader-family program added to the per-projection-family split (14 programs total). Projection dropdown now has **31 modes** (13 polyhedra × preview + foldable, plus 5 base projections).
+- **Rhombicuboctahedron-26 DIN A preset** — hand-tuned layout (parent tree, 13 tab overrides, pole pair, 61.0° angle) via `net-layouter.html`; other paper formats still fall back to the auto BFS spanning-tree net layout.
+
 ## [0.28.0] - 2026-07-04
 
 ### Added
