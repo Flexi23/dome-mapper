@@ -7,11 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-07-04
+
+### Added
+- **Snubcube-38 foldable + preview** — snub cube (6 squares + 32 triangles, chiral, dual of the pentagonal icositetrahedron); the 38 face planes are recovered as the convex hull's supporting planes through triples of the snub cube's own 24 tribonacci-constant vertices (the same vertex construction used for pentagonal-24), since a chiral solid has no simple closed-form face list like the other Platonic/Archimedean additions; squares and triangles are both regular polygons, so the existing regular-polygon net-unfolding/gnomonic-projection machinery (shared with truncoct-14 and rhombicosi-62) is reused as-is; GLSL SDF-raymarched preview mode; new `snubcube38` shader-family program added to the per-projection-family split (13 programs total). Projection dropdown now has **29 modes** (12 polyhedra × preview + foldable, plus 5 base projections).
+- **Snubcube-38 DIN A preset** — hand-tuned layout (parent tree, 11 tab overrides, pole pair, −53.5° angle) via `net-layouter.html`; other paper formats still fall back to the auto BFS spanning-tree net layout.
+
+### Fixed
+- **Snubcube-38 texture seams misaligned across faces** — the per-face `faceOffsets` alignment search used a fixed angular threshold (0.4 rad) to locate one of the face's own corner vertices, but a snub cube corner actually sits ~25.4° (triangle) / ~31.8° (square) from its face normal — both beyond the threshold — so the search silently matched nothing and every face fell back to an uncorrected (wrong) rotation, breaking texture continuity across every fold line. Raised the threshold to 0.7 rad, comfortably inside the ~20° gap to the next-nearest (non-owned) vertex for both face types; verified corner reconstruction now matches the true geometry to floating-point precision.
+
 ## [0.27.0] - 2026-07-03
 
 ### Added
 - **Deltoidal-24 foldable + preview** — deltoidal icositetrahedron (24 congruent kite faces, dual of the rhombicuboctahedron); exact analytical `faceOffsets` derivation (the cube-type/pointy-tip dual vertex direction is a coordinate axis ± sign, tracked during vertex generation, rather than the "largest angular gap between neighbors" heuristic used for the icosahedral duals, which gives the wrong tip direction for this solid); GLSL gnomonic back-projection with bilateral-symmetry point-in-kite test; SDF-raymarched preview mode; BFS net unfolding with long/short edge-pairing (0↔1 cube↔square, 2↔3 square↔triangle); layout selector. Projection dropdown now has **27 modes** (11 polyhedra × preview + foldable, plus 5 base projections).
 - **Net layouter default-layout fallback** — `net-layouter.html` now builds a plain BFS spanning-tree net with an auto-picked (most-antipodal) pole pair for any geometry shipped without paper-format presets, instead of showing a blank canvas; defensive null-checks added around pole/meridian edit mode so switching to a preset-less geometry mid-edit doesn't throw.
+
 
 ### Performance
 - **Fragment shader split into per-projection-family programs** — the single ~4400-line, 27-way `if/else` cascade fragment shader (one `gl.createProgram()` for everything) was replaced with ~12 much smaller programs: one shared "core" program for the 5 flat/azimuthal/stereographic modes, and one program per polyhedron (its preview + foldable mode pair share a program, since they use the same face data). Compiling the single giant shader could exceed the GPU driver's compile-time watchdog (Windows TDR), which was causing Chrome and Edge (ANGLE/D3D11) to intermittently lose the WebGL context on first load. The split is done at runtime by parsing the existing shader source (brace-matching, not hand-duplicated GLSL), so the shader stays a single source of truth.

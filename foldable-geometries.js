@@ -1924,3 +1924,156 @@ GEOMETRIES.icosahedron20 = (function() {
 		presets,
 	};
 })();
+
+// ─────────────────────────────────────────────────────────────────────
+// Snubcube-38 (Snub Cube: 6 squares + 32 triangles, chiral)
+// Faces derived from the snub cube's own 24 vertices (even/odd permutations of
+// (±1, ±1/t, ±t) with matching sign parity, t = tribonacci constant, t³=t²+t+1
+// — the same construction used for pentagonal-24's dual snub cube). Since the
+// snub cube has no simple closed-form face list (unlike the Platonic/other
+// Archimedean solids above), its 38 face planes are found as the convex hull's
+// supporting planes through vertex triples — the only reliable way to recover
+// a chiral solid's face structure from vertex coordinates alone.
+// ─────────────────────────────────────────────────────────────────────
+GEOMETRIES.snubcube38 = (function() {
+	const N_VERTS = 24, N_FACES = 38;
+
+	// Tribonacci constant: t³ = t² + t + 1
+	let t = 1.8;
+	for (let i = 0; i < 100; i++) t -= (t * t * t - t * t - t - 1) / (3 * t * t - 2 * t - 1);
+
+	const evenP = [[0, 1, 2], [1, 2, 0], [2, 0, 1]];
+	const oddP = [[0, 2, 1], [2, 1, 0], [1, 0, 2]];
+	const rawVerts = [];
+	for (const [a, b, c] of evenP)
+		for (const s1 of [1, -1]) for (const s2 of [1, -1]) for (const s3 of [1, -1])
+			if (((s1 > 0 ? 1 : 0) + (s2 > 0 ? 1 : 0) + (s3 > 0 ? 1 : 0)) % 2 === 0) {
+				const v = [0, 0, 0]; v[a] = s1; v[b] = s2 / t; v[c] = s3 * t; rawVerts.push(v);
+			}
+	for (const [a, b, c] of oddP)
+		for (const s1 of [1, -1]) for (const s2 of [1, -1]) for (const s3 of [1, -1])
+			if (((s1 > 0 ? 1 : 0) + (s2 > 0 ? 1 : 0) + (s3 > 0 ? 1 : 0)) % 2 === 1) {
+				const v = [0, 0, 0]; v[a] = s1; v[b] = s2 / t; v[c] = s3 * t; rawVerts.push(v);
+			}
+	const verts = rawVerts.map(norm3);
+	const vertexCircumR = Math.sqrt(dot3(rawVerts[0], rawVerts[0]));
+
+	// Supporting planes through vertex triples: keep only planes with all 24
+	// vertices on one side (outward normal), then merge coplanar triples into
+	// faces (4 verts → square, 3 verts → triangle: 6 + 32 = 38, as expected).
+	const EPS = 1e-6;
+	const planeMap = new Map();
+	for (let i = 0; i < N_VERTS; i++)
+		for (let j = i + 1; j < N_VERTS; j++)
+			for (let k = j + 1; k < N_VERTS; k++) {
+				let n = cross3(sub3(rawVerts[j], rawVerts[i]), sub3(rawVerts[k], rawVerts[i]));
+				const nl = Math.sqrt(dot3(n, n));
+				if (nl < EPS) continue;
+				n = scale3(n, 1 / nl);
+				let d = dot3(n, rawVerts[i]);
+				if (d < 0) { n = scale3(n, -1); d = -d; }
+				let ok = true;
+				for (let m = 0; m < N_VERTS; m++) if (dot3(rawVerts[m], n) > d + 1e-6) { ok = false; break; }
+				if (!ok) continue;
+				const key = n.map(x => x.toFixed(5)).join(',');
+				if (!planeMap.has(key)) planeMap.set(key, { n, verts: new Set() });
+				const pl = planeMap.get(key);
+				pl.verts.add(i); pl.verts.add(j); pl.verts.add(k);
+			}
+	const rawFaces = [...planeMap.values()].map(f => ({ n: norm3(f.n), verts: [...f.verts] }));
+
+	// Canonical order: 6 squares (axis-aligned, +X,-X,+Y,-Y,+Z,-Z), then 32
+	// triangles (8 cube-diagonal-type, then 24 remaining chiral-orbit ones).
+	const axisOrder = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+	const squares = axisOrder.map(ax => rawFaces.find(f => f.verts.length === 4 && dot3(f.n, ax) > 0.99));
+	function signKey(n) { return n.map(v => v > 0 ? '+' : '-').join(''); }
+	function isDiag(f) { return Math.abs(Math.abs(f.n[0]) - Math.abs(f.n[1])) < 1e-4 && Math.abs(Math.abs(f.n[1]) - Math.abs(f.n[2])) < 1e-4; }
+	const tri3 = rawFaces.filter(f => f.verts.length === 3);
+	const diag8 = tri3.filter(isDiag).sort((a, b) => signKey(a.n) < signKey(b.n) ? -1 : 1);
+	const other24 = tri3.filter(f => !isDiag(f)).sort((a, b) => a.n[0] - b.n[0] || a.n[1] - b.n[1] || a.n[2] - b.n[2]);
+
+	const faces = [...squares, ...diag8, ...other24];
+	const c3 = faces.map(f => f.n);
+	const nSides = i => i < 6 ? 4 : 3;
+
+	// Adjacency: two faces are edge-neighbors iff they share exactly 2 vertices
+	// (squares never touch other squares — each of the 6 squares has 4
+	// triangle neighbors; each triangle has 3 neighbors of either type).
+	const adj = Array.from({ length: N_FACES }, () => []);
+	for (let i = 0; i < N_FACES; i++)
+		for (let j = i + 1; j < N_FACES; j++) {
+			let shared = 0;
+			for (const v of faces[j].verts) if (faces[i].verts.includes(v)) shared++;
+			if (shared === 2) { adj[i].push(j); adj[j].push(i); }
+		}
+
+	const frames = buildFrames(c3, N_FACES);
+
+	// Face-plane distances (fraction of vertex circumradius), needed for the
+	// gnomonic back-projection — same role as RFACE_* in the other geometries.
+	const RFACE_SQ = dot3(squares[0].n, rawVerts[squares[0].verts[0]]) / vertexCircumR;
+	const RFACE_TRI = dot3(diag8[0].n, rawVerts[diag8[0].verts[0]]) / vertexCircumR;
+
+	const ap3 = regularApothem(3), ap4 = regularApothem(4);
+	const cr3 = regularCircumR(3), cr4 = regularCircumR(4);
+	const tabH = ap3 * 0.3;
+	const tabInset = 0.15;
+	const singleTabArea = (1 - tabInset) * tabH;
+
+	function edgeIdx(i, j) { return regularEdgeIdx(c3, frames, nSides, i, j); }
+	function apothem(i) { return nSides(i) === 4 ? ap4 : ap3; }
+	function circumR(i) { return nSides(i) === 4 ? cr4 : cr3; }
+
+	// Hand-tuned DIN A preset (net-layouter.html export); net-layouter.html and
+	// uploadSnubcube38Net() both fall back to an auto BFS spanning-tree net with
+	// an auto-picked pole pair for any paper format without a matching preset.
+	const presets = [
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[-1,16,33,30,27,31,35,33,30,34,21,17,16,18,1,1,18,1,3,12,11,2,3,26,10,2,3,22,7,2,34,9,36,35,0,0,0,0],tabs:{"11-25":11,"17-21":17,"10-15":10,"6-29":29,"4-32":32,"8-27":27,"4-19":19,"12-22":22,"5-28":28,"5-23":23,"7-37":37},mirrored:false,angle:-0.9337511498169664,lonOffset:1.5707963267948966,northPole:{type:'center',face:5,dir:[0,0,-1]},southPole:{type:'center',face:4,dir:[0,0,1]}},
+	];
+
+	return {
+		id: 'snubcube38',
+		name: 'Snubcube-38',
+		nFaces: N_FACES,
+		storageKey: 'snubcube38-custom-layouts',
+		c3, adj, frames, verts,
+		nSides,
+		edgeIdx,
+		apothem,
+		circumR,
+		tabH,
+		tabInset,
+		singleTabArea,
+		initialRotation: 0,
+
+		ghostPlace(i, j, res, mirrored) {
+			return regularGhostPlace(nSides, apothem, edgeIdx, i, j, res, mirrored);
+		},
+		tryPlace(i, j, res, placed, mirrored) {
+			return regularTryPlace(this, i, j, res, placed, mirrored);
+		},
+		polyVerts(fx, fy, rot, i) {
+			return regularPolyVerts(fx, fy, rot, nSides(i), circumR(i));
+		},
+		faceArea(i) { return regularArea(nSides(i)); },
+		tabInsets(i, k) { return [tabInset, tabInset]; },
+		edgeSlot(i, k, mirrored) { return regularEdgeSlot(nSides(i), k, mirrored); },
+		faceLabel(i) { return nSides(i) === 4 ? 'sq' : 'tri'; },
+		faceColor(i, isSelf, isTarget) {
+			const n = nSides(i);
+			if (isSelf) return n === 4 ? 'rgba(80, 100, 180, 0.9)' : 'rgba(180, 80, 80, 0.9)';
+			if (isTarget) return n === 4 ? 'rgba(60, 140, 220, 0.45)' : 'rgba(220, 80, 80, 0.45)';
+			return n === 4 ? 'rgba(40, 55, 75, 0.85)' : 'rgba(65, 40, 40, 0.85)';
+		},
+		ghostColor(i) { return nSides(i) === 4 ? 'rgba(60, 140, 220, 0.25)' : 'rgba(220, 80, 80, 0.25)'; },
+		pip(rpx, rpy, i, invS) { return pipRegular(rpx, rpy, nSides(i), invS); },
+		gnoProject(i, rpx, rpy, scale, faceOff) {
+			const rF = nSides(i) === 4 ? RFACE_SQ : RFACE_TRI;
+			const gS = scale * Math.sqrt(1 - rF * rF) * 2 * Math.sin(Math.PI / nSides(i));
+			const co = Math.cos(faceOff), so = Math.sin(faceOff);
+			return { gx: (rpx * co - rpy * so) * gS, gy: (rpx * so + rpy * co) * gS, rF };
+		},
+		presets,
+	};
+})();
+
