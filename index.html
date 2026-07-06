@@ -221,6 +221,23 @@
 			grid-column: 1 / -1;
 		}
 
+		.slider-group .grid .field-row {
+			grid-column: 2 / -1;
+			display: flex;
+			align-items: center;
+			gap: 6px;
+			min-width: 0;
+		}
+
+		.slider-group .grid .field-row select {
+			flex: 1;
+			min-width: 0;
+		}
+
+		.slider-group .grid .field-row button {
+			flex-shrink: 0;
+		}
+
 		#level-angles {
 			border-color: orange;
 		}
@@ -1075,39 +1092,16 @@
 			<div class="group-label">Projection <button id="grid-toggle-proj">Grid: Off</button></div>
 			<div id="method-params" class="grid">
 				<span>Method</span>
-				<select id="projection-select" style="grid-column:2/-1">
-					<option value="equirectangular" selected>equirectangular</option>
-					<option value="perspective">perspective</option>
-					<option value="azimuthal">azimuthal</option>
-					<option value="azimuthal collage">azimuthal collage</option>
-					<option value="stereographic">stereographic</option>
-					<option value="dodecahedron-12 preview">dodecahedron-12 preview</option>
-					<option value="dodecahedron-12 foldable">dodecahedron-12 foldable</option>
-					<option value="rhombic-12 preview">rhombic-12 preview</option>
-					<option value="rhombic-12 foldable">rhombic-12 foldable</option>
-					<option value="truncoct-14 preview">truncoct-14 preview</option>
-					<option value="truncoct-14 foldable">truncoct-14 foldable</option>
-					<option value="icosahedron-20 preview">icosahedron-20 preview</option>
-					<option value="icosahedron-20 foldable">icosahedron-20 foldable</option>
-					<option value="pentagonal-24 preview">pentagonal-24 preview</option>
-					<option value="pentagonal-24 foldable">pentagonal-24 foldable</option>
-					<option value="deltoidal-24 preview">deltoidal-24 preview</option>
-					<option value="deltoidal-24 foldable">deltoidal-24 foldable</option>
-					<option value="rhombic-30 preview">rhombic-30 preview</option>
-					<option value="rhombic-30 foldable">rhombic-30 foldable</option>
-					<option value="buckyball-32 preview">buckyball-32 preview</option>
-					<option value="buckyball-32 foldable">buckyball-32 foldable</option>
-					<option value="deltoidal-60 preview">deltoidal-60 preview</option>
-					<option value="deltoidal-60 foldable">deltoidal-60 foldable</option>
-					<option value="pentahex-60 preview">pentahex-60 preview</option>
-					<option value="pentahex-60 foldable">pentahex-60 foldable</option>
-					<option value="rhombicosi-62 preview">rhombicosi-62 preview</option>
-					<option value="rhombicosi-62 foldable">rhombicosi-62 foldable</option>
-					<option value="snubcube-38 preview">snubcube-38 preview</option>
-					<option value="snubcube-38 foldable">snubcube-38 foldable</option>
-					<option value="rhombicubo-26 preview">rhombicubo-26 preview</option>
-					<option value="rhombicubo-26 foldable">rhombicubo-26 foldable</option>
-				</select>
+				<span class="field-row">
+					<select id="projection-select">
+						<option value="equirectangular" selected>equirectangular</option>
+						<option value="perspective">perspective</option>
+						<option value="azimuthal">azimuthal</option>
+						<option value="azimuthal collage">azimuthal collage</option>
+						<option value="stereographic">stereographic</option>
+					</select>
+					<button id="poly-view-toggle" title="Toggle preview / foldable" style="display:none">Preview</button>
+				</span>
 				<span id="pixelate-row" class="span hide-in-level-off" style="display:contents">
 					<span>Pixelate</span> <input type="range" id="pixelate-slider" min="0" max="100" value="100" step="1"> <span class="val" id="pixelate-val">100%</span>
 				</span>
@@ -1259,6 +1253,11 @@ uniform float showGrid;
 uniform float foldableOverlayAlpha; // 0.0–1.0 net overlay opacity (edges only; flaps are always opaque)
 uniform vec4 foldableNet[62];       // flat net layout: (x, y, rotation, faceOffset) per face
 uniform float foldableScale;        // inverse normalization scale for polygon sizes
+uniform float netMirrored;          // 1.0 if the current foldable net was built with mirrored=true
+                                     // (see unfoldNet()/ghostPlace() in foldable-geometries.js);
+                                     // the per-face texture reprojection must mirror its local
+                                     // Y coordinate to match, or adjacent faces' photo content
+                                     // no longer connects across the shared (mirrored) edge.
 uniform sampler2D foldableOverlay;  // 2D canvas overlay: polygon edges only (TEXTURE1)
 uniform sampler2D foldableTabOverlay; // 2D canvas overlay: glue tabs only (TEXTURE4)
 uniform vec4 foldableBBox;          // bounding box in net space (minX, minY, maxX, maxY)
@@ -2169,6 +2168,46 @@ vec3 applyViewGrid(vec3 col, vec2 vuv0) {
 	return col;
 }
 
+// Stereographic screen→world ray direction (Scaramuzza radial distortion +
+// generalised stereographic inverse mapping), factored out of the main
+// stereographic projection mode so the polyhedron preview modes can reuse it
+// for their panorama background (replacing the previous perspective/gnomonic
+// background mapping — see the stereographic branch below for the full
+// derivation and comments). stereoLocalDir() returns the ray in camera-local
+// space (pre-viewMatrix) — needed by the preview modes' background wireframe,
+// which compares against face normals also expressed in local space;
+// stereoWorldDir() applies viewMatrix for direct panorama sampling.
+vec3 stereoLocalDir(vec2 rawUV) {
+	vec2 uv = rawUV;
+	uv.x *= resolution.x / resolution.y;
+	uv *= azimuthalZoom;
+
+	float angle = atan(-uv.x, -uv.y);
+	float l = length(uv);
+
+	float l8 = l * 8.0;
+	float lp = stereoScaramuzza.x * l8
+	         + stereoScaramuzza.y * l8 * l8
+	         + stereoScaramuzza.z * l8 * l8 * l8
+	         + stereoScaramuzza.w * l8 * l8 * l8 * l8;
+	float normF = stereoScaramuzza.x + stereoScaramuzza.y + stereoScaramuzza.z + stereoScaramuzza.w;
+	if (normF > 0.0) lp /= normF;
+
+	float dl = stereoD / max(lp, 0.0001);
+	float dl2 = dl * dl;
+	float under = dl2 + 2.0 * stereoD - stereoD * stereoD;
+	float theta = acos(clamp(
+		(1.0 - stereoD + dl * sqrt(max(0.0, under))) / (1.0 + dl2),
+		-1.0, 1.0));
+
+	float sinT = sin(theta);
+	vec3 rd = vec3(sinT * sin(angle), cos(theta), -sinT * cos(angle));
+	return vec3(rd.x, rd.z, -rd.y); // pre-rotation P=+90° (optical axis Y→Z)
+}
+vec3 stereoWorldDir(vec2 rawUV) {
+	return viewMatrix * stereoLocalDir(rawUV);
+}
+
 void main() {
 	vec2 screenUV = mix(exportClip.xy, exportClip.zw, gl_FragCoord.xy / resolution);
 	float aspect = resolution.x / resolution.y;
@@ -2241,6 +2280,7 @@ void main() {
 			vec3 N = rcubo26Faces[bestI];
 			float faceOffset = foldableNet[bestI].w;
 			float rFace = bestI < 8 ? RFACE_RCUBO_TRI : RFACE_RCUBO_SQ;
+			if (netMirrored > 0.5) bestRP.y = -bestRP.y;
 			vec3 tUp = abs(N.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
 			vec3 T1 = normalize(cross(N, tUp));
 			vec3 T2 = cross(N, T1);
@@ -2337,12 +2377,12 @@ void main() {
 		float cSph = dot(eye, eye) - 1.04;
 		float discSph = bSph * bSph - cSph;
 
-		vec3 perspDir = viewMatrix * rdLocal;
-		vec3 bgCol = samplePanorama(perspDir);
-		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
+		vec3 bgPanoDir = stereoWorldDir(lensUV);
+		vec3 bgCol = samplePanorama(bgPanoDir);
+		bgCol = applyGrid(bgCol, dirToEquirect(bgPanoDir));
 
 		{
-			vec3 bgDir = normalize(rdLocal);
+			vec3 bgDir = stereoLocalDir(lensUV);
 			float bgMaxD = -1e9, bgSecD = -1e9;
 			for (int i = 0; i < 26; i++) {
 				float fd = i < 8 ? RFACE_RCUBO_TRI : RFACE_RCUBO_SQ;
@@ -2473,6 +2513,7 @@ void main() {
 			vec3 N = snub38Faces[bestI];
 			float faceOffset = foldableNet[bestI].w;
 			float rFace = bestI < 6 ? RFACE_SNUB_SQ : RFACE_SNUB_TRI;
+			if (netMirrored > 0.5) bestRP.y = -bestRP.y;
 			vec3 tUp = abs(N.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
 			vec3 T1 = normalize(cross(N, tUp));
 			vec3 T2 = cross(N, T1);
@@ -2569,12 +2610,12 @@ void main() {
 		float cSph = dot(eye, eye) - 1.04;
 		float discSph = bSph * bSph - cSph;
 
-		vec3 perspDir = viewMatrix * rdLocal;
-		vec3 bgCol = samplePanorama(perspDir);
-		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
+		vec3 bgPanoDir = stereoWorldDir(lensUV);
+		vec3 bgCol = samplePanorama(bgPanoDir);
+		bgCol = applyGrid(bgCol, dirToEquirect(bgPanoDir));
 
 		{
-			vec3 bgDir = normalize(rdLocal);
+			vec3 bgDir = stereoLocalDir(lensUV);
 			float bgMaxD = -1e9, bgSecD = -1e9;
 			for (int i = 0; i < 38; i++) {
 				float fd = i < 6 ? RFACE_SNUB_SQ : RFACE_SNUB_TRI;
@@ -2705,6 +2746,7 @@ void main() {
 			vec3 N = rc62Faces[bestI];
 			float faceOffset = foldableNet[bestI].w;
 			float rFace = bestI < 20 ? RFACE_RC62_TRI : bestI < 50 ? RFACE_RC62_SQ : RFACE_RC62_PENT;
+			if (netMirrored > 0.5) bestRP.y = -bestRP.y;
 			vec3 tUp = abs(N.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
 			vec3 T1 = normalize(cross(N, tUp));
 			vec3 T2 = cross(N, T1);
@@ -2801,12 +2843,12 @@ void main() {
 		float cSph = dot(eye, eye) - 1.04;
 		float discSph = bSph * bSph - cSph;
 
-		vec3 perspDir = viewMatrix * rdLocal;
-		vec3 bgCol = samplePanorama(perspDir);
-		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
+		vec3 bgPanoDir = stereoWorldDir(lensUV);
+		vec3 bgCol = samplePanorama(bgPanoDir);
+		bgCol = applyGrid(bgCol, dirToEquirect(bgPanoDir));
 
 		{
-			vec3 bgDir = normalize(rdLocal);
+			vec3 bgDir = stereoLocalDir(lensUV);
 			float bgMaxD = -1e9, bgSecD = -1e9;
 			for (int i = 0; i < 62; i++) {
 				float fd = i < 20 ? RFACE_RC62_TRI : i < 50 ? RFACE_RC62_SQ : RFACE_RC62_PENT;
@@ -2945,6 +2987,7 @@ void main() {
 		if (insideAny > 0.5) {
 			vec3 N = ph60Faces[bestI];
 			float faceOffset = foldableNet[bestI].w;
+			if (netMirrored > 0.5) bestRP.y = -bestRP.y;
 			vec3 tUp = abs(N.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
 			vec3 T1 = normalize(cross(N, tUp));
 			vec3 T2 = cross(N, T1);
@@ -3041,12 +3084,12 @@ void main() {
 		float cSph = dot(eye, eye) - 1.20;
 		float discSph = bSph * bSph - cSph;
 
-		vec3 perspDir = viewMatrix * rdLocal;
-		vec3 bgCol = samplePanorama(perspDir);
-		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
+		vec3 bgPanoDir = stereoWorldDir(lensUV);
+		vec3 bgCol = samplePanorama(bgPanoDir);
+		bgCol = applyGrid(bgCol, dirToEquirect(bgPanoDir));
 
 		{
-			vec3 bgDir = normalize(rdLocal);
+			vec3 bgDir = stereoLocalDir(lensUV);
 			float bgMaxD = -1e9, bgSecD = -1e9;
 			for (int i = 0; i < 60; i++) {
 				float di = dot(bgDir, vPH60[i]) - RFACE_PH60;
@@ -3177,6 +3220,7 @@ void main() {
 		if (insideAny > 0.5) {
 			vec3 N = delt60Faces[bestI];
 			float faceOffset = foldableNet[bestI].w;
+			if (netMirrored > 0.5) bestRP.y = -bestRP.y;
 			vec3 tUp = abs(N.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
 			vec3 T1 = normalize(cross(N, tUp));
 			vec3 T2 = cross(N, T1);
@@ -3277,13 +3321,13 @@ void main() {
 		float cSph = dot(eye, eye) - 1.135;
 		float discSph = bSph * bSph - cSph;
 
-		vec3 perspDir = viewMatrix * rdLocal;
-		vec3 bgCol = samplePanorama(perspDir);
-		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
+		vec3 bgPanoDir = stereoWorldDir(lensUV);
+		vec3 bgCol = samplePanorama(bgPanoDir);
+		bgCol = applyGrid(bgCol, dirToEquirect(bgPanoDir));
 
 		// Project wireframe onto background
 		{
-			vec3 bgDir = normalize(rdLocal);
+			vec3 bgDir = stereoLocalDir(lensUV);
 			float bgMaxD = -1e9, bgSecD = -1e9;
 			for (int i = 0; i < 60; i++) {
 				float di = dot(bgDir, vF60[i]) - RFACE_DELT60;
@@ -3579,16 +3623,16 @@ void main() {
 		float cSph = dot(eye, eye) - 1.04; // slightly padded
 		float discSph = bSph * bSph - cSph;
 
-		// Background: same panorama mapping as body (viewMatrix · direction)
-		vec3 perspDir = viewMatrix * rdLocal;
-		vec3 bgCol = samplePanorama(perspDir);
-		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
+		// Background: stereographic panorama mapping (independent of rdLocal)
+		vec3 bgPanoDir = stereoWorldDir(lensUV);
+		vec3 bgCol = samplePanorama(bgPanoDir);
+		bgCol = applyGrid(bgCol, dirToEquirect(bgPanoDir));
 
 		// Project net wireframe onto background panorama.
 		// The ray direction is tested against all 32 face planes to find edge
 		// proximity, producing the same wireframe pattern as the 3D body.
 		{
-			vec3 bgDir = normalize(rdLocal);
+			vec3 bgDir = stereoLocalDir(lensUV);
 			float bgMaxD = -1e9, bgSecD = -1e9;
 			for (int i = 0; i < 32; i++) {
 				float fd = i < 12 ? RFACE_PENT : RFACE_HEX;
@@ -3868,13 +3912,13 @@ void main() {
 		float cSph = dot(eye, eye) - 1.04;
 		float discSph = bSph * bSph - cSph;
 
-		vec3 perspDir = viewMatrix * rdLocal;
-		vec3 bgCol = samplePanorama(perspDir);
-		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
+		vec3 bgPanoDir = stereoWorldDir(lensUV);
+		vec3 bgCol = samplePanorama(bgPanoDir);
+		bgCol = applyGrid(bgCol, dirToEquirect(bgPanoDir));
 
 		// Project wireframe onto background
 		{
-			vec3 bgDir = normalize(rdLocal);
+			vec3 bgDir = stereoLocalDir(lensUV);
 			float bgMaxD = -1e9, bgSecD = -1e9;
 			for (int i = 0; i < 30; i++) {
 				float di = dot(bgDir, vFaces[i]) - RFACE_RHOMBIC;
@@ -4010,6 +4054,7 @@ void main() {
 		if (insideAny > 0.5) {
 			vec3 N = delt24Faces[bestI];
 			float faceOffset = foldableNet[bestI].w;
+			if (netMirrored > 0.5) bestRP.y = -bestRP.y;
 			vec3 tUp = abs(N.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
 			vec3 T1 = normalize(cross(N, tUp));
 			vec3 T2 = cross(N, T1);
@@ -4110,13 +4155,13 @@ void main() {
 		float cSph = dot(eye, eye) - 1.135;
 		float discSph = bSph * bSph - cSph;
 
-		vec3 perspDir = viewMatrix * rdLocal;
-		vec3 bgCol = samplePanorama(perspDir);
-		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
+		vec3 bgPanoDir = stereoWorldDir(lensUV);
+		vec3 bgCol = samplePanorama(bgPanoDir);
+		bgCol = applyGrid(bgCol, dirToEquirect(bgPanoDir));
 
 		// Project wireframe onto background
 		{
-			vec3 bgDir = normalize(rdLocal);
+			vec3 bgDir = stereoLocalDir(lensUV);
 			float bgMaxD = -1e9, bgSecD = -1e9;
 			for (int i = 0; i < 24; i++) {
 				float di = dot(bgDir, vF24[i]) - RFACE_DELT24;
@@ -4253,6 +4298,7 @@ void main() {
 		if (insideAny > 0.5) {
 			vec3 N = pent24Faces[bestI];
 			float faceOffset = foldableNet[bestI].w;
+			if (netMirrored > 0.5) bestRP.y = -bestRP.y;
 			vec3 tUp = abs(N.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
 			vec3 T1 = normalize(cross(N, tUp));
 			vec3 T2 = cross(N, T1);
@@ -4357,13 +4403,13 @@ void main() {
 		float cSph = dot(eye, eye) - 1.04;
 		float discSph = bSph * bSph - cSph;
 
-		vec3 perspDir = viewMatrix * rdLocal;
-		vec3 bgCol = samplePanorama(perspDir);
-		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
+		vec3 bgPanoDir = stereoWorldDir(lensUV);
+		vec3 bgCol = samplePanorama(bgPanoDir);
+		bgCol = applyGrid(bgCol, dirToEquirect(bgPanoDir));
 
 		// Project wireframe onto background
 		{
-			vec3 bgDir = normalize(rdLocal);
+			vec3 bgDir = stereoLocalDir(lensUV);
 			float bgMaxD = -1e9, bgSecD = -1e9;
 			for (int i = 0; i < 24; i++) {
 				float di = dot(bgDir, vFaces24[i]) - RFACE_PENT24;
@@ -4584,12 +4630,12 @@ void main() {
 		float cSph = dot(eye, eye) - 1.04;
 		float discSph = bSph * bSph - cSph;
 
-		vec3 perspDir = viewMatrix * rdLocal;
-		vec3 bgCol = samplePanorama(perspDir);
-		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
+		vec3 bgPanoDir = stereoWorldDir(lensUV);
+		vec3 bgCol = samplePanorama(bgPanoDir);
+		bgCol = applyGrid(bgCol, dirToEquirect(bgPanoDir));
 
 		{
-			vec3 bgDir = normalize(rdLocal);
+			vec3 bgDir = stereoLocalDir(lensUV);
 			float bgMaxD = -1e9, bgSecD = -1e9;
 			for (int i = 0; i < 20; i++) {
 				float di = dot(bgDir, vFaces[i]) - RFACE_ICO;
@@ -4814,13 +4860,13 @@ void main() {
 		float cSph = dot(eye, eye) - 1.04;
 		float discSph = bSph * bSph - cSph;
 
-		vec3 perspDir = viewMatrix * rdLocal;
-		vec3 bgCol = samplePanorama(perspDir);
-		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
+		vec3 bgPanoDir = stereoWorldDir(lensUV);
+		vec3 bgCol = samplePanorama(bgPanoDir);
+		bgCol = applyGrid(bgCol, dirToEquirect(bgPanoDir));
 
 		// Project wireframe onto background
 		{
-			vec3 bgDir = normalize(rdLocal);
+			vec3 bgDir = stereoLocalDir(lensUV);
 			float bgMaxD = -1e9, bgSecD = -1e9;
 			for (int i = 0; i < 14; i++) {
 				float di = dot(bgDir, vFaces[i]) - vRFace[i];
@@ -5040,13 +5086,13 @@ void main() {
 		float cSph = dot(eye, eye) - 1.04;
 		float discSph = bSph * bSph - cSph;
 
-		vec3 perspDir = viewMatrix * rdLocal;
-		vec3 bgCol = samplePanorama(perspDir);
-		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
+		vec3 bgPanoDir = stereoWorldDir(lensUV);
+		vec3 bgCol = samplePanorama(bgPanoDir);
+		bgCol = applyGrid(bgCol, dirToEquirect(bgPanoDir));
 
 		// Project wireframe onto background
 		{
-			vec3 bgDir = normalize(rdLocal);
+			vec3 bgDir = stereoLocalDir(lensUV);
 			float bgMaxD = -1e9, bgSecD = -1e9;
 			for (int i = 0; i < 12; i++) {
 				float di = dot(bgDir, vFaces[i]) - RFACE_RD12;
@@ -5269,13 +5315,13 @@ void main() {
 		float cSph = dot(eye, eye) - 1.04;
 		float discSph = bSph * bSph - cSph;
 
-		vec3 perspDir = viewMatrix * rdLocal;
-		vec3 bgCol = samplePanorama(perspDir);
-		bgCol = applyGrid(bgCol, dirToEquirect(perspDir));
+		vec3 bgPanoDir = stereoWorldDir(lensUV);
+		vec3 bgCol = samplePanorama(bgPanoDir);
+		bgCol = applyGrid(bgCol, dirToEquirect(bgPanoDir));
 
 		// Project wireframe onto background
 		{
-			vec3 bgDir = normalize(rdLocal);
+			vec3 bgDir = stereoLocalDir(lensUV);
 			float bgMaxD = -1e9, bgSecD = -1e9;
 			for (int i = 0; i < 12; i++) {
 				float di = dot(bgDir, vFaces[i]) - RFACE_ICO;
@@ -5607,7 +5653,7 @@ void main() {
 }
 </script>
 
-	<script src="foldable-geometries.js"></script>
+	<script src="foldable-geometries.js?v=6"></script>
 	<script>
 		// ══════════════════════════════════════════════════════════
 		// WebGL 2 setup
@@ -5830,7 +5876,7 @@ void main() {
 			uHasTexture, uPixelate, uGlobeRadius, uGlobeOpacity, uGlobeReflect, uProjection,
 			uShowGrid, uFoldableNet, uFoldablePreRot, uRhombicPreRot, uIcoPreRot, uTruncOctPreRot,
 			uRhombic12PreRot, uDodec12PreRot, uPent24PreRot, uDelt60PreRot, uPentahex60PreRot,
-			uRhombicosi62PreRot, uDelt24PreRot, uSnubcube38PreRot, uRcubo26PreRot, uFoldableScale, uFoldableOverlay, uFoldableBBox,
+			uRhombicosi62PreRot, uDelt24PreRot, uSnubcube38PreRot, uRcubo26PreRot, uFoldableScale, uNetMirrored, uFoldableOverlay, uFoldableBBox,
 			uFoldablePaperRect, uFoldableOverlayAlpha, uCutLineOverlay, uFoldableTabOverlay,
 			uCutLineMode, uExportClip, uLevelMatrix, uPointer, uMagnifierRadius, uRefractivity,
 			uCollageRotation, uCollageFlip, uAzimuthalMask, uAzimuthalZoom, uStereoD, uStereoScaramuzza;
@@ -5863,6 +5909,7 @@ void main() {
 			uRcubo26PreRot = gl.getUniformLocation(prog, 'rcubo26PreRot');
 			uDelt24PreRot = gl.getUniformLocation(prog, 'delt24PreRot');
 			uFoldableScale = gl.getUniformLocation(prog, 'foldableScale');
+			uNetMirrored = gl.getUniformLocation(prog, 'netMirrored');
 			uFoldableOverlay = gl.getUniformLocation(prog, 'foldableOverlay');
 			uFoldableBBox = gl.getUniformLocation(prog, 'foldableBBox');
 			uFoldablePaperRect = gl.getUniformLocation(prog, 'foldablePaperRect');
@@ -9187,7 +9234,7 @@ void main() {
 				]);
 			}
 
-			function computePent24Layout(parentTree, importAngle, tabsMap, paperAspect) {
+			function computePent24Layout(parentTree, importAngle, tabsMap, paperAspect, mirrored) {
 				const layoutSeed = parentTree.indexOf(-1);
 				const lPlaced = new Array(N_FACES).fill(false);
 				const lParent = parentTree.slice();
@@ -9200,7 +9247,7 @@ void main() {
 					const p = q[qi++];
 					for (let j = 0; j < N_FACES; j++) {
 						if (lPlaced[j] || lParent[j] !== p) continue;
-						lRes[j] = G.ghostPlace(p, j, lRes, false);
+						lRes[j] = G.ghostPlace(p, j, lRes, mirrored);
 						lPlaced[j] = true;
 						q.push(j);
 					}
@@ -9268,6 +9315,7 @@ void main() {
 				for (let i = N_FACES; i < 32; i++) { data[i*4] = 9; data[i*4+1] = 9; }
 				gl.uniform4fv(uFoldableNet, data);
 				gl.uniform1f(uFoldableScale, scaleVal);
+				gl.uniform1f(uNetMirrored, mirrored ? 1.0 : 0.0);
 
 				let bbX0 = Infinity, bbX1 = -Infinity, bbY0 = Infinity, bbY1 = -Infinity;
 				for (let i = 0; i < N_FACES; i++) {
@@ -9548,15 +9596,15 @@ void main() {
 			populatePent24Select();
 
 			const defaultPreset = pent24Presets[0];
-			computePent24Layout(defaultPreset.parents, defaultPreset.angle, defaultPreset.tabs, defaultPreset.aspect);
+			computePent24Layout(defaultPreset.parents, defaultPreset.angle, defaultPreset.tabs, defaultPreset.aspect, defaultPreset.mirrored || false);
 			if (defaultPreset.northPole) {
 				gl.uniformMatrix3fv(uPent24PreRot, false, computePent24PreRot(defaultPreset.northPole.dir, defaultPreset.lonOffset));
 			} else {
 				gl.uniformMatrix3fv(uPent24PreRot, false, new Float32Array([1,0,0, 0,1,0, 0,0,1]));
 			}
 
-			window.importPent24Layout = function(parentTree, importAngle, alignHorizon, tabsMap, paperAspect, northPoleDir, lonOffset) {
-				computePent24Layout(parentTree, importAngle, tabsMap, paperAspect || 0);
+			window.importPent24Layout = function(parentTree, importAngle, alignHorizon, tabsMap, paperAspect, northPoleDir, lonOffset, mirrored) {
+				computePent24Layout(parentTree, importAngle, tabsMap, paperAspect || 0, mirrored);
 				if (northPoleDir) {
 					gl.uniformMatrix3fv(uPent24PreRot, false, computePent24PreRot(northPoleDir, lonOffset));
 				}
@@ -9589,8 +9637,8 @@ void main() {
 				}));
 			}
 
-			function computeDelt60Layout(parentTree, importAngle, tabsMap, paperAspect) {
-				const layout = unfoldNet(G, parentTree, false);
+			function computeDelt60Layout(parentTree, importAngle, tabsMap, paperAspect, mirrored) {
+				const layout = unfoldNet(G, parentTree, mirrored);
 				const { res: lRes, placed: lPlaced, parent: lParent, seed: layoutSeed } = layout;
 
 				let angle;
@@ -9621,6 +9669,7 @@ void main() {
 				}
 				gl.uniform4fv(uFoldableNet, data);
 				gl.uniform1f(uFoldableScale, scaleVal);
+				gl.uniform1f(uNetMirrored, mirrored ? 1.0 : 0.0);
 
 				let bbX0 = Infinity, bbX1 = -Infinity, bbY0 = Infinity, bbY1 = -Infinity;
 				for (let i = 0; i < N_FACES; i++) {
@@ -9901,15 +9950,15 @@ void main() {
 			populateDelt60Select();
 
 			const defaultPreset = delt60Presets[0];
-			computeDelt60Layout(defaultPreset.parents, null, defaultPreset.tabs, defaultPreset.aspect);
+			computeDelt60Layout(defaultPreset.parents, defaultPreset.angle, defaultPreset.tabs, defaultPreset.aspect, defaultPreset.mirrored || false);
 			if (defaultPreset.northPole) {
 				gl.uniformMatrix3fv(uDelt60PreRot, false, computePreRot(defaultPreset.northPole.dir, defaultPreset.lonOffset));
 			} else {
 				gl.uniformMatrix3fv(uDelt60PreRot, false, new Float32Array([1,0,0, 0,1,0, 0,0,1]));
 			}
 
-			window.importDelt60Layout = function(parentTree, importAngle, alignHorizon, tabsMap, paperAspect, northPoleDir, lonOffset) {
-				computeDelt60Layout(parentTree, importAngle, tabsMap, paperAspect || 0);
+			window.importDelt60Layout = function(parentTree, importAngle, alignHorizon, tabsMap, paperAspect, northPoleDir, lonOffset, mirrored) {
+				computeDelt60Layout(parentTree, importAngle, tabsMap, paperAspect || 0, mirrored);
 				if (northPoleDir) {
 					gl.uniformMatrix3fv(uDelt60PreRot, false, computePreRot(northPoleDir, lonOffset));
 				}
@@ -9942,8 +9991,8 @@ void main() {
 				}));
 			}
 
-			function computePentahex60Layout(parentTree, importAngle, tabsMap, paperAspect) {
-				const layout = unfoldNet(G, parentTree, false);
+			function computePentahex60Layout(parentTree, importAngle, tabsMap, paperAspect, mirrored) {
+				const layout = unfoldNet(G, parentTree, mirrored);
 				const { res: lRes, placed: lPlaced, parent: lParent, seed: layoutSeed } = layout;
 
 				let angle;
@@ -9974,6 +10023,7 @@ void main() {
 				}
 				gl.uniform4fv(uFoldableNet, data);
 				gl.uniform1f(uFoldableScale, scaleVal);
+				gl.uniform1f(uNetMirrored, mirrored ? 1.0 : 0.0);
 
 				let bbX0 = Infinity, bbX1 = -Infinity, bbY0 = Infinity, bbY1 = -Infinity;
 				for (let i = 0; i < N_FACES; i++) {
@@ -10254,15 +10304,15 @@ void main() {
 			populatePentahex60Select();
 
 			const defaultPreset = ph60Presets[0];
-			computePentahex60Layout(defaultPreset.parents, null, defaultPreset.tabs, defaultPreset.aspect);
+				computePentahex60Layout(defaultPreset.parents, defaultPreset.angle, defaultPreset.tabs, defaultPreset.aspect, defaultPreset.mirrored || false);
 			if (defaultPreset.northPole) {
 				gl.uniformMatrix3fv(uPentahex60PreRot, false, computePreRot(defaultPreset.northPole.dir, defaultPreset.lonOffset));
 			} else {
 				gl.uniformMatrix3fv(uPentahex60PreRot, false, new Float32Array([1,0,0, 0,1,0, 0,0,1]));
 			}
 
-			window.importPentahex60Layout = function(parentTree, importAngle, alignHorizon, tabsMap, paperAspect, northPoleDir, lonOffset) {
-				computePentahex60Layout(parentTree, importAngle, tabsMap, paperAspect || 0);
+			window.importPentahex60Layout = function(parentTree, importAngle, alignHorizon, tabsMap, paperAspect, northPoleDir, lonOffset, mirrored) {
+				computePentahex60Layout(parentTree, importAngle, tabsMap, paperAspect || 0, mirrored);
 				if (northPoleDir) {
 					gl.uniformMatrix3fv(uPentahex60PreRot, false, computePreRot(northPoleDir, lonOffset));
 				}
@@ -10351,8 +10401,8 @@ void main() {
 				return verts;
 			}
 
-			function computeRhombicosi62Layout(parentTree, importAngle, tabsMap, paperAspect) {
-				const layout = unfoldNet(G, parentTree, false);
+			function computeRhombicosi62Layout(parentTree, importAngle, tabsMap, paperAspect, mirrored) {
+				const layout = unfoldNet(G, parentTree, mirrored);
 				const { res: lRes, placed: lPlaced, parent: lParent, seed: layoutSeed } = layout;
 
 				let angle;
@@ -10384,6 +10434,7 @@ void main() {
 				}
 				gl.uniform4fv(uFoldableNet, data);
 				gl.uniform1f(uFoldableScale, scaleVal);
+				gl.uniform1f(uNetMirrored, mirrored ? 1.0 : 0.0);
 
 				let bbX0 = Infinity, bbX1 = -Infinity, bbY0 = Infinity, bbY1 = -Infinity;
 				for (let i = 0; i < N_FACES; i++) {
@@ -10406,7 +10457,7 @@ void main() {
 					for (const j of adj[i]) {
 						const k = G.edgeIdx(i, j);
 						const isInternal = lPlaced[j] && (lParent[j] === i || lParent[i] === j);
-						edgeNeighbor[i][(k - 1 + ns) % ns] = { j, isInternal };
+						edgeNeighbor[i][G.edgeSlot(i, k, mirrored)] = { j, isInternal };
 					}
 				}
 
@@ -10668,7 +10719,7 @@ void main() {
 
 			if (rc62Presets.length > 0) {
 				const defaultPreset = rc62Presets[0];
-				computeRhombicosi62Layout(defaultPreset.parents, null, defaultPreset.tabs, defaultPreset.aspect);
+				computeRhombicosi62Layout(defaultPreset.parents, defaultPreset.angle, defaultPreset.tabs, defaultPreset.aspect, defaultPreset.mirrored || false);
 				if (defaultPreset.northPole) {
 					gl.uniformMatrix3fv(uRhombicosi62PreRot, false, computePreRot(defaultPreset.northPole.dir, defaultPreset.lonOffset));
 				} else {
@@ -10678,8 +10729,8 @@ void main() {
 				gl.uniformMatrix3fv(uRhombicosi62PreRot, false, new Float32Array([1,0,0, 0,1,0, 0,0,1]));
 			}
 
-			window.importRhombicosi62Layout = function(parentTree, importAngle, alignHorizon, tabsMap, paperAspect, northPoleDir, lonOffset) {
-				computeRhombicosi62Layout(parentTree, importAngle, tabsMap, paperAspect || 0);
+			window.importRhombicosi62Layout = function(parentTree, importAngle, alignHorizon, tabsMap, paperAspect, northPoleDir, lonOffset, mirrored) {
+				computeRhombicosi62Layout(parentTree, importAngle, tabsMap, paperAspect || 0, mirrored);
 				if (northPoleDir) {
 					gl.uniformMatrix3fv(uRhombicosi62PreRot, false, computePreRot(northPoleDir, lonOffset));
 				}
@@ -10749,8 +10800,8 @@ void main() {
 				return verts;
 			}
 
-			function computeSnubcube38Layout(parentTree, importAngle, tabsMap, paperAspect) {
-				const layout = unfoldNet(G, parentTree, false);
+			function computeSnubcube38Layout(parentTree, importAngle, tabsMap, paperAspect, mirrored) {
+				const layout = unfoldNet(G, parentTree, mirrored);
 				const { res: lRes, placed: lPlaced, parent: lParent, seed: layoutSeed } = layout;
 
 				let angle;
@@ -10782,6 +10833,7 @@ void main() {
 				}
 				gl.uniform4fv(uFoldableNet, data);
 				gl.uniform1f(uFoldableScale, scaleVal);
+				gl.uniform1f(uNetMirrored, mirrored ? 1.0 : 0.0);
 
 				let bbX0 = Infinity, bbX1 = -Infinity, bbY0 = Infinity, bbY1 = -Infinity;
 				for (let i = 0; i < N_FACES; i++) {
@@ -10804,7 +10856,7 @@ void main() {
 					for (const j of adj[i]) {
 						const k = G.edgeIdx(i, j);
 						const isInternal = lPlaced[j] && (lParent[j] === i || lParent[i] === j);
-						edgeNeighbor[i][(k - 1 + ns) % ns] = { j, isInternal };
+						edgeNeighbor[i][G.edgeSlot(i, k, mirrored)] = { j, isInternal };
 					}
 				}
 
@@ -11064,33 +11116,18 @@ void main() {
 			}
 			populateSnubcube38Select();
 
-			if (snubcube38Presets.length > 0) {
+			{
 				const defaultPreset = snubcube38Presets[0];
-				computeSnubcube38Layout(defaultPreset.parents, null, defaultPreset.tabs, defaultPreset.aspect);
+				computeSnubcube38Layout(defaultPreset.parents, defaultPreset.angle, defaultPreset.tabs, defaultPreset.aspect, defaultPreset.mirrored || false);
 				if (defaultPreset.northPole) {
 					gl.uniformMatrix3fv(uSnubcube38PreRot, false, computePreRot(defaultPreset.northPole.dir, defaultPreset.lonOffset));
 				} else {
 					gl.uniformMatrix3fv(uSnubcube38PreRot, false, new Float32Array([1,0,0, 0,1,0, 0,0,1]));
 				}
-			} else {
-				// Fallback for a geometry shipped without hand-tuned presets: a plain BFS
-				// spanning-tree net with an auto-picked (most-antipodal) pole pair, mirroring
-				// net-layouter.html's buildDefaultParentTree()/defaultPoles() fallback.
-				const bfsParents = new Array(N_FACES).fill(-2);
-				bfsParents[0] = -1;
-				const bfsVisited = new Set([0]);
-				const bfsQueue = [0];
-				while (bfsQueue.length) {
-					const p = bfsQueue.shift();
-					for (const nb of adj[p]) if (!bfsVisited.has(nb)) { bfsVisited.add(nb); bfsParents[nb] = p; bfsQueue.push(nb); }
-				}
-				const { northPole } = defaultPoles(c3);
-				computeSnubcube38Layout(bfsParents, null, {}, Math.sqrt(2));
-				gl.uniformMatrix3fv(uSnubcube38PreRot, false, computePreRot(northPole.dir, 0));
 			}
 
-			window.importSnubcube38Layout = function(parentTree, importAngle, alignHorizon, tabsMap, paperAspect, northPoleDir, lonOffset) {
-				computeSnubcube38Layout(parentTree, importAngle, tabsMap, paperAspect || 0);
+			window.importSnubcube38Layout = function(parentTree, importAngle, alignHorizon, tabsMap, paperAspect, northPoleDir, lonOffset, mirrored) {
+				computeSnubcube38Layout(parentTree, importAngle, tabsMap, paperAspect || 0, mirrored);
 				if (northPoleDir) {
 					gl.uniformMatrix3fv(uSnubcube38PreRot, false, computePreRot(northPoleDir, lonOffset));
 				}
@@ -11161,8 +11198,8 @@ void main() {
 				return verts;
 			}
 
-			function computeRcubo26Layout(parentTree, importAngle, tabsMap, paperAspect) {
-				const layout = unfoldNet(G, parentTree, false);
+			function computeRcubo26Layout(parentTree, importAngle, tabsMap, paperAspect, mirrored) {
+				const layout = unfoldNet(G, parentTree, mirrored);
 				const { res: lRes, placed: lPlaced, parent: lParent, seed: layoutSeed } = layout;
 
 				let angle;
@@ -11194,6 +11231,7 @@ void main() {
 				}
 				gl.uniform4fv(uFoldableNet, data);
 				gl.uniform1f(uFoldableScale, scaleVal);
+				gl.uniform1f(uNetMirrored, mirrored ? 1.0 : 0.0);
 
 				let bbX0 = Infinity, bbX1 = -Infinity, bbY0 = Infinity, bbY1 = -Infinity;
 				for (let i = 0; i < N_FACES; i++) {
@@ -11216,7 +11254,7 @@ void main() {
 					for (const j of adj[i]) {
 						const k = G.edgeIdx(i, j);
 						const isInternal = lPlaced[j] && (lParent[j] === i || lParent[i] === j);
-						edgeNeighbor[i][(k - 1 + ns) % ns] = { j, isInternal };
+						edgeNeighbor[i][G.edgeSlot(i, k, mirrored)] = { j, isInternal };
 					}
 				}
 
@@ -11476,33 +11514,18 @@ void main() {
 			}
 			populateRcubo26Select();
 
-			if (rcubo26Presets.length > 0) {
+			{
 				const defaultPreset = rcubo26Presets[0];
-				computeRcubo26Layout(defaultPreset.parents, null, defaultPreset.tabs, defaultPreset.aspect);
+				computeRcubo26Layout(defaultPreset.parents, defaultPreset.angle, defaultPreset.tabs, defaultPreset.aspect, defaultPreset.mirrored || false);
 				if (defaultPreset.northPole) {
 					gl.uniformMatrix3fv(uRcubo26PreRot, false, computePreRot(defaultPreset.northPole.dir, defaultPreset.lonOffset));
 				} else {
 					gl.uniformMatrix3fv(uRcubo26PreRot, false, new Float32Array([1,0,0, 0,1,0, 0,0,1]));
 				}
-			} else {
-				// Fallback for a geometry shipped without hand-tuned presets: a plain BFS
-				// spanning-tree net with an auto-picked (most-antipodal) pole pair, mirroring
-				// net-layouter.html's buildDefaultParentTree()/defaultPoles() fallback.
-				const bfsParents = new Array(N_FACES).fill(-2);
-				bfsParents[0] = -1;
-				const bfsVisited = new Set([0]);
-				const bfsQueue = [0];
-				while (bfsQueue.length) {
-					const p = bfsQueue.shift();
-					for (const nb of adj[p]) if (!bfsVisited.has(nb)) { bfsVisited.add(nb); bfsParents[nb] = p; bfsQueue.push(nb); }
-				}
-				const { northPole } = defaultPoles(c3);
-				computeRcubo26Layout(bfsParents, null, {}, Math.sqrt(2));
-				gl.uniformMatrix3fv(uRcubo26PreRot, false, computePreRot(northPole.dir, 0));
 			}
 
-			window.importRcubo26Layout = function(parentTree, importAngle, alignHorizon, tabsMap, paperAspect, northPoleDir, lonOffset) {
-				computeRcubo26Layout(parentTree, importAngle, tabsMap, paperAspect || 0);
+			window.importRcubo26Layout = function(parentTree, importAngle, alignHorizon, tabsMap, paperAspect, northPoleDir, lonOffset, mirrored) {
+				computeRcubo26Layout(parentTree, importAngle, tabsMap, paperAspect || 0, mirrored);
 				if (northPoleDir) {
 					gl.uniformMatrix3fv(uRcubo26PreRot, false, computePreRot(northPoleDir, lonOffset));
 				}
@@ -11535,8 +11558,8 @@ void main() {
 				}));
 			}
 
-			function computeDelt24Layout(parentTree, importAngle, tabsMap, paperAspect) {
-				const layout = unfoldNet(G, parentTree, false);
+			function computeDelt24Layout(parentTree, importAngle, tabsMap, paperAspect, mirrored) {
+				const layout = unfoldNet(G, parentTree, mirrored);
 				const { res: lRes, placed: lPlaced, parent: lParent, seed: layoutSeed } = layout;
 
 				let angle;
@@ -11567,6 +11590,7 @@ void main() {
 				}
 				gl.uniform4fv(uFoldableNet, data);
 				gl.uniform1f(uFoldableScale, scaleVal);
+				gl.uniform1f(uNetMirrored, mirrored ? 1.0 : 0.0);
 
 				let bbX0 = Infinity, bbX1 = -Infinity, bbY0 = Infinity, bbY1 = -Infinity;
 				for (let i = 0; i < N_FACES; i++) {
@@ -11849,7 +11873,7 @@ void main() {
 			// No shipped presets for deltoidal-24 (build/import layouts via net-layouter.html).
 			if (delt24Presets.length > 0) {
 				const defaultPreset = delt24Presets[0];
-				computeDelt24Layout(defaultPreset.parents, null, defaultPreset.tabs, defaultPreset.aspect);
+				computeDelt24Layout(defaultPreset.parents, defaultPreset.angle, defaultPreset.tabs, defaultPreset.aspect, defaultPreset.mirrored || false);
 				if (defaultPreset.northPole) {
 					gl.uniformMatrix3fv(uDelt24PreRot, false, computePreRot(defaultPreset.northPole.dir, defaultPreset.lonOffset));
 				} else {
@@ -11859,8 +11883,8 @@ void main() {
 				gl.uniformMatrix3fv(uDelt24PreRot, false, new Float32Array([1,0,0, 0,1,0, 0,0,1]));
 			}
 
-			window.importDelt24Layout = function(parentTree, importAngle, alignHorizon, tabsMap, paperAspect, northPoleDir, lonOffset) {
-				computeDelt24Layout(parentTree, importAngle, tabsMap, paperAspect || 0);
+			window.importDelt24Layout = function(parentTree, importAngle, alignHorizon, tabsMap, paperAspect, northPoleDir, lonOffset, mirrored) {
+				computeDelt24Layout(parentTree, importAngle, tabsMap, paperAspect || 0, mirrored);
 				if (northPoleDir) {
 					gl.uniformMatrix3fv(uDelt24PreRot, false, computePreRot(northPoleDir, lonOffset));
 				}
@@ -12186,6 +12210,82 @@ void main() {
 		let stereoA3 = 0.0;
 
 		const projectionSelect = document.getElementById('projection-select');
+		const polyViewToggle = document.getElementById('poly-view-toggle');
+
+		// ── Combined per-geometry dropdown entries ──
+		// The <select> shows one entry per polyhedron ("{faces}-{name}", e.g.
+		// "38-snubcube") instead of separate preview/foldable rows; a toggle
+		// button next to it switches between the two modes for the active
+		// geometry. Derived from FAMILIES (single source of truth for the
+		// preview/foldable mode-index pairing) plus a small face-count/name
+		// lookup, then sorted by face count and lexicographically by name.
+		const POLY_META = {
+			dodec12:    { faces: 12, name: 'dodecahedron' },
+			rd12:       { faces: 12, name: 'rhombic' },
+			truncoct14: { faces: 14, name: 'truncoct' },
+			ico20:      { faces: 20, name: 'icosahedron' },
+			delt24:     { faces: 24, name: 'deltoidal' },
+			pent24:     { faces: 24, name: 'pentagonal' },
+			rcubo26:    { faces: 26, name: 'rhombicubo' },
+			rhombic30:  { faces: 30, name: 'rhombic' },
+			bucky32:    { faces: 32, name: 'buckyball' },
+			snubcube38: { faces: 38, name: 'snubcube' },
+			delt60:     { faces: 60, name: 'deltoidal' },
+			pentahex60: { faces: 60, name: 'pentahex' },
+			rc62:       { faces: 62, name: 'rhombicosi' },
+		};
+		const POLY_ENTRIES = FAMILIES.filter(f => f.id !== 'core').map(f => {
+			const meta = POLY_META[f.id];
+			return { id: f.id, faces: meta.faces, name: meta.name, value: meta.faces + '-' + meta.name, previewIdx: f.modes[0], foldableIdx: f.modes[1] };
+		}).sort((a, b) => a.faces - b.faces || a.name.localeCompare(b.name));
+		POLY_ENTRIES.forEach(e => {
+			const opt = document.createElement('option');
+			opt.value = e.value;
+			opt.textContent = e.value;
+			projectionSelect.appendChild(opt);
+		});
+
+		// Current preview/foldable choice for whichever geometry is active (base
+		// projection modes ignore this and hide the toggle button entirely).
+		let polyViewMode = 'preview';
+
+		// Dropdown value ↔ raw mode-index conversion, shared by the main
+		// projection select, the animation-editor select, and config load.
+		function valueForModeIndex(idx) {
+			const entry = POLY_ENTRIES.find(e => e.previewIdx === idx || e.foldableIdx === idx);
+			if (entry) return entry.value;
+			return projectionModes[idx] || projectionModes[0];
+		}
+		function modeIndexForValue(value, preferFoldable) {
+			const entry = POLY_ENTRIES.find(e => e.value === value);
+			if (entry) return preferFoldable ? entry.foldableIdx : entry.previewIdx;
+			const idx = projectionModes.indexOf(value);
+			return idx >= 0 ? idx : 0;
+		}
+		// Keeps the <select> value and the poly-view-toggle button in sync with
+		// the current projectionModeIndex (call after changing it directly).
+		function syncProjectionSelectUI() {
+			projectionSelect.value = valueForModeIndex(projectionModeIndex);
+			const entry = POLY_ENTRIES.find(e => e.previewIdx === projectionModeIndex || e.foldableIdx === projectionModeIndex);
+			if (entry) {
+				polyViewMode = (projectionModeIndex === entry.foldableIdx) ? 'foldable' : 'preview';
+				polyViewToggle.style.display = '';
+				polyViewToggle.textContent = polyViewMode === 'foldable' ? 'Foldable' : 'Preview';
+			} else {
+				polyViewToggle.style.display = 'none';
+			}
+		}
+		polyViewToggle.addEventListener('click', () => {
+			const entry = POLY_ENTRIES.find(e => e.previewIdx === projectionModeIndex || e.foldableIdx === projectionModeIndex);
+			if (!entry) return;
+			polyViewMode = polyViewMode === 'foldable' ? 'preview' : 'foldable';
+			projectionModeIndex = polyViewMode === 'foldable' ? entry.foldableIdx : entry.previewIdx;
+			syncProjectionSelectUI();
+			updateProjectionUI();
+			updateCamSliders();
+			updateFacesSliders();
+			saveProjectionConfig();
+		});
 		const gridToggleProj = document.getElementById('grid-toggle-proj');
 		const gridLabels = ['Grid: Off', 'Grid: Tex', 'Grid: View'];
 		function syncGridToggles(v) { showGrid = v; gridToggleProj.textContent = gridLabels[v]; gridToggleProj.classList.toggle('active', v > 0); needsRedraw = true; }
@@ -12338,8 +12438,8 @@ void main() {
 			saveProjectionConfig();
 		});
 		projectionSelect.addEventListener('change', () => {
-			projectionModeIndex = projectionModes.indexOf(projectionSelect.value);
-			if (projectionModeIndex < 0) projectionModeIndex = 0;
+			projectionModeIndex = modeIndexForValue(projectionSelect.value, polyViewMode === 'foldable');
+			syncProjectionSelectUI();
 			updateProjectionUI();
 			updateCamSliders();
 			updateFacesSliders();
@@ -12600,10 +12700,13 @@ void main() {
 			fovRow.style.display = (isPerspective || isAnyPreview) ? 'contents' : 'none';
 			pixelateRow.style.display = (isStereo || isPerspective || isAzimuthal || isCollage) ? 'contents' : 'none';
 
-			azimuthalZoomRow.style.display = (isAzimuthal || isCollage || isStereo) ? 'contents' : 'none';
+			azimuthalZoomRow.style.display = (isAzimuthal || isCollage || isStereo || isAnyPreview) ? 'contents' : 'none';
 			collageRow.style.display = isCollage ? 'contents' : 'none';
 			collageRotationRow.style.display = isCollage ? 'contents' : 'none';
-			stereographicRow.style.display = isStereo ? 'contents' : 'none';
+			// Preview modes' background is stereographically projected (see stereoLocalDir()/
+			// stereoWorldDir() in the shader), so the stereographic distortion parameters must
+			// stay adjustable there too, not just in the base "stereographic" projection mode.
+			stereographicRow.style.display = (isStereo || isAnyPreview) ? 'contents' : 'none';
 			netRow.style.display = (isFoldable || isAnyPreview) ? 'contents' : 'none';
 			cutlineRow.style.display = isFoldable ? 'contents' : 'none';
 			const newGeoKey = isDodec ? 'dodec12' : isRd12 ? 'rhombic12' : isTruncOct ? 'truncoct' : isIco ? 'ico' : isPent24 ? 'pent24' : isRhombic ? 'rhombic' : isBucky ? 'bucky' : isDelt60 ? 'delt60' : isPH60 ? 'pentahex60' : isRC62 ? 'rhombicosi62' : isDelt24 ? 'delt24' : isSnub38 ? 'snubcube38' : isRcubo26 ? 'rcubo26' : null;
@@ -12631,7 +12734,7 @@ void main() {
 			// Swap net overlay data when switching between foldable modes
 			if (isFoldable || isAnyPreview) uploadActiveNetData();
 		}
-		projectionSelect.value = projectionModes[projectionModeIndex];
+		syncProjectionSelectUI();
 		updateProjectionUI();
 		updateLevelBtnState();
 
@@ -12639,7 +12742,7 @@ void main() {
 			if (!currentGeoKey) return;
 			const cfg = GEO_CFG[currentGeoKey];
 			const preset = window[cfg.presets][geoLayoutSelect.value];
-			if (preset) window[cfg.import](preset.parents, preset.angle != null ? preset.angle : null, true, preset.tabs, preset.aspect, preset.northPole ? preset.northPole.dir : null, preset.lonOffset);
+			if (preset) window[cfg.import](preset.parents, preset.angle != null ? preset.angle : null, true, preset.tabs, preset.aspect, preset.northPole ? preset.northPole.dir : null, preset.lonOffset, preset.mirrored || false);
 		});
 
 		document.getElementById('geo-open-layouter').addEventListener('click', () => {
@@ -12657,8 +12760,11 @@ void main() {
 				const obj = JSON.parse(text);
 				if (!obj.parents || obj.parents.length !== cfg.n || obj.parents.filter(p => p === -1).length !== 1)
 					return alert('Invalid layout: expected { parents: [' + cfg.n + ' ints with one -1] }');
+				if (obj.mirrored && GEOMETRIES[cfg.geo] && GEOMETRIES[cfg.geo].chiral) {
+					console.warn(`Pasted layout has mirrored:true for chiral geometry "${cfg.geo}" — this renders with mirror-image texture content (unavoidable for a chiral solid's mirrored net).`);
+				}
 				const label = obj.label || obj.name || 'Custom';
-				const entry = { label, aspect: obj.aspect || 0, parents: obj.parents, tabs: obj.tabs || null, angle: obj.angle != null ? obj.angle : null, northPole: obj.northPole || null, southPole: obj.southPole || null, lonOffset: obj.lonOffset || 0 };
+				const entry = { label, aspect: obj.aspect || 0, parents: obj.parents, tabs: obj.tabs || null, mirrored: obj.mirrored || false, angle: obj.angle != null ? obj.angle : null, northPole: obj.northPole || null, southPole: obj.southPole || null, lonOffset: obj.lonOffset || 0 };
 				const presets = window[cfg.presets];
 				const existingIdx = presets.findIndex(p => p.label === label);
 				if (existingIdx >= 0) {
@@ -12668,7 +12774,7 @@ void main() {
 				}
 				const idx = existingIdx >= 0 ? existingIdx : presets.length - 1;
 				window[cfg.populate]();
-				window[cfg.import](obj.parents, obj.angle != null ? obj.angle : null, true, obj.tabs || null, obj.aspect || 0, obj.northPole ? obj.northPole.dir : null, obj.lonOffset || 0);
+				window[cfg.import](obj.parents, obj.angle != null ? obj.angle : null, true, obj.tabs || null, obj.aspect || 0, obj.northPole ? obj.northPole.dir : null, obj.lonOffset || 0, obj.mirrored || false);
 				geoLayoutSelect.value = idx;
 			} catch (e) {
 				alert('Paste failed: ' + e.message);
@@ -12683,11 +12789,19 @@ void main() {
 			const p = payload;
 			const geo = p.geometry;
 			const parents = p.parents;
+			if (!Array.isArray(parents) || parents.filter(v => v === -1).length !== 1) {
+				alert('Invalid layout received from net-layouter.html: parent tree must have exactly one root (-1). Not applied.');
+				return;
+			}
+			if (p.mirrored && GEOMETRIES[geo] && GEOMETRIES[geo].chiral) {
+				console.warn(`Layout applied to viewer has mirrored:true for chiral geometry "${geo}" — this renders with mirror-image texture content (unavoidable for a chiral solid's mirrored net).`);
+			}
 			const angle = p.angle != null ? p.angle : null;
 			const tabs = p.tabs || null;
 			const aspect = p.aspect || 0;
 			const northPoleDir = p.northPole ? p.northPole.dir : null;
 			const lonOffset = p.lonOffset || 0;
+			const mirrored = p.mirrored || false;
 			if (geo === 'buckyball32' && window.importBucky32Layout) {
 				window.importBucky32Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset);
 			} else if (geo === 'rhombic30' && window.importRhombic30Layout) {
@@ -12701,19 +12815,19 @@ void main() {
 			} else if (geo === 'dodecahedron12' && window.importDodec12Layout) {
 				window.importDodec12Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset);
 			} else if (geo === 'pentagonal24' && window.importPent24Layout) {
-				window.importPent24Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset);
+				window.importPent24Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset, mirrored);
 			} else if (geo === 'deltoidal60' && window.importDelt60Layout) {
-				window.importDelt60Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset);
+				window.importDelt60Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset, mirrored);
 			} else if (geo === 'pentahex60' && window.importPentahex60Layout) {
-				window.importPentahex60Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset);
+				window.importPentahex60Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset, mirrored);
 			} else if (geo === 'rhombicosi62' && window.importRhombicosi62Layout) {
-				window.importRhombicosi62Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset);
+				window.importRhombicosi62Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset, mirrored);
 			} else if (geo === 'deltoidal24' && window.importDelt24Layout) {
-				window.importDelt24Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset);
+				window.importDelt24Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset, mirrored);
 			} else if (geo === 'snubcube38' && window.importSnubcube38Layout) {
-				window.importSnubcube38Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset);
+				window.importSnubcube38Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset, mirrored);
 			} else if (geo === 'rhombicubo26' && window.importRcubo26Layout) {
-				window.importRcubo26Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset);
+				window.importRcubo26Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset, mirrored);
 			}
 		};
 
@@ -13376,31 +13490,7 @@ void main() {
 				return [rd1, rd2b, rd0];
 			}
 			if (projectionModeIndex === M_STEREO) {
-				// Stereographic (JS mirror of the GLSL stereographic block).
-				// See shader comments for full derivation.
-				// Steps: screen→polar → Scaramuzza polynomial → inverse stereographic → ray
-				let u = fragX / resX * 2 - 1;
-				let v = fragY / resY * 2 - 1;
-				const aspect = resX / resY;
-				u *= aspect;
-				u *= azimuthalZoom; v *= azimuthalZoom;
-				const angle = Math.atan2(-u, -v);
-				let l = Math.sqrt(u * u + v * v);
-				// Polynomial radial distortion (Scaramuzza model, ×8 scaling)
-				let l8 = l * 8.0;
-				let lp = stereoA0*l8 + stereoA1*l8*l8 + stereoA2*l8*l8*l8 + stereoA3*l8*l8*l8*l8;
-				const normF = stereoA0 + stereoA1 + stereoA2 + stereoA3;
-				if (normF > 0) lp /= normF;
-				// Inverse stereographic: q = D/lp, solve for θ
-				const dl = stereoD / Math.max(lp, 0.0001);
-				const dl2 = dl * dl;
-				const under = dl2 + 2*stereoD - stereoD*stereoD;
-				const theta = Math.acos(Math.max(-1, Math.min(1, (1 - stereoD + dl * Math.sqrt(Math.max(0, under))) / (1 + dl2))));
-				const sinT = Math.sin(theta);
-				const rd0 = sinT * Math.sin(angle);
-				const rd1 = Math.cos(theta);
-				const rd2 = -sinT * Math.cos(angle);
-			return [rd0, rd2, -rd1]; // pre-rotation P=+90° (optical axis Y→Z)
+				return screenToStereoDir(cx, cy);
 			}
 			if (projectionModeIndex === M_PERSP || projectionModeIndex === M_PREVIEW || projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_TRUNCOCT_PREVIEW || projectionModeIndex === M_ICO_PREVIEW || projectionModeIndex === M_RD12_PREVIEW || projectionModeIndex === M_DODEC_PREVIEW || projectionModeIndex === M_PENT24_PREVIEW || projectionModeIndex === M_DELT60_PREVIEW || projectionModeIndex === M_PH60_PREVIEW || projectionModeIndex === M_RC62_PREVIEW || projectionModeIndex === M_DELT24_PREVIEW || projectionModeIndex === M_SNUB38_PREVIEW || projectionModeIndex === M_RCUBO26_PREVIEW) {
 				// Perspective / preview: same ray construction
@@ -13410,6 +13500,40 @@ void main() {
 				return screenToFoldableDir(cx, cy);
 			}
 			return null;
+		}
+
+		// JS mirror of the GLSL stereoLocalDir() function (camera-local ray, no viewMatrix).
+		// Used both for the base "stereographic" projection mode and for dragging the
+		// panorama background behind a polyhedron preview (which is also stereographically
+		// projected — see stereoLocalDir()/stereoWorldDir() in the fragment shader).
+		function screenToStereoDir(cx, cy) {
+			const dpr = Math.min(devicePixelRatio, 2);
+			const fragX = cx * dpr;
+			const fragY = (innerHeight - cy) * dpr; // WebGL Y-up
+			const resX = canvas.width;
+			const resY = canvas.height;
+			let u = fragX / resX * 2 - 1;
+			let v = fragY / resY * 2 - 1;
+			const aspect = resX / resY;
+			u *= aspect;
+			u *= azimuthalZoom; v *= azimuthalZoom;
+			const angle = Math.atan2(-u, -v);
+			let l = Math.sqrt(u * u + v * v);
+			// Polynomial radial distortion (Scaramuzza model, ×8 scaling)
+			let l8 = l * 8.0;
+			let lp = stereoA0*l8 + stereoA1*l8*l8 + stereoA2*l8*l8*l8 + stereoA3*l8*l8*l8*l8;
+			const normF = stereoA0 + stereoA1 + stereoA2 + stereoA3;
+			if (normF > 0) lp /= normF;
+			// Inverse stereographic: q = D/lp, solve for θ
+			const dl = stereoD / Math.max(lp, 0.0001);
+			const dl2 = dl * dl;
+			const under = dl2 + 2*stereoD - stereoD*stereoD;
+			const theta = Math.acos(Math.max(-1, Math.min(1, (1 - stereoD + dl * Math.sqrt(Math.max(0, under))) / (1 + dl2))));
+			const sinT = Math.sin(theta);
+			const rd0 = sinT * Math.sin(angle);
+			const rd1 = Math.cos(theta);
+			const rd2 = -sinT * Math.cos(angle);
+			return [rd0, rd2, -rd1]; // pre-rotation P=+90° (optical axis Y→Z)
 		}
 
 		// Convert screen coords to local ray for perspective projection (dblclick centering only)
@@ -13751,6 +13875,10 @@ void main() {
 				if (dx * dx + dy * dy > rPx * rPx) {
 					_previewDragBg = true;
 					dragStartQuat = Array.from(camQuat);
+					// Preview background is stereographically projected (stereoLocalDir()),
+					// not the ball's perspective ray — use the matching JS ray so pixel-locked
+					// drag tracks the cursor correctly.
+					dragStartDir = screenToStereoDir(e.clientX, e.clientY);
 				}
 			}
 		});
@@ -13859,13 +13987,13 @@ void main() {
 						rotateRoll(dx * 0.003);
 					}
 				}
-				dragStartDir = screenToLocalDir(e.clientX, e.clientY);
+				dragStartDir = _previewDragBg ? screenToStereoDir(e.clientX, e.clientY) : screenToLocalDir(e.clientX, e.clientY);
 				dragStartQuat = _previewDragBg ? Array.from(camQuat) : Array.from(activeQuat());
 				updateCamSliders();
 				if (previewBall) updateFacesSliders();
 				return;
 			}
-			const dirNow = screenToLocalDir(e.clientX, e.clientY);
+			const dirNow = _previewDragBg ? screenToStereoDir(e.clientX, e.clientY) : screenToLocalDir(e.clientX, e.clientY);
 			if (dragStartDir && dirNow) {
 				if (previewBall) {
 					// Ball surface follows cursor: conjugate view-space rotation
@@ -14481,7 +14609,7 @@ void main() {
 			}
 			if (typeof cfg.projectionModeIndex === 'number') {
 				projectionModeIndex = cfg.projectionModeIndex;
-				projectionSelect.value = projectionModes[projectionModeIndex] || projectionModes[0];
+				syncProjectionSelectUI();
 			}
 			if (typeof cfg.foldableOverlayAlpha === 'number') {
 				foldableOverlayAlpha = cfg.foldableOverlayAlpha;
@@ -14697,15 +14825,16 @@ void main() {
 			animDetails.style.display = '';
 			animNameInput.value = anim.name;
 			const idx = anim.projectionModeIndex != null ? anim.projectionModeIndex : projectionModeIndex;
-			animProjectionSelect.value = projectionModes[idx] || projectionModes[0];
 			projectionModeIndex = idx;
-			projectionSelect.value = animProjectionSelect.value;
+			animProjectionSelect.value = valueForModeIndex(idx);
+			syncProjectionSelectUI();
 			updateProjectionUI();
 			updateCamSliders();
 			updateFacesSliders();
 			animDurationInput.value = anim.duration;
 			animLoopInput.checked = !!anim.loop;
 			projectionSelect.disabled = true;
+			polyViewToggle.disabled = true;
 			showAnimTimeline(anim.duration);
 		}
 
@@ -15011,6 +15140,7 @@ void main() {
 			animPlaying = false;
 			animEditorActive = false;
 			projectionSelect.disabled = false;
+			polyViewToggle.disabled = false;
 			if (!videoActive) timelineEl.style.display = 'none';
 		}
 
@@ -15144,10 +15274,10 @@ void main() {
 		animProjectionSelect.addEventListener('change', () => {
 			if (selectedAnimIndex < 0) return;
 			const wasPlaying = animPlaying;
-			const idx = projectionModes.indexOf(animProjectionSelect.value);
+			const idx = modeIndexForValue(animProjectionSelect.value, polyViewMode === 'foldable');
 			animations[selectedAnimIndex].projectionModeIndex = idx;
 			projectionModeIndex = idx;
-			projectionSelect.value = animProjectionSelect.value;
+			syncProjectionSelectUI();
 			updateProjectionUI();
 			updateCamSliders();
 			updateFacesSliders();

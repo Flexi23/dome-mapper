@@ -19,6 +19,8 @@ canvas { display: block; }
 #ui .val { min-width: 32px; text-align: right; font-variant-numeric: tabular-nums; }
 #ui button { width: 100%; margin: 3px 0; padding: 4px 8px; cursor: pointer; border-radius: 4px; border: 1px solid #555; background: #2a2a4a; color: #ccc; font-size: 12px; }
 #ui button:hover { background: #3a3a6a; }
+#ui button:disabled { cursor: not-allowed; opacity: 0.4; background: #2a2a4a; }
+#ui button:disabled:hover { background: #2a2a4a; }
 #ui .btn-row { display: flex; gap: 6px; }
 #ui .btn-row button { flex: 1; }
 #ui .label-row { display: flex; justify-content: space-between; align-items: center; margin: 4px 0 2px; }
@@ -100,7 +102,7 @@ canvas { display: block; }
 <div id="tooltip"></div>
 <canvas id="c"></canvas>
 
-<script src="foldable-geometries.js"></script>
+<script src="foldable-geometries.js?v=6"></script>
 <script>
 'use strict';
 
@@ -608,8 +610,8 @@ function drawPoleMarker(x, y, isNorth, alpha) {
 // BFS Unfolding (generic) — delegates to shared unfoldNet()
 // ═══════════════════════════════════════════════════════════════════════
 
-function guidedUnfold(startFace, predefinedParents) {
-	return unfoldNet(geo, predefinedParents, false);
+function guidedUnfold(startFace, predefinedParents, mirrored) {
+	return unfoldNet(geo, predefinedParents, mirrored || false);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -767,6 +769,12 @@ function optimizeAndApplyRotation(layout) {
 	}
 	if (bestA > Math.PI / 2) bestA -= Math.PI;
 	applyNetAngle(layout, bestA, N);
+	// Keep layout.angle in sync with the rotation actually applied to res[] —
+	// broadcastCurrentLayout()/btn-save-custom/clipboard-copy all read layout.angle
+	// to export the current state; without this it stays stale (e.g. reset to 0 by
+	// flipLayout()) even though the displayed net has since been rotated by bestA,
+	// causing "Apply to Viewer" to send a wrong angle that doesn't match the on-screen net.
+	layout.angle = bestA;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -786,7 +794,7 @@ function computeLayout() {
 	if (!preset) return;
 	tabOwnership = preset.tabs ? Object.assign({}, preset.tabs) : {};
 	const seed = seedFromParents(preset.parents);
-	const layout = guidedUnfold(seed, preset.parents);
+	const layout = guidedUnfold(seed, preset.parents, preset.mirrored || false);
 	layout.seed = seed;
 	layout.mirrored = preset.mirrored || false;
 	layout.label = preset.label || '';
@@ -826,7 +834,7 @@ function computeDefaultLayout() {
 	tabOwnership = {};
 	const parents = buildDefaultParentTree();
 	const seed = seedFromParents(parents);
-	const layout = guidedUnfold(seed, parents);
+	const layout = guidedUnfold(seed, parents, false);
 	layout.seed = seed;
 	layout.mirrored = false;
 	layout.label = 'Default';
@@ -1668,12 +1676,26 @@ canvas.addEventListener('click', e => {
 		draw();
 		return;
 	}
-	undoStack.push(cloneLayout(currentLayout));
-	redoStack.length = 0;
-	historyIndex++;
-	history.pushState({ idx: historyIndex }, '');
-	const { face, targetFace } = hoveredEdge;
-	reparent(currentLayout, face, targetFace);
+	{
+		const { face, targetFace } = hoveredEdge;
+		// Reparenting the current root face would strip its `-1` marker without ever
+		// assigning a new root, corrupting `parent[]` into a rootless cycle (no face
+		// left with parent === -1). Disallow it — changing the root is a deliberate
+		// operation (re-export from a different seed), not a side effect of clicking
+		// the wrong edge.
+		if (targetFace === currentLayout.seed) {
+			tooltip.style.display = 'block';
+			tooltip.style.left = (e.clientX + 14) + 'px';
+			tooltip.style.top = (e.clientY + 14) + 'px';
+			tooltip.innerHTML = 'Cannot reparent the root face';
+			return;
+		}
+		undoStack.push(cloneLayout(currentLayout));
+		redoStack.length = 0;
+		historyIndex++;
+		history.pushState({ idx: historyIndex }, '');
+		reparent(currentLayout, face, targetFace);
+	}
 	optimizeAndApplyRotation(currentLayout);
 	hoveredEdge = null;
 	tooltip.style.display = 'none';
@@ -1766,6 +1788,17 @@ function populatePaperFormats() {
 function switchGeometry(geoId) {
 	geo = GEOMETRIES[geoId];
 	if (!geo) return;
+	// Flip H/V embeds a mirror into the BFS unfold (ghostPlace's sign flip). For an achiral
+	// solid this is harmless (still folds into the same shape). For a CHIRAL solid (snub cube,
+	// pentagonal icositetrahedron) it describes unfolding the opposite-handed object, which
+	// necessarily renders with mirror-image texture content in the viewer — proven not fixable
+	// while keeping edges continuous (see dev notes). Disable Flip H/V for those geometries;
+	// use reparenting to explore alternative layouts instead.
+	const flipH = document.getElementById('btn-flip-h');
+	const flipV = document.getElementById('btn-flip-v');
+	const chiralTitle = 'Disabled: this solid is chiral — a mirrored net would render with incorrect (mirror-image) texture. Use reparenting (drag faces to new parents) to find an alternative layout instead.';
+	flipH.disabled = flipV.disabled = !!geo.chiral;
+	flipH.title = flipV.title = geo.chiral ? chiralTitle : '';
 	undoStack.length = 0;
 	redoStack.length = 0;
 	historyIndex = 0;
@@ -1838,6 +1871,9 @@ marginSlider.addEventListener('input', () => {
 // ── Flip ──
 function flipLayout(axis) {
 	if (!currentLayout || !geo) return;
+	// Defense in depth: the Flip H/V buttons are disabled for chiral geometries (see
+	// switchGeometry()), but guard here too in case this is ever invoked programmatically.
+	if (geo.chiral) return;
 	const { res, placed } = currentLayout;
 	for (let i = 0; i < geo.nFaces; i++) {
 		if (!placed[i]) continue;
@@ -1986,8 +2022,13 @@ document.getElementById('btn-import-clip').addEventListener('click', async () =>
 			if (data.label || data.name) label = data.label || data.name;
 		} else throw new Error('Invalid format');
 		if (pp.length !== geo.nFaces) throw new Error(`Expected ${geo.nFaces} parents, got ${pp.length}`);
+		const rootCount = pp.filter(p => p === -1).length;
+		if (rootCount !== 1) throw new Error(`Invalid parent tree: expected exactly one root (-1), found ${rootCount}`);
+		if (mirrored && geo.chiral) {
+			console.warn(`Pasted layout has mirrored:true for chiral geometry "${geo.id}" — this will render with mirror-image texture content in the viewer (unavoidable for a chiral solid's mirrored net).`);
+		}
 		const seed = pp.indexOf(-1);
-		const layout = guidedUnfold(seed, pp);
+		const layout = guidedUnfold(seed, pp, mirrored);
 		layout.seed = seed;
 		layout.mirrored = mirrored;
 		layout.label = label;

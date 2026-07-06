@@ -239,7 +239,7 @@ Non-quaternion attributes (FOV, zoom, stereographic coefficients, etc.) use a st
 
 ## Projection Modes
 
-> **31 projection modes** — cycle with the dropdown.
+> **31 projection modes** — 5 base projections plus 13 polyhedra, cycled with the dropdown (`↑`/`↓`). Each polyhedron has exactly **one dropdown entry**, labelled `{faces}-{name}` (e.g. `38-snubcube`) and sorted by face count, then lexicographically by name; a **Preview / Foldable toggle button** next to the dropdown (hidden for the 5 base projections) switches between the two view modes for the active polyhedron without changing the dropdown selection.
 
 ### Base projections
 
@@ -251,31 +251,35 @@ Non-quaternion attributes (FOV, zoom, stereographic coefficients, etc.) use a st
 | 3 | **Azimuthal Collage** | Two overlapping azimuthal equidistant discs side-by-side (front/back hemispheres) with rotation, overlap blend slider (0–1), zoom (1×–10×), and auto-fit scaling |
 | 4 | **Stereographic** | Generalised stereographic with Scaramuzza polynomial lens distortion; D parameter (D=2 conformal, D=1 gnomonic) and a¹–a⁴ coefficients |
 
-### Polyhedron projection modes (13 geometries × preview + foldable)
+### Polyhedron projection modes (13 geometries, 1 dropdown entry each)
 
-|  | Geometry | Foldable | Faces |
+| Dropdown | Geometry | Foldable | Faces |
 |---|---|---|---|
-| **Dodecahedron-12** | regular dodecahedron | 12 regular pentagons | 12 |
-| **Rhombic-12** | rhombic dodecahedron | 12 congruent rhombi (70.53°/109.47°) | 12 |
-| **Truncoct-14** | truncated octahedron | 8 hexagons + 6 squares | 14 |
-| **Icosahedron-20** | regular icosahedron | 20 equilateral triangles | 20 |
-| **Pentagonal-24** | pentagonal icositetrahedron | 24 congruent irregular pentagons (4×114.8° + 1×80.8°) | 24 |
-| **Deltoidal-24** | deltoidal icositetrahedron | 24 congruent kites (3×81.6° + 1×115.3°) | 24 |
-| **Rhombic-30** | rhombic triacontahedron | 30 golden rhombi | 30 |
-| **Buckyball-32** | truncated icosahedron | 12 pentagons + 20 hexagons | 32 |
-| **Snubcube-38** | snub cube | 6 squares + 32 triangles (chiral) | 38 |
-| **Rhombicuboctahedron-26** | rhombicuboctahedron | 8 triangles + 18 squares | 26 |
-| **Deltoidal-60** | deltoidal hexecontahedron | 60 congruent kites | 60 |
-| **Pentahex-60** | pentagonal hexecontahedron | 60 congruent irregular pentagons | 60 |
-| **Rhombicosi-62** | rhombicosidodecahedron | 20 triangles + 30 squares + 12 pentagons | 62 |
+| `12-dodecahedron` | regular dodecahedron | 12 regular pentagons | 12 |
+| `12-rhombic` | rhombic dodecahedron | 12 congruent rhombi (70.53°/109.47°) | 12 |
+| `14-truncoct` | truncated octahedron | 8 hexagons + 6 squares | 14 |
+| `20-icosahedron` | regular icosahedron | 20 equilateral triangles | 20 |
+| `24-deltoidal` | deltoidal icositetrahedron | 24 congruent kites (3×81.6° + 1×115.3°) | 24 |
+| `24-pentagonal` | pentagonal icositetrahedron | 24 congruent irregular pentagons (4×114.8° + 1×80.8°) | 24 |
+| `26-rhombicubo` | rhombicuboctahedron | 8 triangles + 18 squares | 26 |
+| `30-rhombic` | rhombic triacontahedron | 30 golden rhombi | 30 |
+| `32-buckyball` | truncated icosahedron | 12 pentagons + 20 hexagons | 32 |
+| `38-snubcube` | snub cube | 6 squares + 32 triangles (chiral) | 38 |
+| `60-deltoidal` | deltoidal hexecontahedron | 60 congruent kites | 60 |
+| `60-pentahex` | pentagonal hexecontahedron | 60 congruent irregular pentagons | 60 |
+| `62-rhombicosi` | rhombicosidodecahedron | 20 triangles + 30 squares + 12 pentagons | 62 |
 
-All preview modes: SDF sphere-tracing with Blinn-Phong lighting, bevelled edges, real-time rotation via Y/P/R face sliders. All foldable modes: gnomonic back-projection per face, BFS-unfolded 2D net with canvas overlay (edges, glue tabs), paper format presets, in-shader paper outline, cut line overlay, SVG/PDF export.
+Selecting a polyhedron from the dropdown activates its **last-used view mode** (Preview or Foldable, tracked by the toggle button); clicking the toggle switches modes without touching the dropdown. Internally each polyhedron still has two GLSL cascade modes (unchanged since v0.16 — `M_*_PREVIEW` / `M_*_FOLDABLE` constants, sharing one compiled shader-family program), only the UI is collapsed to one entry.
+
+All preview modes: SDF sphere-tracing with Blinn-Phong lighting, bevelled edges, real-time rotation via Y/P/R face sliders, **stereographic panorama background** (see below). All foldable modes: gnomonic back-projection per face, hand-tuned paper-format presets (`net-layouter.html`), canvas overlay (edges, glue tabs), paper format outline, cut line overlay, SVG/PDF export.
 
 ---
 
 ### Polyhedron Preview Modes — Technical Deep Dive
 
 All 13 preview modes render a **3D polyhedron** floating in front of the panorama background via SDF sphere-tracing. They serve as tangible previews of the face partitioning used by the corresponding foldable modes — you can rotate the ball to inspect how the panorama maps onto each face before printing.
+
+The background (visible around and behind the floating polyhedron) is rendered with the **stereographic projection** (`stereoWorldDir()`, sharing the Scaramuzza distortion + generalised stereographic inverse mapping with the main Stereographic base projection) rather than a plain perspective/gnomonic ray — this keeps a much wider field of the panorama visible around the ball than a narrow perspective FOV would, independent of the 3D ball's own sphere-traced ray direction (which is unaffected and still uses a standard perspective camera for correct 3D geometry).
 
 | Geometry | Polyhedron | Faces | Face distances |
 |---|---|---|---|

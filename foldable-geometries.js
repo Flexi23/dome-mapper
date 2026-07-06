@@ -2,6 +2,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 // Geometry Presets — Shared polyhedron definitions for net-layouter.html
 // ═══════════════════════════════════════════════════════════════════════
+console.log('[foldable-geometries.js] build v7 loaded (updated rhombicubo26 DIN A preset) — if you do not see this after a hard refresh, the browser is still serving a cached copy.');
 
 // ── 3D vector helpers ──
 function dot3(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
@@ -1512,6 +1513,11 @@ GEOMETRIES.pentagonal24 = (function() {
 		id: 'pentagonal24',
 		name: 'Pentagonal-24',
 		nFaces: N_FACES,
+		// Chiral solid (dual of the snub cube) — a mirrored 2D net describes unfolding the
+		// opposite-handed physical object, which necessarily shows mirror-image texture content
+		// (see net-layouter.html's Flip H/V guard and dev notes). Flip H/V is disabled for this
+		// geometry in net-layouter.html; use reparenting to find alternative layouts instead.
+		chiral: true,
 		storageKey: 'pentagonal24-custom-layouts',
 		c3, adj, frames,
 		nSides() { return 5; },
@@ -2028,13 +2034,20 @@ GEOMETRIES.snubcube38 = (function() {
 	// uploadSnubcube38Net() both fall back to an auto BFS spanning-tree net with
 	// an auto-picked pole pair for any paper format without a matching preset.
 	const presets = [
-		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[-1,16,33,30,27,31,35,33,30,34,21,17,16,18,1,1,18,1,3,12,11,2,3,26,10,2,3,22,7,2,34,9,36,35,0,0,0,0],tabs:{"11-25":11,"17-21":17,"10-15":10,"6-29":29,"4-32":32,"8-27":27,"4-19":19,"12-22":22,"5-28":28,"5-23":23,"7-37":37},mirrored:false,angle:-0.9337511498169664,lonOffset:1.5707963267948966,northPole:{type:'center',face:5,dir:[0,0,-1]},southPole:{type:'center',face:4,dir:[0,0,1]}},
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[-1,16,33,26,27,31,35,37,27,31,15,25,22,23,13,1,18,11,13,12,5,17,3,26,4,28,9,22,7,2,8,37,6,7,9,33,32,0],tabs:{"11-25":11,"17-21":17,"10-15":10,"6-29":6,"4-32":4,"8-27":8,"4-19":19,"12-22":22,"5-28":28,"5-23":5,"7-37":37,"4-27":27,"10-24":24,"1-17":17,"11-20":20,"0-36":0,"30-34":30,"8-36":36,"0-35":35,"0-34":34,"3-18":3,"2-21":21,"24-29":29,"6-32":6,"2-33":2},mirrored:false,angle:1.562069680534925,aspect:1.4142857142857144,lonOffset:0.36450165921368627,northPole:{type:'vertex',dir:[0.4758706357353424,-0.258725636112099,0.8405998948746252]},southPole:{type:'center',face:20,dir:[-0.5773502691896257,0.17066343621697133,-0.7984614318833956]}},
 	];
 
 	return {
 		id: 'snubcube38',
 		name: 'Snubcube-38',
 		nFaces: N_FACES,
+		// Chiral solid — a mirrored 2D net describes unfolding the opposite-handed physical
+		// object, which necessarily shows mirror-image texture content (proven: the netMirrored
+		// texture-continuity fix is the unique correction achieving edge continuity, and it
+		// unavoidably reflects the whole net's image, even the seed face's own content). Flip
+		// H/V is disabled for this geometry in net-layouter.html; use reparenting to find
+		// alternative layouts instead.
+		chiral: true,
 		storageKey: 'snubcube38-custom-layouts',
 		c3, adj, frames, verts,
 		nSides,
@@ -2157,7 +2170,7 @@ GEOMETRIES.rhombicubo26 = (function() {
 	// uploadRhombicubo26Net() both fall back to an auto BFS spanning-tree net
 	// with an auto-picked pole pair for any paper format without a matching preset.
 	const presets = [
-		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[-1,14,15,15,16,23,17,21,14,16,14,15,18,23,0,8,5,11,8,8,9,13,10,10,11,11],tabs:{"9-17":17,"6-20":20,"7-25":25,"13-19":19,"3-25":25,"1-23":23,"5-21":21,"4-20":20,"12-22":22,"0-18":18,"12-24":24,"2-18":18,"2-24":2},mirrored:false,angle:1.064650843716541,lonOffset:0,northPole:{type:'center',face:12,dir:[0,0,1]},southPole:{type:'center',face:13,dir:[0,0,-1]}},
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[-1,19,18,15,16,16,20,21,14,16,14,24,20,21,0,8,10,9,8,8,9,9,10,10,12,13],tabs:{"9-17":17,"6-20":20,"7-25":7,"13-19":13,"3-25":3,"1-23":1,"5-21":21,"4-20":4,"12-22":22,"0-18":18,"12-24":24,"2-18":2,"2-24":2,"13-25":25,"3-19":19,"1-19":19,"11-25":25,"2-15":15,"3-15":3,"13-23":23,"7-17":17,"6-17":6},mirrored:false,angle:0.6632251157578452,aspect:1.4142857142857144,lonOffset:2.356194490192345,northPole:{type:'center',face:12,dir:[0,0,1]},southPole:{type:'center',face:13,dir:[0,0,-1]}},
 	];
 
 	return {
