@@ -683,6 +683,8 @@ Three categories of gnomonic projection are implemented, matching the three fami
 | Rhombic | L1 norm | `tangentRP × (scale / halfDiag)` | Rhombic-30, Rhombic-12 |
 | Irregular polygon | Bilateral-symmetry edge test | `canonFC × GNO_S` with `theta = faceOffset − π/2` | Pent-24, Delt-60, PH-60, Delt-24 |
 
+The rhombic hexecontahedron is the one special case: its face-local gnomonic origin is stored in canonical coordinates, so both the shader and the JS drag mirror must add `gnomonicOrigin / foldableScale` before applying `faceOffset`. Without that division, the hit point is offset by a full scale factor and the pointer slips off the active golden rhombus while dragging.
+
 ### PDF Export
 
 The PDF format combines a **CMYK raster image** and a **vector cutline overlay** in a single file, suitable for professional print production without requiring separate raster/vector files.

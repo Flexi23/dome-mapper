@@ -709,9 +709,11 @@ GEOMETRIES.rhombicHexecontahedron60 = (function() {
 		ghostColor() { return 'rgba(240,125,70,.25)'; },
 		pip(rpx, rpy, i, invS) { return Math.abs(rpx)/(iB*invS)+Math.abs(rpy)/(iA*invS)<1; },
 		gnoProject(i, rpx, rpy, scale, faceOff) {
-			const co=Math.cos(faceOff), si=Math.sin(faceOff), gS=scale*gnomonicScale;
-			const x = rpx + gnomonicOrigin[0], y = rpy + gnomonicOrigin[1];
-			return { gx:(x*co-y*si)*gS, gy:(x*si+y*co)*gS, rF:facePlaneOffset };
+			const co = Math.cos(faceOff), si = Math.sin(faceOff);
+			const x = rpx + gnomonicOrigin[0] / scale;
+			const y = rpy + gnomonicOrigin[1] / scale;
+			const gS = scale * gnomonicScale;
+			return { gx: (x * co - y * si) * gS, gy: (x * si + y * co) * gS, rF: facePlaneOffset };
 		}, presets
 	};
 })();

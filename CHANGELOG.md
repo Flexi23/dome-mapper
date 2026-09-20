@@ -5,7 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.29.3] - 2026-09-20
+
+### Fixed
+- **Rhombic hexecontahedron foldable drag offset** — the JS drag mirror now adds the face-local `gnomonicOrigin / foldableScale` before the face rotation, matching the shader special-case for the nonconvex rhombic hexecontahedron and keeping the cursor pixel-locked to the active golden-rhombus face.
 
 ## [0.29.2] - 2026-09-20
 
