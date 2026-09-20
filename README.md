@@ -536,6 +536,8 @@ All foldable modes provide a **3-state "Cut line" toggle** (Off → Overlay → 
 
 The cut line is rendered to a separate offscreen canvas (same resolution as the overlay), uploaded once as TEXTURE3, and composited in the shader:
 
+For the Rhombic Hexecontahedron foldable mode, the live overlay intentionally preserves the outer glue tabs by accumulating all face clip paths into one even-odd cutline region, so the boundary tab outlines remain visible in both the on-screen overlay and exported cutline views.
+
 | Mode | Behavior |
 |---|---|
 | **Off** (0) | Normal view, no cut lines |

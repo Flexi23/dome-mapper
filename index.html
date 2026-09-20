@@ -7584,7 +7584,7 @@ void main() {
 					for (let k = 0; k < vertices.length; k++) {
 						const info = edgeNeighbor[i][k];
 						if (info && info.isInternal) continue;
-						if (info) {
+						if (info && layout.placed[info.j]) {
 							const key = Math.min(i, info.j) + '-' + Math.max(i, info.j);
 							const owner = tabsMap && key in tabsMap ? tabsMap[key] : Math.min(i, info.j);
 							if (owner !== i) continue;
@@ -7631,13 +7631,21 @@ void main() {
 					if (tabsMap && key in tabsMap) return tabsMap[key];
 					return Math.min(i, j);
 				};
+				const addPolygonToPath = (ctx, polygon, close) => {
+					polygon.forEach((point, index) => {
+						const px = ox(point.x), py = oy(point.y);
+						if (index === 0) ctx.moveTo(px, py);
+						else ctx.lineTo(px, py);
+					});
+					if (close) ctx.closePath();
+				};
 
 				// Step 1: tab outlines only (open path, no base), clipped outside faces.
 				cutCtx.save();
 				cutCtx.beginPath();
 				cutCtx.rect(0, 0, width, height);
 				for (const polygon of polygons) {
-					drawPath(cutCtx, polygon, true);
+					addPolygonToPath(cutCtx, polygon, true);
 				}
 				cutCtx.clip('evenodd');
 				for (let i = 0; i < G.nFaces; i++) {
@@ -7646,7 +7654,7 @@ void main() {
 					for (let k = 0; k < vertices.length; k++) {
 						const info = edgeNeighbor[i][k];
 						if (info && info.isInternal) continue;
-						if (info && edgeOwner(i, info.j) !== i) continue;
+						if (info && layout.placed[info.j] && edgeOwner(i, info.j) !== i) continue;
 						const v1 = vertices[k], v2 = vertices[(k + 1) % vertices.length];
 						const mx = (v1.x + v2.x) / 2 - fx, my = (v1.y + v2.y) / 2 - fy;
 						const ml = Math.hypot(mx, my), nx = mx / ml, ny = my / ml;
@@ -16538,7 +16546,8 @@ void main() {
 			const isBucky32 = projectionModeIndex === M_FOLDABLE;
 			const isRhombic = projectionModeIndex === M_RHOMBIC_FOLDABLE;
 			const isTruncOct = projectionModeIndex === M_TRUNCOCT_FOLDABLE;
-			if (!isBucky32 && !isRhombic && !isTruncOct) return null;
+			const isHexeconta60 = projectionModeIndex === M_HEXECONTA60_FOLDABLE;
+			if (!isBucky32 && !isRhombic && !isTruncOct && !isHexeconta60) return null;
 
 			// Compute tight bounding box (same as generateCutlineSVG Step 1)
 			var netX0 = Infinity, netX1 = -Infinity, netY0 = Infinity, netY1 = -Infinity;
@@ -16584,6 +16593,47 @@ void main() {
 							var _dx = _v2x-_v1x, _dy = _v2y-_v1y;
 							var _o1x = _v1x+_nx*_tH+_dx*_tI, _o1y = _v1y+_ny*_tH+_dy*_tI;
 							var _o2x = _v2x+_nx*_tH-_dx*_tI, _o2y = _v2y+_ny*_tH-_dy*_tI;
+							netX0 = Math.min(netX0, _o1x, _o2x); netX1 = Math.max(netX1, _o1x, _o2x);
+							netY0 = Math.min(netY0, _o1y, _o2y); netY1 = Math.max(netY1, _o1y, _o2y);
+						}
+					}
+				}
+			} else if (isHexeconta60) {
+				var G = GEOMETRIES.rhombicHexecontahedron60;
+				var _data   = window._hexeconta60Data;
+				var _scale  = window._hexeconta60Scale;
+				var _placed = window._hexeconta60Placed;
+				var _eNbr   = window._hexeconta60EdgeNeighbor;
+				var _tH     = window._hexeconta60TabH;
+				var _tIA    = window._hexeconta60TabInsetAcute;
+				var _tIO    = window._hexeconta60TabInsetObtuse;
+				var _tMap   = window._hexeconta60TabsMap;
+				if (!_data || !_placed) return null;
+				for (var ii = 0; ii < 60; ii++) {
+					if (!_placed[ii]) continue;
+					var _fx = _data[ii*4], _fy = _data[ii*4+1], _rot = _data[ii*4+2];
+					var _verts = G.polyVerts(_fx, _fy, _rot).map(function(vertex) { return [vertex.x, vertex.y]; });
+					for (var kk = 0; kk < 4; kk++) {
+						netX0 = Math.min(netX0, _verts[kk][0]); netX1 = Math.max(netX1, _verts[kk][0]);
+						netY0 = Math.min(netY0, _verts[kk][1]); netY1 = Math.max(netY1, _verts[kk][1]);
+						var _inf = _eNbr[ii][kk];
+						if (_inf && _inf.isInternal) continue;
+						var _hasTab = true;
+						if (_inf && _placed[_inf.j]) {
+							var _ek = Math.min(ii, _inf.j) + '-' + Math.max(ii, _inf.j);
+							if (_tMap && _ek in _tMap) _hasTab = (_tMap[_ek] === ii);
+							else _hasTab = (ii < _inf.j);
+						}
+						if (_hasTab) {
+							var _v1 = _verts[kk], _v2 = _verts[(kk + 1) % 4];
+							var _emx = (_v1[0] + _v2[0]) / 2 - _fx, _emy = (_v1[1] + _v2[1]) / 2 - _fy;
+							var _eml = Math.sqrt(_emx * _emx + _emy * _emy);
+							var _nx = _emx / _eml, _ny = _emy / _eml;
+							var _dx = _v2[0] - _v1[0], _dy = _v2[1] - _v1[1];
+							var _ins1 = (kk % 2 === 0) ? _tIA : _tIO;
+							var _ins2 = (kk % 2 === 0) ? _tIO : _tIA;
+							var _o1x = _v1[0] + _nx * _tH + _dx * _ins1, _o1y = _v1[1] + _ny * _tH + _dy * _ins1;
+							var _o2x = _v2[0] + _nx * _tH - _dx * _ins2, _o2y = _v2[1] + _ny * _tH - _dy * _ins2;
 							netX0 = Math.min(netX0, _o1x, _o2x); netX1 = Math.max(netX1, _o1x, _o2x);
 							netY0 = Math.min(netY0, _o1y, _o2y); netY1 = Math.max(netY1, _o1y, _o2y);
 						}
@@ -17228,17 +17278,17 @@ void main() {
 						}
 					}
 				}
-			} else if (isRhombic || isRD12 || isHexeconta60) {
+			} else if (isRhombic || isRD12) {
 				// Rhombic-30 / Rhombic-12: rhombus vertices + asymmetric tab corners
-				var _nF2 = isRD12 ? 12 : isHexeconta60 ? 60 : 30;
-				var _data   = isRD12 ? window._rhombic12Data : isHexeconta60 ? window._hexeconta60Data : window._rhombic30Data;
-				var _scale  = isRD12 ? window._rhombic12Scale : isHexeconta60 ? window._hexeconta60Scale : window._rhombic30Scale;
-				var _placed = isRD12 ? window._rhombic12Placed : isHexeconta60 ? window._hexeconta60Placed : window._rhombic30Placed;
-				var _eNbr   = isRD12 ? window._rhombic12EdgeNeighbor : isHexeconta60 ? window._hexeconta60EdgeNeighbor : window._rhombic30EdgeNeighbor;
-				var _tH     = isRD12 ? window._rhombic12TabH : isHexeconta60 ? window._hexeconta60TabH : window._rhombic30TabH;
-				var _tIA    = isRD12 ? window._rhombic12TabInsetAcute : isHexeconta60 ? window._hexeconta60TabInsetAcute : window._rhombic30TabInsetAcute;
-				var _tIO    = isRD12 ? window._rhombic12TabInsetObtuse : isHexeconta60 ? window._hexeconta60TabInsetObtuse : window._rhombic30TabInsetObtuse;
-				var _tMap   = isRD12 ? window._rhombic12TabsMap : isHexeconta60 ? window._hexeconta60TabsMap : window._rhombic30TabsMap;
+				var _nF2 = isRD12 ? 12 : 30;
+				var _data   = isRD12 ? window._rhombic12Data : window._rhombic30Data;
+				var _scale  = isRD12 ? window._rhombic12Scale : window._rhombic30Scale;
+				var _placed = isRD12 ? window._rhombic12Placed : window._rhombic30Placed;
+				var _eNbr   = isRD12 ? window._rhombic12EdgeNeighbor : window._rhombic30EdgeNeighbor;
+				var _tH     = isRD12 ? window._rhombic12TabH : window._rhombic30TabH;
+				var _tIA    = isRD12 ? window._rhombic12TabInsetAcute : window._rhombic30TabInsetAcute;
+				var _tIO    = isRD12 ? window._rhombic12TabInsetObtuse : window._rhombic30TabInsetObtuse;
+				var _tMap   = isRD12 ? window._rhombic12TabsMap : window._rhombic30TabsMap;
 				if (!_data || !_placed) return null;
 				var _ha, _hb;
 				if (isRD12) {
@@ -17279,6 +17329,44 @@ void main() {
 							var _ins2 = (kk % 2 === 0) ? _tIO : _tIA;
 							var _o1x = _v1[0]+_nx*_tH+_dx*_ins1, _o1y = _v1[1]+_ny*_tH+_dy*_ins1;
 							var _o2x = _v2[0]+_nx*_tH-_dx*_ins2, _o2y = _v2[1]+_ny*_tH-_dy*_ins2;
+							netX0 = Math.min(netX0, _o1x, _o2x); netX1 = Math.max(netX1, _o1x, _o2x);
+							netY0 = Math.min(netY0, _o1y, _o2y); netY1 = Math.max(netY1, _o1y, _o2y);
+						}
+					}
+				}
+			} else if (isHexeconta60) {
+				var G = GEOMETRIES.rhombicHexecontahedron60;
+				var _data = window._hexeconta60Data;
+				var _placed = window._hexeconta60Placed;
+				var _eNbr = window._hexeconta60EdgeNeighbor;
+				var _tH = window._hexeconta60TabH;
+				var _tMap = window._hexeconta60TabsMap;
+				if (!_data || !_placed) return null;
+				for (var ii = 0; ii < 60; ii++) {
+					if (!_placed[ii]) continue;
+					var _fx = _data[ii*4], _fy = _data[ii*4+1], _rot = _data[ii*4+2];
+					var _verts = G.polyVerts(_fx, _fy, _rot).map(function(vertex) { return [vertex.x, vertex.y]; });
+					for (var kk = 0; kk < 4; kk++) {
+						netX0 = Math.min(netX0, _verts[kk][0]); netX1 = Math.max(netX1, _verts[kk][0]);
+						netY0 = Math.min(netY0, _verts[kk][1]); netY1 = Math.max(netY1, _verts[kk][1]);
+						var _inf = _eNbr[ii][kk];
+						if (_inf && _inf.isInternal) continue;
+						var _hasTab = true;
+						if (_inf) {
+							var _ek = Math.min(ii, _inf.j) + '-' + Math.max(ii, _inf.j);
+							if (_tMap && _ek in _tMap) _hasTab = (_tMap[_ek] === ii);
+							else _hasTab = (ii < _inf.j);
+						}
+						if (_hasTab) {
+							var _v1 = _verts[kk], _v2 = _verts[(kk + 1) % 4];
+							var _emx = (_v1[0] + _v2[0]) / 2 - _fx, _emy = (_v1[1] + _v2[1]) / 2 - _fy;
+							var _eml = Math.sqrt(_emx * _emx + _emy * _emy);
+							var _nx = _emx / _eml, _ny = _emy / _eml;
+							var _dx = _v2[0] - _v1[0], _dy = _v2[1] - _v1[1];
+							var _insets = G.tabInsets(ii, kk);
+							var _ins1 = _insets[0], _ins2 = _insets[1];
+							var _o1x = _v1[0] + _nx * _tH + _dx * _ins1, _o1y = _v1[1] + _ny * _tH + _dy * _ins1;
+							var _o2x = _v2[0] + _nx * _tH - _dx * _ins2, _o2y = _v2[1] + _ny * _tH - _dy * _ins2;
 							netX0 = Math.min(netX0, _o1x, _o2x); netX1 = Math.max(netX1, _o1x, _o2x);
 							netY0 = Math.min(netY0, _o1y, _o2y); netY1 = Math.max(netY1, _o1y, _o2y);
 						}
@@ -17733,16 +17821,16 @@ void main() {
 			// Rhombic types have their own code path because vertices are computed from
 			// long/short half-diagonals rather than circumradius, and tab insets
 			// are asymmetric (acute vs obtuse vertex).
-			} else if (isRhombic || isRD12 || isHexeconta60) {
-				var _nF3 = isRD12 ? 12 : isHexeconta60 ? 60 : 30;
-				var data   = isRD12 ? window._rhombic12Data : isHexeconta60 ? window._hexeconta60Data : window._rhombic30Data;
-				var scale  = isRD12 ? window._rhombic12Scale : isHexeconta60 ? window._hexeconta60Scale : window._rhombic30Scale;
-				var placed = isRD12 ? window._rhombic12Placed : isHexeconta60 ? window._hexeconta60Placed : window._rhombic30Placed;
-				var eNbr   = isRD12 ? window._rhombic12EdgeNeighbor : isHexeconta60 ? window._hexeconta60EdgeNeighbor : window._rhombic30EdgeNeighbor;
-				var tH     = isRD12 ? window._rhombic12TabH : isHexeconta60 ? window._hexeconta60TabH : window._rhombic30TabH;
-				var tIA    = isRD12 ? window._rhombic12TabInsetAcute : isHexeconta60 ? window._hexeconta60TabInsetAcute : window._rhombic30TabInsetAcute;
-				var tIO    = isRD12 ? window._rhombic12TabInsetObtuse : isHexeconta60 ? window._hexeconta60TabInsetObtuse : window._rhombic30TabInsetObtuse;
-				var tMap   = isRD12 ? window._rhombic12TabsMap : isHexeconta60 ? window._hexeconta60TabsMap : window._rhombic30TabsMap;
+			} else if (isRhombic || isRD12) {
+				var _nF3 = isRD12 ? 12 : 30;
+				var data   = isRD12 ? window._rhombic12Data : window._rhombic30Data;
+				var scale  = isRD12 ? window._rhombic12Scale : window._rhombic30Scale;
+				var placed = isRD12 ? window._rhombic12Placed : window._rhombic30Placed;
+				var eNbr   = isRD12 ? window._rhombic12EdgeNeighbor : window._rhombic30EdgeNeighbor;
+				var tH     = isRD12 ? window._rhombic12TabH : window._rhombic30TabH;
+				var tIA    = isRD12 ? window._rhombic12TabInsetAcute : window._rhombic30TabInsetAcute;
+				var tIO    = isRD12 ? window._rhombic12TabInsetObtuse : window._rhombic30TabInsetObtuse;
+				var tMap   = isRD12 ? window._rhombic12TabsMap : window._rhombic30TabsMap;
 				var haS2, hbS2;
 				if (isRD12) {
 					var RD_A2 = 1 / Math.sqrt(3), RD_B2 = Math.sqrt(2 / 3);
@@ -17815,6 +17903,81 @@ void main() {
 				for (var i = 0; i < _nF3; i++) {
 					if (!placed[i]) continue;
 					var verts = rhombV(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
+					for (var k = 0; k < 4; k++) {
+						var info = eNbr[i][k];
+						if (info && info.isInternal) continue;
+						if (info && placed[info.j]) {
+							var ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							var iOwnTab;
+							if (tMap && ek in tMap) iOwnTab = (tMap[ek] === i);
+							else iOwnTab = (i < info.j);
+							if (iOwnTab) continue;
+						}
+						var v1 = verts[k], v2 = verts[(k + 1) % 4];
+						edgePaths += '<path d="M' + p(v1[0], v1[1]) + 'L' + p(v2[0], v2[1]) + '"/>\n';
+					}
+				}
+			} else if (isHexeconta60) {
+				var G = GEOMETRIES.rhombicHexecontahedron60;
+				var data = window._hexeconta60Data;
+				var scale = window._hexeconta60Scale;
+				var placed = window._hexeconta60Placed;
+				var eNbr = window._hexeconta60EdgeNeighbor;
+				var tH = window._hexeconta60TabH;
+				var tMap = window._hexeconta60TabsMap;
+
+				function hexeVerts(fx, fy, rot) {
+					return G.polyVerts(fx, fy, rot).map(function(vertex) { return [vertex.x, vertex.y]; });
+				}
+				function flapHits(px, py, excl) {
+					for (var f = 0; f < 60; f++) {
+						if (f === excl) continue;
+						var dx = px - data[f * 4], dy = py - data[f * 4 + 1];
+						var cr = Math.cos(-data[f * 4 + 2]), sr = Math.sin(-data[f * 4 + 2]);
+						var rx = dx * cr - dy * sr, ry = dx * sr + dy * cr;
+						if (G.pip(rx, ry, f, 1 / scale)) return true;
+					}
+					return false;
+				}
+
+				for (var i = 0; i < 60; i++) {
+					if (!placed[i]) continue;
+					var verts = hexeVerts(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
+					clipPolygons += 'M' + p(verts[0][0], verts[0][1]);
+					for (var k = 1; k < 4; k++) clipPolygons += 'L' + p(verts[k][0], verts[k][1]);
+					clipPolygons += 'Z';
+				}
+
+				for (var i = 0; i < 60; i++) {
+					if (!placed[i]) continue;
+					var fx = data[i * 4], fy = data[i * 4 + 1];
+					var verts = hexeVerts(fx, fy, data[i * 4 + 2]);
+					for (var k = 0; k < 4; k++) {
+						var info = eNbr[i][k];
+						if (info && info.isInternal) continue;
+						if (info) {
+							var ek = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							if (tMap && ek in tMap) { if (tMap[ek] !== i) continue; }
+							else { if (info.j < i) continue; }
+						}
+						var v1 = verts[k], v2 = verts[(k + 1) % 4];
+						var emx = (v1[0] + v2[0]) / 2 - fx, emy = (v1[1] + v2[1]) / 2 - fy;
+						var eml = Math.sqrt(emx * emx + emy * emy);
+						var nx = emx / eml, ny = emy / eml;
+						var probeCX = (v1[0] + v2[0]) / 2 + nx * tH * 0.5;
+						var probeCY = (v1[1] + v2[1]) / 2 + ny * tH * 0.5;
+						if (flapHits(probeCX, probeCY, i)) { nx = -nx; ny = -ny; }
+						var dx = v2[0] - v1[0], dy = v2[1] - v1[1];
+						var ins = G.tabInsets(i, k);
+						var o1x = v1[0] + nx * tH + dx * ins[0], o1y = v1[1] + ny * tH + dy * ins[0];
+						var o2x = v2[0] + nx * tH - dx * ins[1], o2y = v2[1] + ny * tH - dy * ins[1];
+						tabPaths += '<path d="M' + p(v1[0], v1[1]) + 'L' + p(o1x, o1y) + 'L' + p(o2x, o2y) + 'L' + p(v2[0], v2[1]) + '"/>\n';
+					}
+				}
+
+				for (var i = 0; i < 60; i++) {
+					if (!placed[i]) continue;
+					var verts = hexeVerts(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
 					for (var k = 0; k < 4; k++) {
 						var info = eNbr[i][k];
 						if (info && info.isInternal) continue;
