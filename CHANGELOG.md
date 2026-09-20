@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Three polyhedron families with Preview + Foldable support** — octahedron-8, cuboctahedron-14, and the nonconvex 60-face Rhombic Hexecontahedron. All three support layout presets, live net-layouter updates, pointer-locked panorama rotation, saved orientation, raster export, and SVG cutline export.
+- **Direct ray-rhombus preview for the nonconvex Rhombic Hexecontahedron** — the preview intersects both triangles of each of its 60 golden rhombi directly, avoiding an invalid convex half-space (SDF) approximation.
+
+### Changed
+- **Shared geometry cache bumped to v15** in both viewer and net layouter.
+
+### Fixed
+- **Cuboctahedron orientation and texture continuity** — the default pole uses +Y instead of +Z, while the DIN A net receives the exact +30° face-phase compensation that makes the panorama equator horizontal across its root face. Deterministic face offsets derived from the solid's actual vertices align triangle and square texture phases at shared edges. The triangular face-plane radius was also corrected from the octahedron value $1/\sqrt{3}$ to the cuboctahedron value $\sqrt{2/3}$ in preview rendering, foldable back-projection, and pointer mapping.
+- **Rhombic Hexecontahedron-60 default preset and seam stability** — replaced the DIN A default with the provided non-overlapping parent tree/tab map and reoriented face winding before deriving per-face offsets. This keeps the foldable rhombus orientation consistent across shared edges and avoids mirrored texture interpretation on affected faces.
+- **Rhombic Hexecontahedron-60 edge texture continuity fix** — the tangent-plane texture origin is not at the rhombus center for this solid. Face offsets are now solved from centered tangent coordinates, and gnomonic back-projection applies the fitted canonical origin shift before rotation/scale. This removes the remaining cross-edge texture jumps while preserving the non-overlapping DIN A preset.
+- **Rhombic Hexecontahedron-60 foldable shader sync** — the specialized hexecontahedron shader path now applies the same canonical origin shift as the JS geometry model before tangent-plane rotation/scale, eliminating the mismatch where every edge could appear broken even though geometry-side validation passed.
+- **Rhombic Hexecontahedron-60 zoom correction** — fixed a unit-space mismatch in the foldable shader: `bestRP` is in scaled net coordinates, while the canonical origin shift is not. The shift is now converted with `1/foldableScale` before the existing gnomonic scale step, removing the excessive zoom introduced by the prior patch.
+
 ## [0.29.1] - 2026-07-06
 
 ### Changed

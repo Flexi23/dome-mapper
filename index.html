@@ -1455,6 +1455,39 @@ const vec3 icoFaces[20] = vec3[20](
 	vec3(-0.5773502692, -0.5773502692, -0.5773502692)   // face 19
 );
 
+// ── Octahedron and cuboctahedron face centers ──
+const float RFACE_OCTA8 = 0.5773502692;
+const float RFACE_CUBOCTA_TRI = 0.8164965809;
+const float RFACE_CUBOCTA_SQ = 0.7071067812;
+uniform mat3 octa8PreRot;
+uniform mat3 cubocta14PreRot;
+uniform mat3 hexeconta60PreRot;
+
+const vec3 octa8Faces[8] = vec3[8](
+	vec3( 0.5773502692,  0.5773502692,  0.5773502692),
+	vec3( 0.5773502692,  0.5773502692, -0.5773502692),
+	vec3( 0.5773502692, -0.5773502692,  0.5773502692),
+	vec3( 0.5773502692, -0.5773502692, -0.5773502692),
+	vec3(-0.5773502692,  0.5773502692,  0.5773502692),
+	vec3(-0.5773502692,  0.5773502692, -0.5773502692),
+	vec3(-0.5773502692, -0.5773502692,  0.5773502692),
+	vec3(-0.5773502692, -0.5773502692, -0.5773502692)
+);
+
+const vec3 cubocta14Faces[14] = vec3[14](
+	vec3( 0.5773502692,  0.5773502692,  0.5773502692),
+	vec3( 0.5773502692,  0.5773502692, -0.5773502692),
+	vec3( 0.5773502692, -0.5773502692,  0.5773502692),
+	vec3( 0.5773502692, -0.5773502692, -0.5773502692),
+	vec3(-0.5773502692,  0.5773502692,  0.5773502692),
+	vec3(-0.5773502692,  0.5773502692, -0.5773502692),
+	vec3(-0.5773502692, -0.5773502692,  0.5773502692),
+	vec3(-0.5773502692, -0.5773502692, -0.5773502692),
+	vec3( 1.0,  0.0,  0.0), vec3(-1.0,  0.0,  0.0),
+	vec3( 0.0,  1.0,  0.0), vec3( 0.0, -1.0,  0.0),
+	vec3( 0.0,  0.0,  1.0), vec3( 0.0,  0.0, -1.0)
+);
+
 // ── Rhombic dodecahedron face centers (12 congruent rhombi, diagonal ratio √2:1) ──
 // Face normals are cuboctahedron vertices (midpoints of cube edges), normalized.
 // All faces equidistant from origin: rFace = 1/√2.
@@ -5653,7 +5686,7 @@ void main() {
 }
 </script>
 
-	<script src="foldable-geometries.js?v=6"></script>
+	<script src="foldable-geometries.js?v=15"></script>
 	<script>
 		// ══════════════════════════════════════════════════════════
 		// WebGL 2 setup
@@ -5712,8 +5745,12 @@ void main() {
 			{ id: 'rc62',       label: 'rhombicosi-62',    modes: [25, 26] },
 			{ id: 'snubcube38', label: 'snubcube-38',      modes: [27, 28] },
 			{ id: 'rcubo26',    label: 'rhombicubo-26',     modes: [29, 30] },
+			{ id: 'octa8',      label: 'octahedron-8',      modes: [31, 32], sourceModes: [11, 12], shaderVariant: 'octa8' },
+			{ id: 'cubocta14',  label: 'cuboctahedron-14',  modes: [33, 34], sourceModes: [29, 30], shaderVariant: 'cubocta14' },
+			{ id: 'hexeconta60', label: 'rhombic-hexecontahedron-60', modes: [35, 36], sourceModes: [17, 18], shaderVariant: 'hexeconta60' },
 		];
-		const MODE_COUNT = 31;
+		const MODE_COUNT = 37;
+		const SHADER_SOURCE_MODE_COUNT = 31;
 		const modeToFamily = new Array(MODE_COUNT);
 		FAMILIES.forEach((f, fi) => f.modes.forEach(m => { modeToFamily[m] = fi; }));
 
@@ -5759,23 +5796,129 @@ void main() {
 			if (finalElseIdx < 0) throw new Error('shader split: final else not found');
 			headers.push({ start: finalElseIdx, bodyStart: finalElseIdx + finalElseToken.length, threshold: null });
 
-			if (headers.length !== MODE_COUNT) {
-				throw new Error('shader split: expected ' + MODE_COUNT + ' branches, found ' + headers.length);
+			if (headers.length !== SHADER_SOURCE_MODE_COUNT) {
+				throw new Error('shader split: expected ' + SHADER_SOURCE_MODE_COUNT + ' branches, found ' + headers.length);
 			}
 			const lastBraceIdx = cascade.lastIndexOf('}');
-			const modeBody = new Array(MODE_COUNT);
+			const modeBody = new Array(SHADER_SOURCE_MODE_COUNT);
 			for (let i = 0; i < headers.length; i++) {
 				const bodyEnd = (i + 1 < headers.length) ? headers[i + 1].start : lastBraceIdx;
 				const modeIndex = headers[i].threshold == null ? 0 : Math.round(headers[i].threshold + 0.5);
 				modeBody[modeIndex] = cascade.slice(headers[i].bodyStart, bodyEnd);
 			}
-			for (let i = 0; i < MODE_COUNT; i++) {
+			for (let i = 0; i < SHADER_SOURCE_MODE_COUNT; i++) {
 				if (modeBody[i] == null) throw new Error('shader split: missing body for mode ' + i);
 			}
 			return { preamble, commonSetup, tail, modeBody };
 		}
 
 		const { preamble, commonSetup, tail, modeBody } = splitFragmentShader(fsSrcEl.textContent);
+
+		function buildHexecontahedronPreviewBody() {
+			return `
+		vec2 uv = lensUV;
+		uv.x *= aspect;
+		float scl = tan(fov * 0.5);
+		vec3 rayDir = normalize(vec3(-uv.x * scl, uv.y * scl, -1.0));
+		vec3 eye = vec3(0.0, 0.0, 2.8);
+		const mat3 camQuatOffsetMat = mat3(0.0,0.0,1.0, 0.0,1.0,0.0, -1.0,0.0,0.0);
+		mat3 worldRot = camQuatOffsetMat * previewMatrix * hexeconta60PreRot;
+		mat3 viewInv = transpose(viewMatrix);
+		vec3 hexeconta60ViewVerts[62];
+		for (int i = 0; i < 62; i++) {
+			hexeconta60ViewVerts[i] = viewInv * worldRot * hexeconta60Vertices[i];
+		}
+		vec3 hexeconta60ViewNormals[60];
+		for (int i = 0; i < 60; i++) {
+			hexeconta60ViewNormals[i] = normalize(viewInv * worldRot * hexeconta60Normals[i]);
+		}
+		float nearestT = 1e9;
+		int bestFace = -1;
+		for (int i = 0; i < 60; i++) {
+			ivec4 face = hexeconta60Faces[i];
+			vec3 a = hexeconta60ViewVerts[face.x];
+			vec3 b = hexeconta60ViewVerts[face.y];
+			vec3 c = hexeconta60ViewVerts[face.z];
+			vec3 d = hexeconta60ViewVerts[face.w];
+			for (int triangle = 0; triangle < 2; triangle++) {
+				vec3 v0 = a;
+				vec3 v1 = triangle == 0 ? b : c;
+				vec3 v2 = triangle == 0 ? c : d;
+				vec3 edge1 = v1 - v0, edge2 = v2 - v0;
+				vec3 pvec = cross(rayDir, edge2);
+				float det = dot(edge1, pvec);
+				if (abs(det) < 1e-7) continue;
+				float invDet = 1.0 / det;
+				vec3 tvec = eye - v0;
+				float baryU = dot(tvec, pvec) * invDet;
+				if (baryU < 0.0 || baryU > 1.0) continue;
+				vec3 qvec = cross(tvec, edge1);
+				float baryV = dot(rayDir, qvec) * invDet;
+				if (baryV < 0.0 || baryU + baryV > 1.0) continue;
+				float hitT = dot(edge2, qvec) * invDet;
+				if (hitT > 0.0 && hitT < nearestT) { nearestT = hitT; bestFace = i; }
+			}
+		}
+
+		vec3 bgDir = stereoWorldDir(lensUV);
+		vec3 col = samplePanorama(bgDir);
+		col = applyGrid(col, dirToEquirect(bgDir));
+		{
+			vec3 bgLocalDir = stereoLocalDir(lensUV);
+			float bgMaxD = -1e9, bgSecD = -1e9;
+			for (int i = 0; i < 60; i++) {
+				float di = dot(bgLocalDir, hexeconta60ViewNormals[i]) - hexeconta60FaceOffset;
+				if (di > bgMaxD) { bgSecD = bgMaxD; bgMaxD = di; }
+				else if (di > bgSecD) { bgSecD = di; }
+			}
+			float bgEdgeDist = bgMaxD - bgSecD;
+			float bgEdgeW = 0.003;
+			float bgEdgeLine = smoothstep(bgEdgeW * 0.15, bgEdgeW, bgEdgeDist);
+			bgEdgeLine = mix(1.0, bgEdgeLine, foldableOverlayAlpha);
+			col = mix(vec3(0.06), col, bgEdgeLine);
+		}
+		if (bestFace < 0) { col = applyViewGrid(col, lensNorm); fragColor = vec4(col, 1.0); return; }
+		vec3 hitPos = eye + nearestT * rayDir;
+		ivec4 hitFace = hexeconta60Faces[bestFace];
+		vec3 corners[4] = vec3[4](
+			hexeconta60ViewVerts[hitFace.x], hexeconta60ViewVerts[hitFace.y],
+			hexeconta60ViewVerts[hitFace.z], hexeconta60ViewVerts[hitFace.w]
+		);
+		float edgeDistance = 1e9;
+		for (int edge = 0; edge < 4; edge++) {
+			vec3 edgeA = corners[edge], edgeB = corners[(edge + 1) % 4];
+			vec3 segment = edgeB - edgeA;
+			float along = clamp(dot(hitPos - edgeA, segment) / dot(segment, segment), 0.0, 1.0);
+			edgeDistance = min(edgeDistance, length(hitPos - (edgeA + along * segment)));
+		}
+		vec3 textureDir = viewMatrix * normalize(hitPos);
+		col = samplePanorama(textureDir);
+		col = applyGrid(col, dirToEquirect(textureDir));
+		float edgeLine = smoothstep(0.002, 0.012, edgeDistance);
+		edgeLine = mix(1.0, edgeLine, foldableOverlayAlpha);
+		col = mix(vec3(0.06), col, edgeLine);
+		vec3 normal = hexeconta60ViewNormals[bestFace];
+		vec3 V = normalize(eye - hitPos), L = normalize(vec3(0.4, 0.9, 0.7));
+		col *= max(0.0, dot(normal, L)) * 0.4 + 0.6;
+		vec3 H = normalize(L + V);
+		col += vec3(0.18) * pow(max(0.0, dot(normal, H)), 60.0);
+		col += vec3(0.07, 0.09, 0.14) * pow(1.0 - max(0.0, dot(normal, V)), 3.5);
+		col = applyViewGrid(col, lensNorm);
+		fragColor = vec4(col, 1.0);
+		return;`;
+		}
+
+		function buildHexecontahedronGeometrySource() {
+			const geometry = GEOMETRIES.rhombicHexecontahedron60;
+			const number = value => Number(value).toPrecision(12);
+			const vec3 = value => 'vec3(' + value.map(number).join(',') + ')';
+			return '\nconst vec3 hexeconta60Vertices[62] = vec3[62](' + geometry.vertices.map(vec3).join(',') + ');\n' +
+				'const ivec4 hexeconta60Faces[60] = ivec4[60](' + geometry.faces.map(face => 'ivec4(' + face.join(',') + ')').join(',') + ');\n' +
+				'const vec3 hexeconta60Normals[60] = vec3[60](' + geometry.facePlanes.map(plane => vec3(plane.normal)).join(',') + ');\n' +
+				'const float hexeconta60FaceOffset = ' + number(geometry.facePlaneOffset) + ';\n' +
+				'const float hexeconta60GnomonicScale = ' + number(geometry.gnomonicScale) + ';\n' +
+				'const vec2 hexeconta60GnomonicOrigin = vec2(' + geometry.gnomonicOrigin.map(number).join(',') + ');\n';
+		}
 
 		function buildFamilySource(family) {
 			let body;
@@ -5788,11 +5931,45 @@ void main() {
 					'\n}\n' + tail;
 			} else {
 				const previewIdx = family.modes[0], foldableIdx = family.modes[1];
-				body = 'if (projection > ' + (foldableIdx - 0.5) + ') {\n' + modeBody[foldableIdx] +
-					'\n} else {\n' + modeBody[previewIdx] +
+				const sourceModes = family.sourceModes || family.modes;
+				let previewBody = modeBody[sourceModes[0]];
+				let foldableBody = modeBody[sourceModes[1]];
+				if (family.shaderVariant === 'octa8') {
+					const specialize = source => source
+						.replace(/icoFaces/g, 'octa8Faces')
+						.replace(/icoPreRot/g, 'octa8PreRot')
+						.replace(/RFACE_ICO/g, 'RFACE_OCTA8')
+						.replace(/\[20\]/g, '[8]')
+						.replace(/< 20/g, '< 8');
+					previewBody = specialize(previewBody);
+					foldableBody = specialize(foldableBody);
+				} else if (family.shaderVariant === 'cubocta14') {
+					const specialize = source => source
+						.replace(/rcubo26Faces/g, 'cubocta14Faces')
+						.replace(/rcubo26PreRot/g, 'cubocta14PreRot')
+						.replace(/RFACE_RCUBO_TRI/g, 'RFACE_CUBOCTA_TRI')
+						.replace(/RFACE_RCUBO_SQ/g, 'RFACE_CUBOCTA_SQ')
+						.replace(/\[26\]/g, '[14]')
+						.replace(/< 26/g, '< 14');
+					previewBody = specialize(previewBody);
+					foldableBody = specialize(foldableBody);
+				} else if (family.shaderVariant === 'hexeconta60') {
+					previewBody = buildHexecontahedronPreviewBody();
+					foldableBody = foldableBody
+						.replace(/rhombicFaces/g, 'hexeconta60Normals')
+						.replace(/rhombicPreRot/g, 'hexeconta60PreRot')
+						.replace(/\[30\]/g, '[60]')
+						.replace(/< 30/g, '< 60')
+						.replace('vec2 tangentRP = vec2(bestRP.x*co - bestRP.y*so, bestRP.x*so + bestRP.y*co);', 'vec2 shiftedRP = bestRP + hexeconta60GnomonicOrigin / foldableScale;\n\t\t\tvec2 tangentRP = vec2(shiftedRP.x*co - shiftedRP.y*so, shiftedRP.x*so + shiftedRP.y*co);')
+						.replace('float gnoScale = foldableScale / (BUCKY_A + BUCKY_B);', 'float gnoScale = foldableScale * hexeconta60GnomonicScale;')
+						.replace('normalize(N + gno.x * T1 + gno.y * T2)', 'normalize(N * hexeconta60FaceOffset + gno.x * T1 + gno.y * T2)');
+				}
+				body = 'if (projection > ' + (foldableIdx - 0.5) + ') {\n' + foldableBody +
+					'\n} else {\n' + previewBody +
 					'\n}\n';
 			}
-			return preamble + 'void main() {\n' + commonSetup + body + '\n}\n';
+			const geometrySource = family.shaderVariant === 'hexeconta60' ? buildHexecontahedronGeometrySource() : '';
+			return preamble + geometrySource + 'void main() {\n' + commonSetup + body + '\n}\n';
 		}
 
 		const programs = FAMILIES.map(family => {
@@ -5876,7 +6053,7 @@ void main() {
 			uHasTexture, uPixelate, uGlobeRadius, uGlobeOpacity, uGlobeReflect, uProjection,
 			uShowGrid, uFoldableNet, uFoldablePreRot, uRhombicPreRot, uIcoPreRot, uTruncOctPreRot,
 			uRhombic12PreRot, uDodec12PreRot, uPent24PreRot, uDelt60PreRot, uPentahex60PreRot,
-			uRhombicosi62PreRot, uDelt24PreRot, uSnubcube38PreRot, uRcubo26PreRot, uFoldableScale, uNetMirrored, uFoldableOverlay, uFoldableBBox,
+			uRhombicosi62PreRot, uDelt24PreRot, uSnubcube38PreRot, uRcubo26PreRot, uOcta8PreRot, uCubocta14PreRot, uHexeconta60PreRot, uFoldableScale, uNetMirrored, uFoldableOverlay, uFoldableBBox,
 			uFoldablePaperRect, uFoldableOverlayAlpha, uCutLineOverlay, uFoldableTabOverlay,
 			uCutLineMode, uExportClip, uLevelMatrix, uPointer, uMagnifierRadius, uRefractivity,
 			uCollageRotation, uCollageFlip, uAzimuthalMask, uAzimuthalZoom, uStereoD, uStereoScaramuzza;
@@ -5907,6 +6084,9 @@ void main() {
 			uRhombicosi62PreRot = gl.getUniformLocation(prog, 'rhombicosi62PreRot');
 			uSnubcube38PreRot = gl.getUniformLocation(prog, 'snubcube38PreRot');
 			uRcubo26PreRot = gl.getUniformLocation(prog, 'rcubo26PreRot');
+			uHexeconta60PreRot = gl.getUniformLocation(prog, 'hexeconta60PreRot');
+			uOcta8PreRot = gl.getUniformLocation(prog, 'octa8PreRot');
+			uCubocta14PreRot = gl.getUniformLocation(prog, 'cubocta14PreRot');
 			uDelt24PreRot = gl.getUniformLocation(prog, 'delt24PreRot');
 			uFoldableScale = gl.getUniformLocation(prog, 'foldableScale');
 			uNetMirrored = gl.getUniformLocation(prog, 'netMirrored');
@@ -5931,7 +6111,7 @@ void main() {
 		}
 
 		// Projection modes as array for cycling
-		const projectionModes = ['equirectangular', 'perspective', 'azimuthal', 'azimuthal collage', 'stereographic', 'dodecahedron-12 preview', 'dodecahedron-12 foldable', 'rhombic-12 preview', 'rhombic-12 foldable', 'truncoct-14 preview', 'truncoct-14 foldable', 'icosahedron-20 preview', 'icosahedron-20 foldable', 'pentagonal-24 preview', 'pentagonal-24 foldable', 'deltoidal-24 preview', 'deltoidal-24 foldable', 'rhombic-30 preview', 'rhombic-30 foldable', 'buckyball-32 preview', 'buckyball-32 foldable', 'deltoidal-60 preview', 'deltoidal-60 foldable', 'pentahex-60 preview', 'pentahex-60 foldable', 'rhombicosi-62 preview', 'rhombicosi-62 foldable', 'snubcube-38 preview', 'snubcube-38 foldable', 'rhombicubo-26 preview', 'rhombicubo-26 foldable'];
+		const projectionModes = ['equirectangular', 'perspective', 'azimuthal', 'azimuthal collage', 'stereographic', 'dodecahedron-12 preview', 'dodecahedron-12 foldable', 'rhombic-12 preview', 'rhombic-12 foldable', 'truncoct-14 preview', 'truncoct-14 foldable', 'icosahedron-20 preview', 'icosahedron-20 foldable', 'pentagonal-24 preview', 'pentagonal-24 foldable', 'deltoidal-24 preview', 'deltoidal-24 foldable', 'rhombic-30 preview', 'rhombic-30 foldable', 'buckyball-32 preview', 'buckyball-32 foldable', 'deltoidal-60 preview', 'deltoidal-60 foldable', 'pentahex-60 preview', 'pentahex-60 foldable', 'rhombicosi-62 preview', 'rhombicosi-62 foldable', 'snubcube-38 preview', 'snubcube-38 foldable', 'rhombicubo-26 preview', 'rhombicubo-26 foldable', 'octahedron-8 preview', 'octahedron-8 foldable', 'cuboctahedron-14 preview', 'cuboctahedron-14 foldable', 'rhombic-hexecontahedron-60 preview', 'rhombic-hexecontahedron-60 foldable'];
 		// Mode index constants — derived from array order so reordering "just works" in JS.
 		// The GLSL shader uses these as float uniform `projection` with cascading > N.5 checks;
 		// if you reorder the array, reorder the shader cascade to match. Also keep FAMILIES
@@ -5967,6 +6147,12 @@ void main() {
 		const M_SNUB38_FOLDABLE = projectionModes.indexOf('snubcube-38 foldable');
 		const M_RCUBO26_PREVIEW = projectionModes.indexOf('rhombicubo-26 preview');
 		const M_RCUBO26_FOLDABLE = projectionModes.indexOf('rhombicubo-26 foldable');
+		const M_OCTA8_PREVIEW = projectionModes.indexOf('octahedron-8 preview');
+		const M_OCTA8_FOLDABLE = projectionModes.indexOf('octahedron-8 foldable');
+		const M_CUBOCTA14_PREVIEW = projectionModes.indexOf('cuboctahedron-14 preview');
+		const M_CUBOCTA14_FOLDABLE = projectionModes.indexOf('cuboctahedron-14 foldable');
+		const M_HEXECONTA60_PREVIEW = projectionModes.indexOf('rhombic-hexecontahedron-60 preview');
+		const M_HEXECONTA60_FOLDABLE = projectionModes.indexOf('rhombic-hexecontahedron-60 foldable');
 		let projectionModeIndex = M_STEREO;
 
 		// ── Bind each family's program once, in turn, to run its one-time
@@ -5990,6 +6176,9 @@ void main() {
 			rc62: () => uploadRhombicosi62Net(),
 			snubcube38: () => uploadSnubcube38Net(),
 			rcubo26: () => uploadRcubo26Net(),
+			octa8: () => uploadRegularNetFamily({ geoId: 'octahedron8', prefix: 'octa8', uniform: uOcta8PreRot, displayId: 'Octa8' }),
+			cubocta14: () => uploadRegularNetFamily({ geoId: 'cuboctahedron14', prefix: 'cubocta14', uniform: uCubocta14PreRot, displayId: 'Cubocta14' }),
+			hexeconta60: () => uploadRegularNetFamily({ geoId: 'rhombicHexecontahedron60', prefix: 'hexeconta60', uniform: uHexeconta60PreRot, displayId: 'Hexeconta60' }),
 		};
 		FAMILIES.forEach((family, fi) => {
 			gl.useProgram(programs[fi]);
@@ -7276,6 +7465,249 @@ void main() {
 
 			window.rhombic30Presets = rhombic30Presets;
 			window.populateRhombicSelect = populateRhombicSelect;
+		}
+
+		function uploadRegularNetFamily(config) {
+			const G = GEOMETRIES[config.geoId];
+			const presets = G.presets;
+			const identity = new Float32Array([1,0,0, 0,1,0, 0,0,1]);
+
+			const solidVerts = G.vertices ? G.vertices : [];
+			if (!solidVerts.length && config.geoId === 'octahedron8') {
+				solidVerts.push([1,0,0], [-1,0,0], [0,1,0], [0,-1,0], [0,0,1], [0,0,-1]);
+			} else if (!solidVerts.length) {
+				for (let zero = 0; zero < 3; zero++)
+					for (const a of [-1, 1]) for (const b of [-1, 1]) {
+						const v = [0, 0, 0];
+						v[(zero + 1) % 3] = a / Math.sqrt(2);
+						v[(zero + 2) % 3] = b / Math.sqrt(2);
+						solidVerts.push(v);
+					}
+			}
+
+			const faceOffsets = G.faceOffsets || G.c3.map((normal, i) => {
+				let best = solidVerts[0], bestDot = -Infinity;
+				for (const vertex of solidVerts) {
+					const d = normal[0]*vertex[0] + normal[1]*vertex[1] + normal[2]*vertex[2];
+					if (d > bestDot) { bestDot = d; best = vertex; }
+				}
+				const T1 = G.frames[i][0], T2 = G.frames[i][1];
+				const x = best[0]*T1[0] + best[1]*T1[1] + best[2]*T1[2];
+				const y = best[0]*T2[0] + best[1]*T2[1] + best[2]*T2[2];
+				const step = 2 * Math.PI / G.nSides(i);
+				let offset = Math.atan2(y, x) - Math.PI / G.nSides(i);
+				while (offset > step / 2) offset -= step;
+				while (offset < -step / 2) offset += step;
+				return offset;
+			});
+
+			function uploadTexture(unit, canvas) {
+				const texture = gl.createTexture();
+				gl.activeTexture(unit);
+				gl.bindTexture(gl.TEXTURE_2D, texture);
+				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+				gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+				return texture;
+			}
+
+			function computeLayout(parentTree, angle, tabsMap, paperAspect, mirrored) {
+				const layout = unfoldNet(G, parentTree, mirrored || false);
+				applyNetAngle(layout, angle || 0, G.nFaces);
+				const sourceVerts = [];
+				for (let i = 0; i < G.nFaces; i++) {
+					if (!layout.placed[i]) continue;
+					for (const vertex of G.polyVerts(layout.res[i].x, layout.res[i].y, layout.res[i].r, i, layout.mirrored)) sourceVerts.push(vertex);
+				}
+				let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+				for (const vertex of sourceVerts) {
+					minX = Math.min(minX, vertex.x); maxX = Math.max(maxX, vertex.x);
+					minY = Math.min(minY, vertex.y); maxY = Math.max(maxY, vertex.y);
+				}
+				const centerX = (minX + maxX) / 2, centerY = (minY + maxY) / 2;
+				const scale = (maxY - minY) / 1.9;
+				const data = new Float32Array(62 * 4);
+				for (let i = 0; i < 62; i++) { data[i*4] = 9; data[i*4+1] = 9; }
+				for (let i = 0; i < G.nFaces; i++) {
+					if (!layout.placed[i]) continue;
+					data[i*4] = (layout.res[i].x - centerX) / scale;
+					data[i*4+1] = (layout.res[i].y - centerY) / scale;
+					data[i*4+2] = layout.res[i].r;
+					data[i*4+3] = faceOffsets[i];
+				}
+
+				const edgeNeighbor = Array.from({ length: G.nFaces }, (_, i) => new Array(G.nSides(i)).fill(null));
+				for (let i = 0; i < G.nFaces; i++) for (const j of G.adj[i]) {
+					const slot = G.edgeSlot(i, G.edgeIdx(i, j), layout.mirrored);
+					edgeNeighbor[i][slot] = { j, isInternal: layout.parent[j] === i || layout.parent[i] === j };
+				}
+
+				const normalizedVerts = i => G.polyVerts(layout.res[i].x, layout.res[i].y, layout.res[i].r, i, layout.mirrored)
+					.map(vertex => ({ x: (vertex.x - centerX) / scale, y: (vertex.y - centerY) / scale }));
+				let tightX0 = Infinity, tightX1 = -Infinity, tightY0 = Infinity, tightY1 = -Infinity;
+				const polygons = [];
+				for (let i = 0; i < G.nFaces; i++) {
+					const vertices = normalizedVerts(i);
+					polygons.push(vertices);
+					for (const vertex of vertices) {
+						tightX0 = Math.min(tightX0, vertex.x); tightX1 = Math.max(tightX1, vertex.x);
+						tightY0 = Math.min(tightY0, vertex.y); tightY1 = Math.max(tightY1, vertex.y);
+					}
+				}
+				const scaledTabH = G.tabH / scale;
+				const tabPolygons = [];
+				for (let i = 0; i < G.nFaces; i++) {
+					const vertices = polygons[i], fx = data[i*4], fy = data[i*4+1];
+					for (let k = 0; k < vertices.length; k++) {
+						const info = edgeNeighbor[i][k];
+						if (info && info.isInternal) continue;
+						if (info) {
+							const key = Math.min(i, info.j) + '-' + Math.max(i, info.j);
+							const owner = tabsMap && key in tabsMap ? tabsMap[key] : Math.min(i, info.j);
+							if (owner !== i) continue;
+						}
+						const v1 = vertices[k], v2 = vertices[(k + 1) % vertices.length];
+						const mx = (v1.x + v2.x) / 2 - fx, my = (v1.y + v2.y) / 2 - fy;
+						const ml = Math.hypot(mx, my), nx = mx / ml, ny = my / ml;
+						const dx = v2.x - v1.x, dy = v2.y - v1.y;
+						const [inset1, inset2] = G.tabInsets(i, k);
+						const o1 = { x: v1.x + nx*scaledTabH + dx*inset1, y: v1.y + ny*scaledTabH + dy*inset1 };
+						const o2 = { x: v2.x + nx*scaledTabH - dx*inset2, y: v2.y + ny*scaledTabH - dy*inset2 };
+						tabPolygons.push([v1, o1, o2, v2]);
+						for (const point of [o1, o2]) {
+							tightX0 = Math.min(tightX0, point.x); tightX1 = Math.max(tightX1, point.x);
+							tightY0 = Math.min(tightY0, point.y); tightY1 = Math.max(tightY1, point.y);
+						}
+					}
+				}
+
+				const pad = 0.02, bbX0 = tightX0-pad, bbX1 = tightX1+pad, bbY0 = tightY0-pad, bbY1 = tightY1+pad;
+				const height = 2048, width = Math.max(1, Math.round(height * (bbX1-bbX0) / (bbY1-bbY0)));
+				const makeCanvas = () => { const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height; return canvas; };
+				const overlayCanvas = makeCanvas(), tabCanvas = makeCanvas(), cutCanvas = makeCanvas();
+				const ox = x => (x-bbX0) * width / (bbX1-bbX0), oy = y => height - (y-bbY0) * height / (bbY1-bbY0);
+				const drawPath = (ctx, points, close) => {
+					ctx.beginPath();
+					points.forEach((point, index) => index ? ctx.lineTo(ox(point.x), oy(point.y)) : ctx.moveTo(ox(point.x), oy(point.y)));
+					if (close) ctx.closePath();
+				};
+				const overlayCtx = overlayCanvas.getContext('2d');
+				overlayCtx.strokeStyle = 'rgba(0,0,0,0.5)'; overlayCtx.lineWidth = 1.5;
+				for (const polygon of polygons) { drawPath(overlayCtx, polygon, true); overlayCtx.stroke(); }
+				const tabCtx = tabCanvas.getContext('2d');
+				tabCtx.fillStyle = 'rgba(255,180,200,1)';
+				for (const polygon of tabPolygons) { drawPath(tabCtx, polygon, true); tabCtx.fill(); }
+				const cutCtx = cutCanvas.getContext('2d');
+				cutCtx.clearRect(0, 0, width, height);
+				cutCtx.strokeStyle = 'rgba(0,0,0,1)';
+				cutCtx.lineWidth = 2;
+				cutCtx.lineJoin = 'round';
+
+				const edgeOwner = (i, j) => {
+					const key = Math.min(i, j) + '-' + Math.max(i, j);
+					if (tabsMap && key in tabsMap) return tabsMap[key];
+					return Math.min(i, j);
+				};
+
+				// Step 1: tab outlines only (open path, no base), clipped outside faces.
+				cutCtx.save();
+				cutCtx.beginPath();
+				cutCtx.rect(0, 0, width, height);
+				for (const polygon of polygons) {
+					drawPath(cutCtx, polygon, true);
+				}
+				cutCtx.clip('evenodd');
+				for (let i = 0; i < G.nFaces; i++) {
+					const vertices = polygons[i];
+					const fx = data[i * 4], fy = data[i * 4 + 1];
+					for (let k = 0; k < vertices.length; k++) {
+						const info = edgeNeighbor[i][k];
+						if (info && info.isInternal) continue;
+						if (info && edgeOwner(i, info.j) !== i) continue;
+						const v1 = vertices[k], v2 = vertices[(k + 1) % vertices.length];
+						const mx = (v1.x + v2.x) / 2 - fx, my = (v1.y + v2.y) / 2 - fy;
+						const ml = Math.hypot(mx, my), nx = mx / ml, ny = my / ml;
+						const dx = v2.x - v1.x, dy = v2.y - v1.y;
+						const [inset1, inset2] = G.tabInsets(i, k);
+						const o1 = { x: v1.x + nx * scaledTabH + dx * inset1, y: v1.y + ny * scaledTabH + dy * inset1 };
+						const o2 = { x: v2.x + nx * scaledTabH - dx * inset2, y: v2.y + ny * scaledTabH - dy * inset2 };
+						cutCtx.beginPath();
+						cutCtx.moveTo(ox(v1.x), oy(v1.y));
+						cutCtx.lineTo(ox(o1.x), oy(o1.y));
+						cutCtx.lineTo(ox(o2.x), oy(o2.y));
+						cutCtx.lineTo(ox(v2.x), oy(v2.y));
+						cutCtx.stroke();
+					}
+				}
+				cutCtx.restore();
+
+				// Step 2: face edges not covered by tabs (and all truly open edges).
+				for (let i = 0; i < G.nFaces; i++) {
+					const vertices = polygons[i];
+					for (let k = 0; k < vertices.length; k++) {
+						const info = edgeNeighbor[i][k];
+						if (info && info.isInternal) continue;
+						if (info && layout.placed[info.j] && edgeOwner(i, info.j) === i) continue;
+						const v1 = vertices[k], v2 = vertices[(k + 1) % vertices.length];
+						cutCtx.beginPath();
+						cutCtx.moveTo(ox(v1.x), oy(v1.y));
+						cutCtx.lineTo(ox(v2.x), oy(v2.y));
+						cutCtx.stroke();
+					}
+				}
+
+				const overlayTex = uploadTexture(gl.TEXTURE1, overlayCanvas);
+				const tabOverlayTex = uploadTexture(gl.TEXTURE4, tabCanvas);
+				const cutLineTex = uploadTexture(gl.TEXTURE3, cutCanvas);
+				gl.uniform4fv(uFoldableNet, data);
+				gl.uniform1f(uFoldableScale, scale);
+				gl.uniform4f(uFoldableBBox, bbX0, bbY0, bbX1, bbY1);
+				gl.uniform1f(uNetMirrored, layout.mirrored ? 1 : 0);
+
+				let paperX0 = 0, paperY0 = 0, paperX1 = 0, paperY1 = 0;
+				if (paperAspect > 0) {
+					const netW = tightX1-tightX0, netH = tightY1-tightY0;
+					const paperScale = Math.min(paperAspect/netW, 1/netH);
+					const halfW = paperAspect/paperScale/2, halfH = 1/paperScale/2;
+					const cx = (tightX0+tightX1)/2, cy = (tightY0+tightY1)/2;
+					paperX0=cx-halfW; paperX1=cx+halfW; paperY0=cy-halfH; paperY1=cy+halfH;
+				}
+				gl.uniform4f(uFoldablePaperRect, paperX0, paperY0, paperX1, paperY1);
+
+				const key = '_' + config.prefix;
+				window[key+'Data']=data; window[key+'Scale']=scale; window[key+'BBox']=[bbX0,bbY0,bbX1,bbY1];
+				window[key+'OverlayTex']=overlayTex; window[key+'TabOverlayTex']=tabOverlayTex; window[key+'CutLineTex']=cutLineTex;
+				window[key+'Placed']=layout.placed.slice(); window[key+'EdgeNeighbor']=edgeNeighbor;
+				window[key+'TabH']=scaledTabH; window[key+'TabInset']=G.tabInset; window[key+'TabsMap']=tabsMap || null;
+				window[key+'TabInsetAcute']=G.tabInsets(0, 0)[0]; window[key+'TabInsetObtuse']=G.tabInsets(0, 0)[1];
+				window[key+'TightBBox']={x0:tightX0,y0:tightY0,x1:tightX1,y1:tightY1};
+				window[key+'PaperRect']={x0:paperX0,y0:paperY0,x1:paperX1,y1:paperY1};
+			}
+
+			const displayId = config.displayId;
+			const populateName = 'populate' + displayId + 'Select';
+			const importName = 'import' + displayId + 'Layout';
+			const presetsName = config.prefix + 'Presets';
+			window[populateName] = function() {
+				const select = document.getElementById('geo-layout-select');
+				if (!select) return;
+				select.innerHTML = '';
+				presets.forEach((preset, index) => { const option=document.createElement('option'); option.value=index; option.textContent=preset.label; select.appendChild(option); });
+			};
+			window[populateName]();
+			const initial = presets[0];
+			computeLayout(initial.parents, initial.angle, initial.tabs, initial.aspect, initial.mirrored);
+			gl.uniformMatrix3fv(config.uniform, false, initial.northPole ? computePreRot(initial.northPole.dir, initial.lonOffset) : identity);
+			window[importName] = function(parents, angle, alignHorizon, tabs, aspect, northPoleDir, lonOffset, mirrored) {
+				computeLayout(parents, angle, tabs, aspect || 0, mirrored);
+				if (northPoleDir) gl.uniformMatrix3fv(config.uniform, false, computePreRot(northPoleDir, lonOffset));
+				needsRedraw = true;
+			};
+			window[presetsName] = presets;
 		}
 
 		// ── Compute truncated octahedron flat net layout (14 faces: 8 hex + 6 sq) ──
@@ -11902,6 +12334,9 @@ void main() {
 		// and syncs the shared globals (foldableBBox, foldableTightBBox, foldablePaperRect)
 		// so the export handler and SVG generator see current values.
 		function uploadActiveNetData() {
+			const isOcta8 = projectionModeIndex === M_OCTA8_FOLDABLE || projectionModeIndex === M_OCTA8_PREVIEW;
+			const isCubocta14 = projectionModeIndex === M_CUBOCTA14_FOLDABLE || projectionModeIndex === M_CUBOCTA14_PREVIEW;
+			const isHexeconta60 = projectionModeIndex === M_HEXECONTA60_FOLDABLE || projectionModeIndex === M_HEXECONTA60_PREVIEW;
 			const isRhombic = projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_RHOMBIC_PREVIEW;
 			const isTruncOct = projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_TRUNCOCT_PREVIEW;
 			const isIco = projectionModeIndex === M_ICO_FOLDABLE || projectionModeIndex === M_ICO_PREVIEW;
@@ -11914,30 +12349,31 @@ void main() {
 			const isDelt24 = projectionModeIndex === M_DELT24_FOLDABLE || projectionModeIndex === M_DELT24_PREVIEW;
 			const isSnub38 = projectionModeIndex === M_SNUB38_FOLDABLE || projectionModeIndex === M_SNUB38_PREVIEW;
 			const isRcubo26 = projectionModeIndex === M_RCUBO26_FOLDABLE || projectionModeIndex === M_RCUBO26_PREVIEW;
-			const d = isRcubo26 ? window._rcubo26Data : isSnub38 ? window._snub38Data : isDelt24 ? window._delt24Data : isRC62 ? window._rc62Data : isPH60 ? window._ph60Data : isDelt60 ? window._delt60Data : isPent24 ? window._pent24Data : isDodec ? window._dodec12Data : isRD12 ? window._rhombic12Data : isIco ? window._ico20Data : isTruncOct ? window._truncOct14Data : isRhombic ? window._rhombic30Data : window._bucky32Data;
-			const s = isRcubo26 ? window._rcubo26Scale : isSnub38 ? window._snub38Scale : isDelt24 ? window._delt24Scale : isRC62 ? window._rc62Scale : isPH60 ? window._ph60Scale : isDelt60 ? window._delt60Scale : isPent24 ? window._pent24Scale : isDodec ? window._dodec12Scale : isRD12 ? window._rhombic12Scale : isIco ? window._ico20Scale : isTruncOct ? window._truncOct14Scale : isRhombic ? window._rhombic30Scale : window._bucky32Scale;
-			const bb = isRcubo26 ? window._rcubo26BBox : isSnub38 ? window._snub38BBox : isDelt24 ? window._delt24BBox : isRC62 ? window._rc62BBox : isPH60 ? window._ph60BBox : isDelt60 ? window._delt60BBox : isPent24 ? window._pent24BBox : isDodec ? window._dodec12BBox : isRD12 ? window._rhombic12BBox : isIco ? window._ico20BBox : isTruncOct ? window._truncOct14BBox : isRhombic ? window._rhombic30BBox : window._bucky32BBox;
-			const tex = isRcubo26 ? window._rcubo26OverlayTex : isSnub38 ? window._snub38OverlayTex : isDelt24 ? window._delt24OverlayTex : isRC62 ? window._rc62OverlayTex : isPH60 ? window._ph60OverlayTex : isDelt60 ? window._delt60OverlayTex : isPent24 ? window._pent24OverlayTex : isDodec ? window._dodec12OverlayTex : isRD12 ? window._rhombic12OverlayTex : isIco ? window._ico20OverlayTex : isTruncOct ? window._truncOct14OverlayTex : isRhombic ? window._rhombic30OverlayTex : window._bucky32OverlayTex;
+			const regularPrefix = isOcta8 ? '_octa8' : isCubocta14 ? '_cubocta14' : isHexeconta60 ? '_hexeconta60' : null;
+			const d = regularPrefix ? window[regularPrefix+'Data'] : isRcubo26 ? window._rcubo26Data : isSnub38 ? window._snub38Data : isDelt24 ? window._delt24Data : isRC62 ? window._rc62Data : isPH60 ? window._ph60Data : isDelt60 ? window._delt60Data : isPent24 ? window._pent24Data : isDodec ? window._dodec12Data : isRD12 ? window._rhombic12Data : isIco ? window._ico20Data : isTruncOct ? window._truncOct14Data : isRhombic ? window._rhombic30Data : window._bucky32Data;
+			const s = regularPrefix ? window[regularPrefix+'Scale'] : isRcubo26 ? window._rcubo26Scale : isSnub38 ? window._snub38Scale : isDelt24 ? window._delt24Scale : isRC62 ? window._rc62Scale : isPH60 ? window._ph60Scale : isDelt60 ? window._delt60Scale : isPent24 ? window._pent24Scale : isDodec ? window._dodec12Scale : isRD12 ? window._rhombic12Scale : isIco ? window._ico20Scale : isTruncOct ? window._truncOct14Scale : isRhombic ? window._rhombic30Scale : window._bucky32Scale;
+			const bb = regularPrefix ? window[regularPrefix+'BBox'] : isRcubo26 ? window._rcubo26BBox : isSnub38 ? window._snub38BBox : isDelt24 ? window._delt24BBox : isRC62 ? window._rc62BBox : isPH60 ? window._ph60BBox : isDelt60 ? window._delt60BBox : isPent24 ? window._pent24BBox : isDodec ? window._dodec12BBox : isRD12 ? window._rhombic12BBox : isIco ? window._ico20BBox : isTruncOct ? window._truncOct14BBox : isRhombic ? window._rhombic30BBox : window._bucky32BBox;
+			const tex = regularPrefix ? window[regularPrefix+'OverlayTex'] : isRcubo26 ? window._rcubo26OverlayTex : isSnub38 ? window._snub38OverlayTex : isDelt24 ? window._delt24OverlayTex : isRC62 ? window._rc62OverlayTex : isPH60 ? window._ph60OverlayTex : isDelt60 ? window._delt60OverlayTex : isPent24 ? window._pent24OverlayTex : isDodec ? window._dodec12OverlayTex : isRD12 ? window._rhombic12OverlayTex : isIco ? window._ico20OverlayTex : isTruncOct ? window._truncOct14OverlayTex : isRhombic ? window._rhombic30OverlayTex : window._bucky32OverlayTex;
 			if (!d) return;
 			gl.uniform4fv(uFoldableNet, d);
 			gl.uniform1f(uFoldableScale, s);
 			gl.uniform4f(uFoldableBBox, bb[0], bb[1], bb[2], bb[3]);
 			gl.activeTexture(gl.TEXTURE1);
 			gl.bindTexture(gl.TEXTURE_2D, tex);
-			const clTex = isRcubo26 ? window._rcubo26CutLineTex : isSnub38 ? window._snub38CutLineTex : isDelt24 ? window._delt24CutLineTex : isRC62 ? window._rc62CutLineTex : isPH60 ? window._ph60CutLineTex : isDelt60 ? window._delt60CutLineTex : isPent24 ? window._pent24CutLineTex : isDodec ? window._dodec12CutLineTex : isRD12 ? window._rhombic12CutLineTex : isIco ? window._ico20CutLineTex : isTruncOct ? window._truncOct14CutLineTex : isRhombic ? window._rhombic30CutLineTex : window._bucky32CutLineTex;
+			const clTex = regularPrefix ? window[regularPrefix+'CutLineTex'] : isRcubo26 ? window._rcubo26CutLineTex : isSnub38 ? window._snub38CutLineTex : isDelt24 ? window._delt24CutLineTex : isRC62 ? window._rc62CutLineTex : isPH60 ? window._ph60CutLineTex : isDelt60 ? window._delt60CutLineTex : isPent24 ? window._pent24CutLineTex : isDodec ? window._dodec12CutLineTex : isRD12 ? window._rhombic12CutLineTex : isIco ? window._ico20CutLineTex : isTruncOct ? window._truncOct14CutLineTex : isRhombic ? window._rhombic30CutLineTex : window._bucky32CutLineTex;
 			if (clTex) {
 				gl.activeTexture(gl.TEXTURE3);
 				gl.bindTexture(gl.TEXTURE_2D, clTex);
 			}
-			const tabTex = isRcubo26 ? window._rcubo26TabOverlayTex : isSnub38 ? window._snub38TabOverlayTex : isDelt24 ? window._delt24TabOverlayTex : isRC62 ? window._rc62TabOverlayTex : isPH60 ? window._ph60TabOverlayTex : isDelt60 ? window._delt60TabOverlayTex : isPent24 ? window._pent24TabOverlayTex : isDodec ? window._dodec12TabOverlayTex : isRD12 ? window._rhombic12TabOverlayTex : isIco ? window._ico20TabOverlayTex : isTruncOct ? window._truncOct14TabOverlayTex : isRhombic ? window._rhombic30TabOverlayTex : window._bucky32TabOverlayTex;
+			const tabTex = regularPrefix ? window[regularPrefix+'TabOverlayTex'] : isRcubo26 ? window._rcubo26TabOverlayTex : isSnub38 ? window._snub38TabOverlayTex : isDelt24 ? window._delt24TabOverlayTex : isRC62 ? window._rc62TabOverlayTex : isPH60 ? window._ph60TabOverlayTex : isDelt60 ? window._delt60TabOverlayTex : isPent24 ? window._pent24TabOverlayTex : isDodec ? window._dodec12TabOverlayTex : isRD12 ? window._rhombic12TabOverlayTex : isIco ? window._ico20TabOverlayTex : isTruncOct ? window._truncOct14TabOverlayTex : isRhombic ? window._rhombic30TabOverlayTex : window._bucky32TabOverlayTex;
 			if (tabTex) {
 				gl.activeTexture(gl.TEXTURE4);
 				gl.bindTexture(gl.TEXTURE_2D, tabTex);
 			}
 			window.foldableBBox = { x0: bb[0], y0: bb[1], x1: bb[2], y1: bb[3] };
-			const tbb = isRcubo26 ? window._rcubo26TightBBox : isSnub38 ? window._snub38TightBBox : isDelt24 ? window._delt24TightBBox : isRC62 ? window._rc62TightBBox : isPH60 ? window._ph60TightBBox : isDelt60 ? window._delt60TightBBox : isPent24 ? window._pent24TightBBox : isDodec ? window._dodec12TightBBox : isRD12 ? window._rhombic12TightBBox : isIco ? window._ico20TightBBox : isTruncOct ? window._truncOct14TightBBox : isRhombic ? window._rhombic30TightBBox : window._bucky32TightBBox;
+			const tbb = regularPrefix ? window[regularPrefix+'TightBBox'] : isRcubo26 ? window._rcubo26TightBBox : isSnub38 ? window._snub38TightBBox : isDelt24 ? window._delt24TightBBox : isRC62 ? window._rc62TightBBox : isPH60 ? window._ph60TightBBox : isDelt60 ? window._delt60TightBBox : isPent24 ? window._pent24TightBBox : isDodec ? window._dodec12TightBBox : isRD12 ? window._rhombic12TightBBox : isIco ? window._ico20TightBBox : isTruncOct ? window._truncOct14TightBBox : isRhombic ? window._rhombic30TightBBox : window._bucky32TightBBox;
 			if (tbb) window.foldableTightBBox = tbb;
-			const pr = isRcubo26 ? window._rcubo26PaperRect : isSnub38 ? window._snub38PaperRect : isDelt24 ? window._delt24PaperRect : isRC62 ? window._rc62PaperRect : isPH60 ? window._ph60PaperRect : isDelt60 ? window._delt60PaperRect : isPent24 ? window._pent24PaperRect : isDodec ? window._dodec12PaperRect : isRD12 ? window._rhombic12PaperRect : isIco ? window._ico20PaperRect : isTruncOct ? window._truncOct14PaperRect : isRhombic ? window._rhombic30PaperRect : window._bucky32PaperRect;
+			const pr = regularPrefix ? window[regularPrefix+'PaperRect'] : isRcubo26 ? window._rcubo26PaperRect : isSnub38 ? window._snub38PaperRect : isDelt24 ? window._delt24PaperRect : isRC62 ? window._rc62PaperRect : isPH60 ? window._ph60PaperRect : isDelt60 ? window._delt60PaperRect : isPent24 ? window._pent24PaperRect : isDodec ? window._dodec12PaperRect : isRD12 ? window._rhombic12PaperRect : isIco ? window._ico20PaperRect : isTruncOct ? window._truncOct14PaperRect : isRhombic ? window._rhombic30PaperRect : window._bucky32PaperRect;
 			if (pr) gl.uniform4f(uFoldablePaperRect, pr.x0, pr.y0, pr.x1, pr.y1);
 			else gl.uniform4f(uFoldablePaperRect, 0, 0, 0, 0);
 		}
@@ -12091,6 +12527,9 @@ void main() {
 		let foldableSnubcube38Quat = [0, 0, 0, 1];
 		// Quaternion for the rhombicubo-26 net (M_RCUBO26_FOLDABLE).
 		let foldableRcubo26Quat = [0, 0, 0, 1];
+		let foldableOcta8Quat = [0, 0, 0, 1];
+		let foldableCubocta14Quat = [0, 0, 0, 1];
+		let foldableHexeconta60Quat = [0, 0, 0, 1];
 
 		// Return the "active" quaternion for the current projection mode.
 		function activeQuat() {
@@ -12107,6 +12546,9 @@ void main() {
 			if (projectionModeIndex === M_DELT24_FOLDABLE || projectionModeIndex === M_DELT24_PREVIEW) return foldableDelt24Quat;
 			if (projectionModeIndex === M_SNUB38_FOLDABLE || projectionModeIndex === M_SNUB38_PREVIEW) return foldableSnubcube38Quat;
 			if (projectionModeIndex === M_RCUBO26_FOLDABLE || projectionModeIndex === M_RCUBO26_PREVIEW) return foldableRcubo26Quat;
+			if (projectionModeIndex === M_OCTA8_FOLDABLE || projectionModeIndex === M_OCTA8_PREVIEW) return foldableOcta8Quat;
+			if (projectionModeIndex === M_CUBOCTA14_FOLDABLE || projectionModeIndex === M_CUBOCTA14_PREVIEW) return foldableCubocta14Quat;
+			if (projectionModeIndex === M_HEXECONTA60_FOLDABLE || projectionModeIndex === M_HEXECONTA60_PREVIEW) return foldableHexeconta60Quat;
 			if (projectionModeIndex === M_PREVIEW) return foldable32facesQuat;
 			return camQuat;
 		}
@@ -12124,11 +12566,14 @@ void main() {
 			if (projectionModeIndex === M_DELT24_FOLDABLE || projectionModeIndex === M_DELT24_PREVIEW) { foldableDelt24Quat = q; return; }
 			if (projectionModeIndex === M_SNUB38_FOLDABLE || projectionModeIndex === M_SNUB38_PREVIEW) { foldableSnubcube38Quat = q; return; }
 			if (projectionModeIndex === M_RCUBO26_FOLDABLE || projectionModeIndex === M_RCUBO26_PREVIEW) { foldableRcubo26Quat = q; return; }
+			if (projectionModeIndex === M_OCTA8_FOLDABLE || projectionModeIndex === M_OCTA8_PREVIEW) { foldableOcta8Quat = q; return; }
+			if (projectionModeIndex === M_CUBOCTA14_FOLDABLE || projectionModeIndex === M_CUBOCTA14_PREVIEW) { foldableCubocta14Quat = q; return; }
+			if (projectionModeIndex === M_HEXECONTA60_FOLDABLE || projectionModeIndex === M_HEXECONTA60_PREVIEW) { foldableHexeconta60Quat = q; return; }
 			if (projectionModeIndex === M_PREVIEW) { foldable32facesQuat = q; return; }
 			camQuat = q;
 		}
 		function isFoldableMode() {
-			return projectionModeIndex === M_DODEC_FOLDABLE || projectionModeIndex === M_RD12_FOLDABLE || projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_ICO_FOLDABLE || projectionModeIndex === M_PENT24_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_DELT60_FOLDABLE || projectionModeIndex === M_PH60_FOLDABLE || projectionModeIndex === M_RC62_FOLDABLE || projectionModeIndex === M_DELT24_FOLDABLE || projectionModeIndex === M_SNUB38_FOLDABLE || projectionModeIndex === M_RCUBO26_FOLDABLE;
+			return projectionModeIndex === M_DODEC_FOLDABLE || projectionModeIndex === M_RD12_FOLDABLE || projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_ICO_FOLDABLE || projectionModeIndex === M_PENT24_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_DELT60_FOLDABLE || projectionModeIndex === M_PH60_FOLDABLE || projectionModeIndex === M_RC62_FOLDABLE || projectionModeIndex === M_DELT24_FOLDABLE || projectionModeIndex === M_SNUB38_FOLDABLE || projectionModeIndex === M_RCUBO26_FOLDABLE || projectionModeIndex === M_OCTA8_FOLDABLE || projectionModeIndex === M_CUBOCTA14_FOLDABLE || projectionModeIndex === M_HEXECONTA60_FOLDABLE;
 		}
 
 		let fovDeg = 135;
@@ -12220,9 +12665,11 @@ void main() {
 		// preview/foldable mode-index pairing) plus a small face-count/name
 		// lookup, then sorted by face count and lexicographically by name.
 		const POLY_META = {
+			octa8:      { faces: 8,  name: 'octahedron' },
 			dodec12:    { faces: 12, name: 'dodecahedron' },
 			rd12:       { faces: 12, name: 'rhombic' },
 			truncoct14: { faces: 14, name: 'truncoct' },
+			cubocta14:  { faces: 14, name: 'cuboctahedron' },
 			ico20:      { faces: 20, name: 'icosahedron' },
 			delt24:     { faces: 24, name: 'deltoidal' },
 			pent24:     { faces: 24, name: 'pentagonal' },
@@ -12231,6 +12678,7 @@ void main() {
 			bucky32:    { faces: 32, name: 'buckyball' },
 			snubcube38: { faces: 38, name: 'snubcube' },
 			delt60:     { faces: 60, name: 'deltoidal' },
+			hexeconta60:{ faces: 60, name: 'rhombic-hexecontahedron' },
 			pentahex60: { faces: 60, name: 'pentahex' },
 			rc62:       { faces: 62, name: 'rhombicosi' },
 		};
@@ -12653,6 +13101,9 @@ void main() {
 			delt24:      { geo: 'deltoidal24',    n: 24, presets: 'delt24Presets',   populate: 'populateDelt24Select',        import: 'importDelt24Layout' },
 			snubcube38:  { geo: 'snubcube38',     n: 38, presets: 'snubcube38Presets', populate: 'populateSnubcube38Select',  import: 'importSnubcube38Layout' },
 			rcubo26:     { geo: 'rhombicubo26',  n: 26, presets: 'rcubo26Presets',   populate: 'populateRcubo26Select',      import: 'importRcubo26Layout' },
+			octa8:       { geo: 'octahedron8',    n: 8,  presets: 'octa8Presets',      populate: 'populateOcta8Select',        import: 'importOcta8Layout' },
+			cubocta14:   { geo: 'cuboctahedron14', n: 14, presets: 'cubocta14Presets', populate: 'populateCubocta14Select',    import: 'importCubocta14Layout' },
+			hexeconta60: { geo: 'rhombicHexecontahedron60', n: 60, presets: 'hexeconta60Presets', populate: 'populateHexeconta60Select', import: 'importHexeconta60Layout' },
 		};
 		function updateProjectionUI() {
 			// Switch the active GL program if the new mode belongs to a
@@ -12695,8 +13146,14 @@ void main() {
 			const isSnub38Preview = projectionModeIndex === M_SNUB38_PREVIEW;
 			const isRcubo26 = projectionModeIndex === M_RCUBO26_FOLDABLE;
 			const isRcubo26Preview = projectionModeIndex === M_RCUBO26_PREVIEW;
-			const isFoldable = isDodec || isRd12 || isTruncOct || isIco || isPent24 || isRhombic || isBucky || isDelt60 || isPH60 || isRC62 || isDelt24 || isSnub38 || isRcubo26;
-			const isAnyPreview = isDodecPreview || isRd12Preview || isTruncOctPreview || isIcoPreview || isPent24Preview || isRhombicPreview || isBuckyPreview || isDelt60Preview || isPH60Preview || isRC62Preview || isDelt24Preview || isSnub38Preview || isRcubo26Preview;
+			const isOcta8 = projectionModeIndex === M_OCTA8_FOLDABLE;
+			const isOcta8Preview = projectionModeIndex === M_OCTA8_PREVIEW;
+			const isCubocta14 = projectionModeIndex === M_CUBOCTA14_FOLDABLE;
+			const isCubocta14Preview = projectionModeIndex === M_CUBOCTA14_PREVIEW;
+			const isHexeconta60 = projectionModeIndex === M_HEXECONTA60_FOLDABLE;
+			const isHexeconta60Preview = projectionModeIndex === M_HEXECONTA60_PREVIEW;
+			const isFoldable = isDodec || isRd12 || isTruncOct || isIco || isPent24 || isRhombic || isBucky || isDelt60 || isPH60 || isRC62 || isDelt24 || isSnub38 || isRcubo26 || isOcta8 || isCubocta14 || isHexeconta60;
+			const isAnyPreview = isDodecPreview || isRd12Preview || isTruncOctPreview || isIcoPreview || isPent24Preview || isRhombicPreview || isBuckyPreview || isDelt60Preview || isPH60Preview || isRC62Preview || isDelt24Preview || isSnub38Preview || isRcubo26Preview || isOcta8Preview || isCubocta14Preview || isHexeconta60Preview;
 			fovRow.style.display = (isPerspective || isAnyPreview) ? 'contents' : 'none';
 			pixelateRow.style.display = (isStereo || isPerspective || isAzimuthal || isCollage) ? 'contents' : 'none';
 
@@ -12709,7 +13166,7 @@ void main() {
 			stereographicRow.style.display = (isStereo || isAnyPreview) ? 'contents' : 'none';
 			netRow.style.display = (isFoldable || isAnyPreview) ? 'contents' : 'none';
 			cutlineRow.style.display = isFoldable ? 'contents' : 'none';
-			const newGeoKey = isDodec ? 'dodec12' : isRd12 ? 'rhombic12' : isTruncOct ? 'truncoct' : isIco ? 'ico' : isPent24 ? 'pent24' : isRhombic ? 'rhombic' : isBucky ? 'bucky' : isDelt60 ? 'delt60' : isPH60 ? 'pentahex60' : isRC62 ? 'rhombicosi62' : isDelt24 ? 'delt24' : isSnub38 ? 'snubcube38' : isRcubo26 ? 'rcubo26' : null;
+			const newGeoKey = isDodec ? 'dodec12' : isRd12 ? 'rhombic12' : isTruncOct ? 'truncoct' : isIco ? 'ico' : isPent24 ? 'pent24' : isRhombic ? 'rhombic' : isBucky ? 'bucky' : isDelt60 ? 'delt60' : isPH60 ? 'pentahex60' : isRC62 ? 'rhombicosi62' : isDelt24 ? 'delt24' : isSnub38 ? 'snubcube38' : isRcubo26 ? 'rcubo26' : isOcta8 ? 'octa8' : isCubocta14 ? 'cubocta14' : isHexeconta60 ? 'hexeconta60' : null;
 			geoLayoutRow.style.display = newGeoKey ? 'contents' : 'none';
 			if (newGeoKey && newGeoKey !== currentGeoKey) {
 				currentGeoKey = newGeoKey;
@@ -12828,6 +13285,12 @@ void main() {
 				window.importSnubcube38Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset, mirrored);
 			} else if (geo === 'rhombicubo26' && window.importRcubo26Layout) {
 				window.importRcubo26Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset, mirrored);
+			} else if (geo === 'octahedron8' && window.importOcta8Layout) {
+				window.importOcta8Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset, mirrored);
+			} else if (geo === 'cuboctahedron14' && window.importCubocta14Layout) {
+				window.importCubocta14Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset, mirrored);
+			} else if (geo === 'rhombicHexecontahedron60' && window.importHexeconta60Layout) {
+				window.importHexeconta60Layout(parents, angle, true, tabs, aspect, northPoleDir, lonOffset, mirrored);
 			}
 		};
 
@@ -12848,47 +13311,11 @@ void main() {
 		});
 
 		function viewMatrix() {
-			const q = projectionModeIndex === M_FOLDABLE ? foldable32facesQuat
-				: projectionModeIndex === M_RHOMBIC_FOLDABLE ? foldable30facesQuat
-				: projectionModeIndex === M_TRUNCOCT_FOLDABLE ? foldable14facesQuat
-				: projectionModeIndex === M_ICO_FOLDABLE ? foldable20facesQuat
-				: projectionModeIndex === M_RD12_FOLDABLE ? foldable12facesQuat
-				: projectionModeIndex === M_DODEC_FOLDABLE ? foldableDodecQuat
-				: projectionModeIndex === M_PENT24_FOLDABLE ? foldablePent24Quat
-				: projectionModeIndex === M_DELT60_FOLDABLE ? foldableDelt60Quat
-				: projectionModeIndex === M_PH60_FOLDABLE ? foldablePentahex60Quat
-				: projectionModeIndex === M_RC62_FOLDABLE ? foldableRhombicosi62Quat
-				: projectionModeIndex === M_DELT24_FOLDABLE ? foldableDelt24Quat
-				: projectionModeIndex === M_SNUB38_FOLDABLE ? foldableSnubcube38Quat
-				: projectionModeIndex === M_RCUBO26_FOLDABLE ? foldableRcubo26Quat
-				: camQuat;
+			const q = isFoldableMode() ? activeQuat() : camQuat;
 			return quatToMat3(quatNormalize(quatMul(camQuatOffset, q)));
 		}
 		function previewMatrix() {
-			const q = (projectionModeIndex === M_RCUBO26_PREVIEW || projectionModeIndex === M_RCUBO26_FOLDABLE)
-				? foldableRcubo26Quat
-				: (projectionModeIndex === M_SNUB38_PREVIEW || projectionModeIndex === M_SNUB38_FOLDABLE)
-				? foldableSnubcube38Quat
-				: (projectionModeIndex === M_RC62_PREVIEW || projectionModeIndex === M_RC62_FOLDABLE)
-				? foldableRhombicosi62Quat
-				: (projectionModeIndex === M_DELT24_PREVIEW || projectionModeIndex === M_DELT24_FOLDABLE)
-				? foldableDelt24Quat
-				: (projectionModeIndex === M_PH60_PREVIEW || projectionModeIndex === M_PH60_FOLDABLE)
-				? foldablePentahex60Quat
-				: (projectionModeIndex === M_DELT60_PREVIEW || projectionModeIndex === M_DELT60_FOLDABLE)
-				? foldableDelt60Quat
-				: (projectionModeIndex === M_PENT24_PREVIEW || projectionModeIndex === M_PENT24_FOLDABLE)
-				? foldablePent24Quat
-				: (projectionModeIndex === M_DODEC_PREVIEW || projectionModeIndex === M_DODEC_FOLDABLE)
-				? foldableDodecQuat
-				: (projectionModeIndex === M_ICO_PREVIEW || projectionModeIndex === M_ICO_FOLDABLE)
-				? foldable20facesQuat
-				: (projectionModeIndex === M_TRUNCOCT_PREVIEW || projectionModeIndex === M_TRUNCOCT_FOLDABLE)
-				? foldable14facesQuat
-				: (projectionModeIndex === M_RD12_PREVIEW || projectionModeIndex === M_RD12_FOLDABLE)
-				? foldable12facesQuat
-				: (projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_RHOMBIC_FOLDABLE)
-				? foldable30facesQuat : foldable32facesQuat;
+			const q = activeQuat();
 			return quatToMat3(quatNormalize(q));
 		}
 		function levelMatrix() {
@@ -13169,6 +13596,9 @@ void main() {
 			else if (m === M_DELT24_FOLDABLE)    { netData = window._delt24Data;     scale = window._delt24Scale;     faces = _fDelt24;     nFaces = 24; preRotLoc = uDelt24PreRot; }
 			else if (m === M_SNUB38_FOLDABLE)    { netData = window._snub38Data;      scale = window._snub38Scale;     faces = _fSnub38;     nFaces = 38; preRotLoc = uSnubcube38PreRot; }
 			else if (m === M_RCUBO26_FOLDABLE)   { netData = window._rcubo26Data;     scale = window._rcubo26Scale;    faces = _fRcubo26;    nFaces = 26; preRotLoc = uRcubo26PreRot; }
+			else if (m === M_OCTA8_FOLDABLE)     { netData = window._octa8Data;       scale = window._octa8Scale;      faces = GEOMETRIES.octahedron8.c3; nFaces = 8; preRotLoc = uOcta8PreRot; }
+			else if (m === M_CUBOCTA14_FOLDABLE) { netData = window._cubocta14Data;   scale = window._cubocta14Scale;  faces = GEOMETRIES.cuboctahedron14.c3; nFaces = 14; preRotLoc = uCubocta14PreRot; }
+			else if (m === M_HEXECONTA60_FOLDABLE) { netData = window._hexeconta60Data; scale = window._hexeconta60Scale; faces = GEOMETRIES.rhombicHexecontahedron60.c3; nFaces = 60; preRotLoc = uHexeconta60PreRot; }
 			else return null;
 			if (!netData || !scale) return null;
 
@@ -13203,6 +13633,9 @@ void main() {
 				else if (m === M_DELT24_FOLDABLE)   inside = _pipDelt24(rpx, rpy, invS);
 				else if (m === M_SNUB38_FOLDABLE)   inside = _pipRegular(rpx, rpy, i < 6 ? 4 : 3, invS);
 				else if (m === M_RCUBO26_FOLDABLE)  inside = _pipRegular(rpx, rpy, i < 8 ? 3 : 4, invS);
+				else if (m === M_OCTA8_FOLDABLE)    inside = GEOMETRIES.octahedron8.pip(rpx, rpy, i, invS);
+				else if (m === M_CUBOCTA14_FOLDABLE) inside = GEOMETRIES.cuboctahedron14.pip(rpx, rpy, i, invS);
+				else if (m === M_HEXECONTA60_FOLDABLE) inside = GEOMETRIES.rhombicHexecontahedron60.pip(rpx, rpy, i, invS);
 				if (inside) {
 					const cd = Math.hypot(px, py);
 					if (cd < bestDist) { bestDist = cd; bestI = i; bestRPx = rpx; bestRPy = rpy; }
@@ -13221,7 +13654,8 @@ void main() {
 			// Gnomonic back-projection: face-local 2D coords → tangent plane offsets
 			let gx = 0, gy = 0, rF = 1.0;
 			if (m === M_FOLDABLE || m === M_TRUNCOCT_FOLDABLE || m === M_ICO_FOLDABLE
-				|| m === M_DODEC_FOLDABLE || m === M_RC62_FOLDABLE || m === M_SNUB38_FOLDABLE || m === M_RCUBO26_FOLDABLE) {
+				|| m === M_DODEC_FOLDABLE || m === M_RC62_FOLDABLE || m === M_SNUB38_FOLDABLE || m === M_RCUBO26_FOLDABLE
+				|| m === M_OCTA8_FOLDABLE || m === M_CUBOCTA14_FOLDABLE) {
 				// Category A: regular polygon gnomonic
 				let nS, rFace;
 				if (m === M_FOLDABLE)            { nS = bestI < 12 ? 5 : 6; rFace = bestI < 12 ? _RFACE_PENT : _RFACE_HEX; }
@@ -13230,6 +13664,8 @@ void main() {
 				else if (m === M_DODEC_FOLDABLE) { nS = 5; rFace = _RFACE_ICO; }
 				else if (m === M_SNUB38_FOLDABLE) { nS = bestI < 6 ? 4 : 3; rFace = bestI < 6 ? _RFACE_SNUB38_SQ : _RFACE_SNUB38_TRI; }
 				else if (m === M_RCUBO26_FOLDABLE) { nS = bestI < 8 ? 3 : 4; rFace = bestI < 8 ? _RFACE_RCUBO_TRI : _RFACE_RCUBO_SQ; }
+				else if (m === M_OCTA8_FOLDABLE) { nS = 3; rFace = 1 / Math.sqrt(3); }
+				else if (m === M_CUBOCTA14_FOLDABLE) { nS = bestI < 8 ? 3 : 4; rFace = bestI < 8 ? Math.sqrt(2 / 3) : 1 / Math.sqrt(2); }
 				else { nS = bestI < 20 ? 3 : bestI < 50 ? 4 : 5; rFace = bestI < 20 ? _RFACE_RC62_TRI : bestI < 50 ? _RFACE_RC62_SQ : _RFACE_RC62_PENT; }
 				rF = rFace;
 				const gnoR = Math.sqrt(1 - rFace * rFace);
@@ -13243,6 +13679,9 @@ void main() {
 				const co = Math.cos(faceOff), so = Math.sin(faceOff);
 				gx = (bestRPx * co - bestRPy * so) * gS;
 				gy = (bestRPx * so + bestRPy * co) * gS;
+			} else if (m === M_HEXECONTA60_FOLDABLE) {
+				const projected = GEOMETRIES.rhombicHexecontahedron60.gnoProject(bestI, bestRPx, bestRPy, scale, faceOff);
+				gx = projected.gx; gy = projected.gy; rF = projected.rF;
 			} else if (m === M_RD12_FOLDABLE) {
 				const gS = scale / _RD12_B;
 				const co = Math.cos(faceOff), so = Math.sin(faceOff);
@@ -13492,11 +13931,11 @@ void main() {
 			if (projectionModeIndex === M_STEREO) {
 				return screenToStereoDir(cx, cy);
 			}
-			if (projectionModeIndex === M_PERSP || projectionModeIndex === M_PREVIEW || projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_TRUNCOCT_PREVIEW || projectionModeIndex === M_ICO_PREVIEW || projectionModeIndex === M_RD12_PREVIEW || projectionModeIndex === M_DODEC_PREVIEW || projectionModeIndex === M_PENT24_PREVIEW || projectionModeIndex === M_DELT60_PREVIEW || projectionModeIndex === M_PH60_PREVIEW || projectionModeIndex === M_RC62_PREVIEW || projectionModeIndex === M_DELT24_PREVIEW || projectionModeIndex === M_SNUB38_PREVIEW || projectionModeIndex === M_RCUBO26_PREVIEW) {
+			if (projectionModeIndex === M_PERSP || isPreviewMode()) {
 				// Perspective / preview: same ray construction
 				return screenToPerspDir(cx, cy);
 			}
-			if (projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_ICO_FOLDABLE || projectionModeIndex === M_RD12_FOLDABLE || projectionModeIndex === M_DODEC_FOLDABLE || projectionModeIndex === M_PENT24_FOLDABLE || projectionModeIndex === M_DELT60_FOLDABLE || projectionModeIndex === M_PH60_FOLDABLE || projectionModeIndex === M_RC62_FOLDABLE || projectionModeIndex === M_DELT24_FOLDABLE || projectionModeIndex === M_SNUB38_FOLDABLE || projectionModeIndex === M_RCUBO26_FOLDABLE) {
+			if (isFoldableMode()) {
 				return screenToFoldableDir(cx, cy);
 			}
 			return null;
@@ -13569,20 +14008,7 @@ void main() {
 		function screenToWorldDir(cx, cy) {
 			const local = screenToLocalDir(cx, cy);
 			if (!local) return null;
-			const q = projectionModeIndex === M_FOLDABLE ? foldable32facesQuat
-				: (projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_RHOMBIC_PREVIEW) ? foldable30facesQuat
-				: (projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_TRUNCOCT_PREVIEW) ? foldable14facesQuat
-				: (projectionModeIndex === M_ICO_FOLDABLE || projectionModeIndex === M_ICO_PREVIEW) ? foldable20facesQuat
-				: (projectionModeIndex === M_RD12_FOLDABLE || projectionModeIndex === M_RD12_PREVIEW) ? foldable12facesQuat
-				: (projectionModeIndex === M_DODEC_FOLDABLE || projectionModeIndex === M_DODEC_PREVIEW) ? foldableDodecQuat
-				: (projectionModeIndex === M_PENT24_FOLDABLE || projectionModeIndex === M_PENT24_PREVIEW) ? foldablePent24Quat
-				: (projectionModeIndex === M_DELT60_FOLDABLE || projectionModeIndex === M_DELT60_PREVIEW) ? foldableDelt60Quat
-				: (projectionModeIndex === M_PH60_FOLDABLE || projectionModeIndex === M_PH60_PREVIEW) ? foldablePentahex60Quat
-				: (projectionModeIndex === M_RC62_FOLDABLE || projectionModeIndex === M_RC62_PREVIEW) ? foldableRhombicosi62Quat
-				: (projectionModeIndex === M_DELT24_FOLDABLE || projectionModeIndex === M_DELT24_PREVIEW) ? foldableDelt24Quat
-				: (projectionModeIndex === M_SNUB38_FOLDABLE || projectionModeIndex === M_SNUB38_PREVIEW) ? foldableSnubcube38Quat
-				: (projectionModeIndex === M_RCUBO26_FOLDABLE || projectionModeIndex === M_RCUBO26_PREVIEW) ? foldableRcubo26Quat
-				: camQuat;
+			const q = (isFoldableMode() || isPreviewMode()) ? activeQuat() : camQuat;
 			const viewQ = quatNormalize(quatMul(camQuatOffset, q));
 			return quatRotVec(viewQ, local);
 		}
@@ -13777,7 +14203,7 @@ void main() {
 
 		let _previewDragBg = false;
 		function isPreviewMode() {
-			return projectionModeIndex === M_DODEC_PREVIEW || projectionModeIndex === M_RD12_PREVIEW || projectionModeIndex === M_TRUNCOCT_PREVIEW || projectionModeIndex === M_ICO_PREVIEW || projectionModeIndex === M_PENT24_PREVIEW || projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_PREVIEW || projectionModeIndex === M_DELT60_PREVIEW || projectionModeIndex === M_PH60_PREVIEW || projectionModeIndex === M_RC62_PREVIEW || projectionModeIndex === M_DELT24_PREVIEW || projectionModeIndex === M_SNUB38_PREVIEW || projectionModeIndex === M_RCUBO26_PREVIEW;
+			return projectionModeIndex === M_DODEC_PREVIEW || projectionModeIndex === M_RD12_PREVIEW || projectionModeIndex === M_TRUNCOCT_PREVIEW || projectionModeIndex === M_ICO_PREVIEW || projectionModeIndex === M_PENT24_PREVIEW || projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_PREVIEW || projectionModeIndex === M_DELT60_PREVIEW || projectionModeIndex === M_PH60_PREVIEW || projectionModeIndex === M_RC62_PREVIEW || projectionModeIndex === M_DELT24_PREVIEW || projectionModeIndex === M_SNUB38_PREVIEW || projectionModeIndex === M_RCUBO26_PREVIEW || projectionModeIndex === M_OCTA8_PREVIEW || projectionModeIndex === M_CUBOCTA14_PREVIEW || projectionModeIndex === M_HEXECONTA60_PREVIEW;
 		}
 		// Conjugate a view-space rotation q into faces-quat space:
 		// camQuat · q · camQuat⁻¹
@@ -13806,21 +14232,7 @@ void main() {
 				_pinchActive = true;
 				const ids = [..._activePointers.keys()];
 				_pinchPrimaryId = ids[0];
-				const canLock = !levelMode
-					&& projectionModeIndex !== M_EQUIRECT
-					&& projectionModeIndex !== M_FOLDABLE
-					&& projectionModeIndex !== M_RHOMBIC_FOLDABLE
-					&& projectionModeIndex !== M_TRUNCOCT_FOLDABLE
-					&& projectionModeIndex !== M_ICO_FOLDABLE
-					&& projectionModeIndex !== M_RD12_FOLDABLE
-					&& projectionModeIndex !== M_DODEC_FOLDABLE
-					&& projectionModeIndex !== M_PENT24_FOLDABLE
-					&& projectionModeIndex !== M_DELT60_FOLDABLE
-					&& projectionModeIndex !== M_PH60_FOLDABLE
-					&& projectionModeIndex !== M_RC62_FOLDABLE
-					&& projectionModeIndex !== M_DELT24_FOLDABLE
-					&& projectionModeIndex !== M_SNUB38_FOLDABLE
-					&& projectionModeIndex !== M_RCUBO26_FOLDABLE;
+				const canLock = !levelMode && projectionModeIndex !== M_EQUIRECT && !isFoldableMode();
 				_pinchTwoFingerLock = canLock;
 				if (canLock) {
 					dragging = false;
@@ -13902,10 +14314,7 @@ void main() {
 					const p1 = _activePointers.get(ids[0]);
 					const p2 = _activePointers.get(ids[1]);
 					// Step 1: solve FOV / zoom from angular constraint
-					if (projectionModeIndex === M_PERSP || projectionModeIndex === M_PREVIEW
-						|| projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_TRUNCOCT_PREVIEW
-						|| projectionModeIndex === M_ICO_PREVIEW || projectionModeIndex === M_RD12_PREVIEW
-						|| projectionModeIndex === M_DODEC_PREVIEW || projectionModeIndex === M_PENT24_PREVIEW || projectionModeIndex === M_DELT60_PREVIEW || projectionModeIndex === M_DELT24_PREVIEW) {
+					if (projectionModeIndex === M_PERSP || isPreviewMode()) {
 						fovDeg = solvePerspFov(p1.x, p1.y, p2.x, p2.y, _pinchCosAngle);
 						fovSlider.value = fovDeg;
 						fovVal.textContent = Math.round(fovDeg) + '°';
@@ -14108,20 +14517,7 @@ void main() {
 				const worldDir = screenToWorldDir(e.clientX, e.clientY);
 				if (!worldDir) return;
 				// Center = screenToWorldDir at screen center = viewQ * [0,0,-1]
-				const q = projectionModeIndex === M_FOLDABLE ? foldable32facesQuat
-					: (projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_RHOMBIC_PREVIEW) ? foldable30facesQuat
-					: (projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_TRUNCOCT_PREVIEW) ? foldable14facesQuat
-					: (projectionModeIndex === M_ICO_FOLDABLE || projectionModeIndex === M_ICO_PREVIEW) ? foldable20facesQuat
-					: (projectionModeIndex === M_RD12_FOLDABLE || projectionModeIndex === M_RD12_PREVIEW) ? foldable12facesQuat
-					: (projectionModeIndex === M_DODEC_FOLDABLE || projectionModeIndex === M_DODEC_PREVIEW) ? foldableDodecQuat
-					: (projectionModeIndex === M_PENT24_FOLDABLE || projectionModeIndex === M_PENT24_PREVIEW) ? foldablePent24Quat
-					: (projectionModeIndex === M_DELT60_FOLDABLE || projectionModeIndex === M_DELT60_PREVIEW) ? foldableDelt60Quat
-					: (projectionModeIndex === M_PH60_FOLDABLE || projectionModeIndex === M_PH60_PREVIEW) ? foldablePentahex60Quat
-					: (projectionModeIndex === M_RC62_FOLDABLE || projectionModeIndex === M_RC62_PREVIEW) ? foldableRhombicosi62Quat
-					: (projectionModeIndex === M_DELT24_FOLDABLE || projectionModeIndex === M_DELT24_PREVIEW) ? foldableDelt24Quat
-					: (projectionModeIndex === M_SNUB38_FOLDABLE || projectionModeIndex === M_SNUB38_PREVIEW) ? foldableSnubcube38Quat
-					: (projectionModeIndex === M_RCUBO26_FOLDABLE || projectionModeIndex === M_RCUBO26_PREVIEW) ? foldableRcubo26Quat
-					: camQuat;
+				const q = (isFoldableMode() || isPreviewMode()) ? activeQuat() : camQuat;
 				const viewQ = quatNormalize(quatMul(camQuatOffset, q));
 				const centerWorld = quatRotVec(viewQ, [0, 0, -1]);
 				// Rotation that maps centerWorld → worldDir (post-multiply, analogous to drag pixel-lock)
@@ -14288,58 +14684,10 @@ void main() {
 		const facesRollVal = document.getElementById('faces-roll-val');
 
 		function activeFacesQuat() {
-			return (projectionModeIndex === M_RCUBO26_PREVIEW || projectionModeIndex === M_RCUBO26_FOLDABLE)
-				? foldableRcubo26Quat
-				: (projectionModeIndex === M_SNUB38_PREVIEW || projectionModeIndex === M_SNUB38_FOLDABLE)
-				? foldableSnubcube38Quat
-				: (projectionModeIndex === M_RC62_PREVIEW || projectionModeIndex === M_RC62_FOLDABLE)
-				? foldableRhombicosi62Quat
-				: (projectionModeIndex === M_DELT24_PREVIEW || projectionModeIndex === M_DELT24_FOLDABLE)
-				? foldableDelt24Quat
-				: (projectionModeIndex === M_PH60_PREVIEW || projectionModeIndex === M_PH60_FOLDABLE)
-				? foldablePentahex60Quat
-				: (projectionModeIndex === M_DELT60_PREVIEW || projectionModeIndex === M_DELT60_FOLDABLE)
-				? foldableDelt60Quat
-				: (projectionModeIndex === M_PENT24_PREVIEW || projectionModeIndex === M_PENT24_FOLDABLE)
-				? foldablePent24Quat
-				: (projectionModeIndex === M_DODEC_PREVIEW || projectionModeIndex === M_DODEC_FOLDABLE)
-				? foldableDodecQuat
-				: (projectionModeIndex === M_ICO_PREVIEW || projectionModeIndex === M_ICO_FOLDABLE)
-				? foldable20facesQuat
-				: (projectionModeIndex === M_TRUNCOCT_PREVIEW || projectionModeIndex === M_TRUNCOCT_FOLDABLE)
-				? foldable14facesQuat
-				: (projectionModeIndex === M_RD12_PREVIEW || projectionModeIndex === M_RD12_FOLDABLE)
-				? foldable12facesQuat
-				: (projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_RHOMBIC_FOLDABLE)
-				? foldable30facesQuat : foldable32facesQuat;
+			return activeQuat();
 		}
 		function setActiveFacesQuat(q) {
-			if (projectionModeIndex === M_RCUBO26_PREVIEW || projectionModeIndex === M_RCUBO26_FOLDABLE)
-				foldableRcubo26Quat = q;
-			else if (projectionModeIndex === M_SNUB38_PREVIEW || projectionModeIndex === M_SNUB38_FOLDABLE)
-				foldableSnubcube38Quat = q;
-			else if (projectionModeIndex === M_RC62_PREVIEW || projectionModeIndex === M_RC62_FOLDABLE)
-				foldableRhombicosi62Quat = q;
-			else if (projectionModeIndex === M_DELT24_PREVIEW || projectionModeIndex === M_DELT24_FOLDABLE)
-				foldableDelt24Quat = q;
-			else if (projectionModeIndex === M_PH60_PREVIEW || projectionModeIndex === M_PH60_FOLDABLE)
-				foldablePentahex60Quat = q;
-			else if (projectionModeIndex === M_DELT60_PREVIEW || projectionModeIndex === M_DELT60_FOLDABLE)
-				foldableDelt60Quat = q;
-			else if (projectionModeIndex === M_PENT24_PREVIEW || projectionModeIndex === M_PENT24_FOLDABLE)
-				foldablePent24Quat = q;
-			else if (projectionModeIndex === M_DODEC_PREVIEW || projectionModeIndex === M_DODEC_FOLDABLE)
-				foldableDodecQuat = q;
-			else if (projectionModeIndex === M_ICO_PREVIEW || projectionModeIndex === M_ICO_FOLDABLE)
-				foldable20facesQuat = q;
-			else if (projectionModeIndex === M_TRUNCOCT_PREVIEW || projectionModeIndex === M_TRUNCOCT_FOLDABLE)
-				foldable14facesQuat = q;
-			else if (projectionModeIndex === M_RD12_PREVIEW || projectionModeIndex === M_RD12_FOLDABLE)
-				foldable12facesQuat = q;
-			else if (projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_RHOMBIC_FOLDABLE)
-				foldable30facesQuat = q;
-			else
-				foldable32facesQuat = q;
+			setActiveQuat(q);
 		}
 
 		function updateFacesSliders() {
@@ -14548,6 +14896,9 @@ void main() {
 						foldableDelt24Quat: [...foldableDelt24Quat],
 						foldableSnubcube38Quat: [...foldableSnubcube38Quat],
 						foldableRcubo26Quat: [...foldableRcubo26Quat],
+						foldableOcta8Quat: [...foldableOcta8Quat],
+						foldableCubocta14Quat: [...foldableCubocta14Quat],
+						foldableHexeconta60Quat: [...foldableHexeconta60Quat],
 						levelQuat: [...levelQuat],
 						isLeveled,
 						fovDeg,
@@ -14600,6 +14951,9 @@ void main() {
 			if (cfg.foldableDelt24Quat && cfg.foldableDelt24Quat.length === 4) foldableDelt24Quat = cfg.foldableDelt24Quat;
 			if (cfg.foldableSnubcube38Quat && cfg.foldableSnubcube38Quat.length === 4) foldableSnubcube38Quat = cfg.foldableSnubcube38Quat;
 			if (cfg.foldableRcubo26Quat && cfg.foldableRcubo26Quat.length === 4) foldableRcubo26Quat = cfg.foldableRcubo26Quat;
+			if (cfg.foldableOcta8Quat && cfg.foldableOcta8Quat.length === 4) foldableOcta8Quat = cfg.foldableOcta8Quat;
+			if (cfg.foldableCubocta14Quat && cfg.foldableCubocta14Quat.length === 4) foldableCubocta14Quat = cfg.foldableCubocta14Quat;
+			if (cfg.foldableHexeconta60Quat && cfg.foldableHexeconta60Quat.length === 4) foldableHexeconta60Quat = cfg.foldableHexeconta60Quat;
 			if (cfg.levelQuat && cfg.levelQuat.length === 4) levelQuat = cfg.levelQuat;
 			if (typeof cfg.isLeveled === 'boolean') isLeveled = cfg.isLeveled;
 			if (typeof cfg.fovDeg === 'number') {
@@ -16790,7 +17144,10 @@ void main() {
 			const isDelt24 = projectionModeIndex === M_DELT24_FOLDABLE;
 			const isSnub38 = projectionModeIndex === M_SNUB38_FOLDABLE;
 			const isRcubo26 = projectionModeIndex === M_RCUBO26_FOLDABLE;
-			if (!isBucky32 && !isRhombic && !isTruncOct && !isRD12 && !isDodec && !isPent24 && !isDelt60 && !isPH60 && !isRC62 && !isDelt24 && !isSnub38 && !isRcubo26) return null;
+			const isOcta8 = projectionModeIndex === M_OCTA8_FOLDABLE;
+			const isCubocta14 = projectionModeIndex === M_CUBOCTA14_FOLDABLE;
+			const isHexeconta60 = projectionModeIndex === M_HEXECONTA60_FOLDABLE;
+			if (!isBucky32 && !isRhombic && !isTruncOct && !isRD12 && !isDodec && !isPent24 && !isDelt60 && !isPH60 && !isRC62 && !isDelt24 && !isSnub38 && !isRcubo26 && !isOcta8 && !isCubocta14 && !isHexeconta60) return null;
 
 			// ── Step 1: Compute tight bounding box from stored layout data ──
 			// This iterates all polygon vertices AND glue-tab outer corners to
@@ -16852,17 +17209,17 @@ void main() {
 						}
 					}
 				}
-			} else if (isRhombic || isRD12) {
+			} else if (isRhombic || isRD12 || isHexeconta60) {
 				// Rhombic-30 / Rhombic-12: rhombus vertices + asymmetric tab corners
-				var _nF2 = isRD12 ? 12 : 30;
-				var _data   = isRD12 ? window._rhombic12Data : window._rhombic30Data;
-				var _scale  = isRD12 ? window._rhombic12Scale : window._rhombic30Scale;
-				var _placed = isRD12 ? window._rhombic12Placed : window._rhombic30Placed;
-				var _eNbr   = isRD12 ? window._rhombic12EdgeNeighbor : window._rhombic30EdgeNeighbor;
-				var _tH     = isRD12 ? window._rhombic12TabH : window._rhombic30TabH;
-				var _tIA    = isRD12 ? window._rhombic12TabInsetAcute : window._rhombic30TabInsetAcute;
-				var _tIO    = isRD12 ? window._rhombic12TabInsetObtuse : window._rhombic30TabInsetObtuse;
-				var _tMap   = isRD12 ? window._rhombic12TabsMap : window._rhombic30TabsMap;
+				var _nF2 = isRD12 ? 12 : isHexeconta60 ? 60 : 30;
+				var _data   = isRD12 ? window._rhombic12Data : isHexeconta60 ? window._hexeconta60Data : window._rhombic30Data;
+				var _scale  = isRD12 ? window._rhombic12Scale : isHexeconta60 ? window._hexeconta60Scale : window._rhombic30Scale;
+				var _placed = isRD12 ? window._rhombic12Placed : isHexeconta60 ? window._hexeconta60Placed : window._rhombic30Placed;
+				var _eNbr   = isRD12 ? window._rhombic12EdgeNeighbor : isHexeconta60 ? window._hexeconta60EdgeNeighbor : window._rhombic30EdgeNeighbor;
+				var _tH     = isRD12 ? window._rhombic12TabH : isHexeconta60 ? window._hexeconta60TabH : window._rhombic30TabH;
+				var _tIA    = isRD12 ? window._rhombic12TabInsetAcute : isHexeconta60 ? window._hexeconta60TabInsetAcute : window._rhombic30TabInsetAcute;
+				var _tIO    = isRD12 ? window._rhombic12TabInsetObtuse : isHexeconta60 ? window._hexeconta60TabInsetObtuse : window._rhombic30TabInsetObtuse;
+				var _tMap   = isRD12 ? window._rhombic12TabsMap : isHexeconta60 ? window._hexeconta60TabsMap : window._rhombic30TabsMap;
 				if (!_data || !_placed) return null;
 				var _ha, _hb;
 				if (isRD12) {
@@ -17126,18 +17483,20 @@ void main() {
 						}
 					}
 				}
-			} else if (isRcubo26) {
-				var _rcubo26Data = window._rcubo26Data;
-				var _rcubo26Scale = window._rcubo26Scale;
-				var _rcubo26Placed = window._rcubo26Placed;
-				var _rcubo26ENbr = window._rcubo26EdgeNeighbor;
-				var _rcubo26TH = window._rcubo26TabH;
-				var _rcubo26TI = window._rcubo26TabInset;
-				var _rcubo26TMap = window._rcubo26TabsMap;
+			} else if (isRcubo26 || isOcta8 || isCubocta14) {
+				var _regularPrefix = isOcta8 ? '_octa8' : isCubocta14 ? '_cubocta14' : '_rcubo26';
+				var _regularFaces = isOcta8 ? 8 : isCubocta14 ? 14 : 26;
+				var _rcubo26Data = window[_regularPrefix+'Data'];
+				var _rcubo26Scale = window[_regularPrefix+'Scale'];
+				var _rcubo26Placed = window[_regularPrefix+'Placed'];
+				var _rcubo26ENbr = window[_regularPrefix+'EdgeNeighbor'];
+				var _rcubo26TH = window[_regularPrefix+'TabH'];
+				var _rcubo26TI = window[_regularPrefix+'TabInset'];
+				var _rcubo26TMap = window[_regularPrefix+'TabsMap'];
 				if (!_rcubo26Data || !_rcubo26Placed) return null;
-				function rcubo26NS_bb(i) { return i < 8 ? 3 : 4; }
+				function rcubo26NS_bb(i) { return isOcta8 || i < 8 ? 3 : 4; }
 				function rcubo26CR_bb(i) { return 1 / (2 * Math.sin(Math.PI / rcubo26NS_bb(i))) / _rcubo26Scale; }
-				for (var ii = 0; ii < 26; ii++) {
+				for (var ii = 0; ii < _regularFaces; ii++) {
 					if (!_rcubo26Placed[ii]) continue;
 					var _fx = _rcubo26Data[ii*4], _fy = _rcubo26Data[ii*4+1], _rot = _rcubo26Data[ii*4+2];
 					var _n = rcubo26NS_bb(ii), _cr = rcubo26CR_bb(ii);
@@ -17355,16 +17714,16 @@ void main() {
 			// Rhombic types have their own code path because vertices are computed from
 			// long/short half-diagonals rather than circumradius, and tab insets
 			// are asymmetric (acute vs obtuse vertex).
-			} else if (isRhombic || isRD12) {
-				var _nF3 = isRD12 ? 12 : 30;
-				var data   = isRD12 ? window._rhombic12Data : window._rhombic30Data;
-				var scale  = isRD12 ? window._rhombic12Scale : window._rhombic30Scale;
-				var placed = isRD12 ? window._rhombic12Placed : window._rhombic30Placed;
-				var eNbr   = isRD12 ? window._rhombic12EdgeNeighbor : window._rhombic30EdgeNeighbor;
-				var tH     = isRD12 ? window._rhombic12TabH : window._rhombic30TabH;
-				var tIA    = isRD12 ? window._rhombic12TabInsetAcute : window._rhombic30TabInsetAcute;
-				var tIO    = isRD12 ? window._rhombic12TabInsetObtuse : window._rhombic30TabInsetObtuse;
-				var tMap   = isRD12 ? window._rhombic12TabsMap : window._rhombic30TabsMap;
+			} else if (isRhombic || isRD12 || isHexeconta60) {
+				var _nF3 = isRD12 ? 12 : isHexeconta60 ? 60 : 30;
+				var data   = isRD12 ? window._rhombic12Data : isHexeconta60 ? window._hexeconta60Data : window._rhombic30Data;
+				var scale  = isRD12 ? window._rhombic12Scale : isHexeconta60 ? window._hexeconta60Scale : window._rhombic30Scale;
+				var placed = isRD12 ? window._rhombic12Placed : isHexeconta60 ? window._hexeconta60Placed : window._rhombic30Placed;
+				var eNbr   = isRD12 ? window._rhombic12EdgeNeighbor : isHexeconta60 ? window._hexeconta60EdgeNeighbor : window._rhombic30EdgeNeighbor;
+				var tH     = isRD12 ? window._rhombic12TabH : isHexeconta60 ? window._hexeconta60TabH : window._rhombic30TabH;
+				var tIA    = isRD12 ? window._rhombic12TabInsetAcute : isHexeconta60 ? window._hexeconta60TabInsetAcute : window._rhombic30TabInsetAcute;
+				var tIO    = isRD12 ? window._rhombic12TabInsetObtuse : isHexeconta60 ? window._hexeconta60TabInsetObtuse : window._rhombic30TabInsetObtuse;
+				var tMap   = isRD12 ? window._rhombic12TabsMap : isHexeconta60 ? window._hexeconta60TabsMap : window._rhombic30TabsMap;
 				var haS2, hbS2;
 				if (isRD12) {
 					var RD_A2 = 1 / Math.sqrt(3), RD_B2 = Math.sqrt(2 / 3);
@@ -17809,18 +18168,20 @@ void main() {
 						edgePaths += '<path d="M' + p(v1x, v1y) + 'L' + p(v2x, v2y) + '"/>\n';
 					}
 				}
-			} else if (isRcubo26) {
-				var data   = window._rcubo26Data;
-				var scale  = window._rcubo26Scale;
-				var placed = window._rcubo26Placed;
-				var eNbr   = window._rcubo26EdgeNeighbor;
-				var tH     = window._rcubo26TabH;
-				var tI     = window._rcubo26TabInset;
-				var tMap   = window._rcubo26TabsMap;
-				function rcubo26NS(i) { return i < 8 ? 3 : 4; }
+			} else if (isRcubo26 || isOcta8 || isCubocta14) {
+				var regularPrefix = isOcta8 ? '_octa8' : isCubocta14 ? '_cubocta14' : '_rcubo26';
+				var regularFaces = isOcta8 ? 8 : isCubocta14 ? 14 : 26;
+				var data   = window[regularPrefix+'Data'];
+				var scale  = window[regularPrefix+'Scale'];
+				var placed = window[regularPrefix+'Placed'];
+				var eNbr   = window[regularPrefix+'EdgeNeighbor'];
+				var tH     = window[regularPrefix+'TabH'];
+				var tI     = window[regularPrefix+'TabInset'];
+				var tMap   = window[regularPrefix+'TabsMap'];
+				function rcubo26NS(i) { return isOcta8 || i < 8 ? 3 : 4; }
 				function rcubo26CR(i) { return 1 / (2 * Math.sin(Math.PI / rcubo26NS(i))) / scale; }
 
-				for (var i = 0; i < 26; i++) {
+				for (var i = 0; i < regularFaces; i++) {
 					if (!placed[i]) continue;
 					var fx = data[i*4], fy = data[i*4+1], rot = data[i*4+2];
 					var n = rcubo26NS(i), cr = rcubo26CR(i);
@@ -17832,7 +18193,7 @@ void main() {
 					clipPolygons += d + 'Z';
 				}
 
-				for (var i = 0; i < 26; i++) {
+				for (var i = 0; i < regularFaces; i++) {
 					if (!placed[i]) continue;
 					var fx = data[i*4], fy = data[i*4+1], rot = data[i*4+2];
 					var n = rcubo26NS(i), cr = rcubo26CR(i);
@@ -17858,7 +18219,7 @@ void main() {
 					}
 				}
 
-				for (var i = 0; i < 26; i++) {
+				for (var i = 0; i < regularFaces; i++) {
 					if (!placed[i]) continue;
 					var fx = data[i*4], fy = data[i*4+1], rot = data[i*4+2];
 					var n = rcubo26NS(i), cr = rcubo26CR(i);
@@ -17975,8 +18336,8 @@ void main() {
 			const isAzimuthal = projectionModeIndex === M_AZIMUTHAL;
 			const isCollage = projectionModeIndex === M_COLLAGE;
 			const isStereo = projectionModeIndex === M_STEREO;
-			const isBuckyPreview = projectionModeIndex === M_PREVIEW || projectionModeIndex === M_RHOMBIC_PREVIEW || projectionModeIndex === M_TRUNCOCT_PREVIEW || projectionModeIndex === M_ICO_PREVIEW || projectionModeIndex === M_RD12_PREVIEW || projectionModeIndex === M_DODEC_PREVIEW || projectionModeIndex === M_PENT24_PREVIEW || projectionModeIndex === M_DELT60_PREVIEW || projectionModeIndex === M_PH60_PREVIEW || projectionModeIndex === M_RC62_PREVIEW || projectionModeIndex === M_DELT24_PREVIEW || projectionModeIndex === M_SNUB38_PREVIEW || projectionModeIndex === M_RCUBO26_PREVIEW;
-			const isBucky = projectionModeIndex === M_FOLDABLE || projectionModeIndex === M_RHOMBIC_FOLDABLE || projectionModeIndex === M_TRUNCOCT_FOLDABLE || projectionModeIndex === M_ICO_FOLDABLE || projectionModeIndex === M_RD12_FOLDABLE || projectionModeIndex === M_DODEC_FOLDABLE || projectionModeIndex === M_PENT24_FOLDABLE || projectionModeIndex === M_DELT60_FOLDABLE || projectionModeIndex === M_PH60_FOLDABLE || projectionModeIndex === M_RC62_FOLDABLE || projectionModeIndex === M_DELT24_FOLDABLE || projectionModeIndex === M_SNUB38_FOLDABLE || projectionModeIndex === M_RCUBO26_FOLDABLE;
+			const isBuckyPreview = isPreviewMode();
+			const isBucky = isFoldableMode();
 			let w, h;
 
 			if (isEquirect) {

@@ -2,7 +2,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 // Geometry Presets — Shared polyhedron definitions for net-layouter.html
 // ═══════════════════════════════════════════════════════════════════════
-console.log('[foldable-geometries.js] build v7 loaded (updated rhombicubo26 DIN A preset) — if you do not see this after a hard refresh, the browser is still serving a cached copy.');
+console.log('[foldable-geometries.js] build v15 loaded (hexecontahedron origin unit fix in foldable shader path) — if you do not see this after a hard refresh, the browser is still serving a cached copy.');
 
 // ── 3D vector helpers ──
 function dot3(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
@@ -521,6 +521,201 @@ GEOMETRIES.rhombic30 = (function() {
 	};
 })();
 
+// ---------------------------------------------------------------------
+// Rhombic Hexecontahedron-60 (nonconvex, 60 congruent golden rhombi)
+// ---------------------------------------------------------------------
+GEOMETRIES.rhombicHexecontahedron60 = (function() {
+	const PHI = (1 + Math.sqrt(5)) / 2;
+	const icoVerts = [];
+	for (const s1 of [1, -1])
+		for (const s2 of [1, -1]) {
+			icoVerts.push(norm3([0, s1, s2 * PHI]));
+			icoVerts.push(norm3([s1, s2 * PHI, 0]));
+			icoVerts.push(norm3([s2 * PHI, 0, s1]));
+		}
+
+	const icoEdgeDot = 1 / Math.sqrt(5);
+	const icoAdj = Array.from({ length: 12 }, () => []);
+	for (let i = 0; i < 12; i++)
+		for (let j = i + 1; j < 12; j++)
+			if (Math.abs(dot3(icoVerts[i], icoVerts[j]) - icoEdgeDot) < 1e-9) {
+				icoAdj[i].push(j);
+				icoAdj[j].push(i);
+			}
+
+	const icoFaces = [];
+	for (let i = 0; i < 12; i++)
+		for (const j of icoAdj[i]) if (j > i)
+			for (const k of icoAdj[j]) if (k > j && icoAdj[i].includes(k)) icoFaces.push([i, j, k]);
+
+	const dodecaVerts = icoFaces.map(face => norm3([
+		icoVerts[face[0]][0] + icoVerts[face[1]][0] + icoVerts[face[2]][0],
+		icoVerts[face[0]][1] + icoVerts[face[1]][1] + icoVerts[face[2]][1],
+		icoVerts[face[0]][2] + icoVerts[face[1]][2] + icoVerts[face[2]][2]
+	]));
+	const dodecaFaces = icoVerts.map((axis, icoVertex) => {
+		const incident = icoFaces.map((face, index) => face.includes(icoVertex) ? index : -1).filter(index => index >= 0);
+		const frame = buildFrames([axis], 1)[0];
+		return incident.sort((a, b) => {
+			const pa = sub3(dodecaVerts[a], scale3(axis, dot3(dodecaVerts[a], axis)));
+			const pb = sub3(dodecaVerts[b], scale3(axis, dot3(dodecaVerts[b], axis)));
+			return Math.atan2(dot3(pa, frame[1]), dot3(pa, frame[0])) - Math.atan2(dot3(pb, frame[1]), dot3(pb, frame[0]));
+		});
+	});
+
+	const edgeMap = new Map();
+	for (const face of dodecaFaces)
+		for (let k = 0; k < 5; k++) {
+			const a = face[k], b = face[(k + 1) % 5];
+			const key = Math.min(a, b) + '-' + Math.max(a, b);
+			if (!edgeMap.has(key)) edgeMap.set(key, edgeMap.size);
+		}
+	const dodecaEdges = Array.from(edgeMap.keys(), key => key.split('-').map(Number));
+
+	const outerScale = (PHI + 1) / 2;
+	const firstFace = dodecaFaces[0], firstVertex = firstFace[0];
+	const outerPoint = scale3(dodecaVerts[firstVertex], outerScale);
+	const nextMidpoint = scale3([dodecaVerts[firstVertex][0]+dodecaVerts[firstFace[1]][0], dodecaVerts[firstVertex][1]+dodecaVerts[firstFace[1]][1], dodecaVerts[firstVertex][2]+dodecaVerts[firstFace[1]][2]], 0.5);
+	const previousMidpoint = scale3([dodecaVerts[firstVertex][0]+dodecaVerts[firstFace[4]][0], dodecaVerts[firstVertex][1]+dodecaVerts[firstFace[4]][1], dodecaVerts[firstVertex][2]+dodecaVerts[firstFace[4]][2]], 0.5);
+	const constructionNormal = cross3(sub3(nextMidpoint, outerPoint), sub3(previousMidpoint, outerPoint));
+	const faceCenterRadius = dot3(constructionNormal, outerPoint) / dot3(constructionNormal, icoVerts[0]);
+	const vertices = dodecaVerts.map(vertex => scale3(vertex, outerScale));
+	const faceCenterBase = vertices.length;
+	for (const center of icoVerts) vertices.push(scale3(center, faceCenterRadius));
+	const edgeCenterBase = vertices.length;
+	for (const [a, b] of dodecaEdges) vertices.push([
+		(dodecaVerts[a][0] + dodecaVerts[b][0]) * 0.5,
+		(dodecaVerts[a][1] + dodecaVerts[b][1]) * 0.5,
+		(dodecaVerts[a][2] + dodecaVerts[b][2]) * 0.5
+	]);
+
+	const faces = [];
+	for (let faceIndex = 0; faceIndex < 12; faceIndex++) {
+		const face = dodecaFaces[faceIndex];
+		for (let k = 0; k < 5; k++) {
+			const vertex = face[k];
+			const next = face[(k + 1) % 5], previous = face[(k + 4) % 5];
+			const nextEdge = edgeMap.get(Math.min(vertex, next) + '-' + Math.max(vertex, next));
+			const previousEdge = edgeMap.get(Math.min(vertex, previous) + '-' + Math.max(vertex, previous));
+			faces.push([vertex, edgeCenterBase + nextEdge, faceCenterBase + faceIndex, edgeCenterBase + previousEdge]);
+		}
+	}
+
+	const N_FACES = faces.length;
+	const c3 = [], facePlanes = [];
+	for (let fi = 0; fi < faces.length; fi++) {
+		let face = faces[fi];
+		let a = vertices[face[0]], b = vertices[face[1]], c = vertices[face[2]];
+		let normal = norm3(cross3(sub3(b, a), sub3(c, a)));
+		const center = face.reduce((sum, index) => [sum[0]+vertices[index][0], sum[1]+vertices[index][1], sum[2]+vertices[index][2]], [0, 0, 0]).map(value => value * 0.25);
+		if (dot3(normal, center) < 0) {
+			face = [face[0], face[3], face[2], face[1]];
+			faces[fi] = face;
+			a = vertices[face[0]]; b = vertices[face[1]]; c = vertices[face[2]];
+			normal = norm3(cross3(sub3(b, a), sub3(c, a)));
+		}
+		c3.push(normal);
+		facePlanes.push({ normal, offset: dot3(normal, a) });
+	}
+	const frames = buildFrames(c3, N_FACES);
+	const adj = Array.from({ length: N_FACES }, () => []);
+	const faceEdgeMaps = Array.from({ length: N_FACES }, () => new Map());
+	const surfaceEdges = new Map();
+	for (let i = 0; i < N_FACES; i++)
+		for (let k = 0; k < 4; k++) {
+			const a = faces[i][k], b = faces[i][(k + 1) % 4];
+			const key = Math.min(a, b) + '-' + Math.max(a, b);
+			faceEdgeMaps[i].set(key, k);
+			if (surfaceEdges.has(key)) {
+				const j = surfaceEdges.get(key);
+				adj[i].push(j); adj[j].push(i);
+			} else surfaceEdges.set(key, i);
+		}
+	function edgeIdx(i, j) {
+		for (const [key, index] of faceEdgeMaps[i]) if (faceEdgeMaps[j].has(key)) return index;
+		return -1;
+	}
+
+	const iA = 1 / Math.sqrt(1 + PHI * PHI), iB = PHI * iA;
+	const inradius = iA * iB;
+	const facePlaneOffset = facePlanes[0].offset;
+	const rhombVtx = [[iB, 0], [0, iA], [-iB, 0], [0, -iA]];
+	const faceOffsets = [];
+	const gnomonicScaleSamples = [];
+	const gnomonicOriginSamples = [];
+	for (let i = 0; i < N_FACES; i++) {
+		const face = faces[i];
+		const [T1, T2] = frames[i];
+		const projected = face.map(index => {
+			const p = vertices[index];
+			return [dot3(p, T1), dot3(p, T2)];
+		});
+		const qx = (projected[0][0] + projected[1][0] + projected[2][0] + projected[3][0]) * 0.25;
+		const qy = (projected[0][1] + projected[1][1] + projected[2][1] + projected[3][1]) * 0.25;
+
+		let numRe = 0, numIm = 0, den = 0;
+		for (let k = 0; k < 4; k++) {
+			const x = rhombVtx[k][0], y = rhombVtx[k][1];
+			const u = projected[k][0] - qx, v = projected[k][1] - qy;
+			numRe += u * x + v * y;
+			numIm += v * x - u * y;
+			den += x * x + y * y;
+		}
+		const a = numRe / den;
+		const b = numIm / den;
+		const scale = Math.hypot(a, b);
+		const offset = Math.atan2(b, a);
+		faceOffsets.push(offset);
+		gnomonicScaleSamples.push(scale);
+
+		const co = Math.cos(-offset), si = Math.sin(-offset);
+		gnomonicOriginSamples.push([(qx * co - qy * si) / scale, (qx * si + qy * co) / scale]);
+	}
+	const gnomonicScale = gnomonicScaleSamples.reduce((sum, value) => sum + value, 0) / gnomonicScaleSamples.length;
+	const gnomonicOrigin = gnomonicOriginSamples.reduce((sum, value) => [sum[0] + value[0], sum[1] + value[1]], [0, 0]).map(value => value / gnomonicOriginSamples.length);
+	const edgeDirAngles = [Math.PI - Math.atan2(1, PHI), Math.PI + Math.atan2(1, PHI), -Math.atan2(1, PHI), Math.atan2(1, PHI)];
+	const tabH = inradius * 0.3;
+	const tabInsetAcute = tabH * PHI, tabInsetObtuse = tabH / PHI;
+	const ghostPlace = (i, j, res, mirrored) => irregularGhostPlace(rhombVtx, 4, edgeDirAngles, edgeIdx, i, j, res, mirrored);
+	const parents = new Array(N_FACES).fill(-2); parents[0] = -1;
+	const queue = [0];
+	while (queue.length) {
+		const i = queue.shift();
+		for (const j of adj[i]) if (parents[j] === -2) { parents[j] = i; queue.push(j); }
+	}
+	const presets = [{ label:'DIN A (1:√2)', aspect:1.4142857142857144, parents:[-1,0,1,29,0,16,35,0,7,8,41,7,4,34,13,19,36,9,44,45,24,20,13,33,53,29,25,51,32,28,4,3,50,34,30,1,35,36,55,25,44,8,41,42,46,49,45,43,24,48,51,52,49,54,33,59,55,45,59,27], tabs:{'50-54':54,'52-53':53,'48-53':48,'8-10':10,'10-14':14,'0-11':11,'14-21':21,'1-6':6,'6-7':7,'35-39':39,'2-39':39,'26-38':38,'27-28':28,'46-47':47,'21-42':42,'15-56':56,'57-58':58,'49-58':58,'51-59':59,'23-54':54}, mirrored:false, angle:0.9162978572970231, lonOffset:0, northPole:{type:'vertex',dir:[0.5000000000000001,-0.3090169943749473,0.8090169943749476]}, southPole:{type:'center',face:59,dir:[-0.5000000000000002,0.3090169943749477,-0.8090169943749473]} }];
+
+	return {
+		id: 'rhombicHexecontahedron60', name: 'Rhombic Hexecontahedron-60', nFaces: N_FACES,
+		storageKey: 'rhombic-hexecontahedron60-custom-layouts', vertices, faces, facePlanes, facePlaneOffset, gnomonicScale,
+		gnomonicOrigin,
+		c3, adj, frames, faceOffsets, nSides() { return 4; }, edgeIdx,
+		apothem() { return inradius; }, circumR() { return 1; }, tabH,
+		tabInset: tabInsetAcute, singleTabArea: (iA + iB) * tabH * 0.35, initialRotation: Math.PI / 2,
+		ghostPlace,
+		tryPlace(i, j, res, placed, mirrored) {
+			const pos = ghostPlace(i, j, res, mirrored);
+			if (irregularCollisionCheck(N_FACES, inradius, iB, iA, placed, res, j, pos.x, pos.y)) return null;
+			return pos;
+		},
+		polyVerts(fx, fy, rot) {
+			const co = Math.cos(rot), si = Math.sin(rot);
+			return rhombVtx.map(([x, y]) => ({ x:fx+x*co-y*si, y:fy+x*si+y*co }));
+		},
+		faceArea() { return 2 * iA * iB; },
+		tabInsets(i, k) { return k % 2 === 0 ? [tabInsetAcute, tabInsetObtuse] : [tabInsetObtuse, tabInsetAcute]; },
+		edgeSlot(i, k) { return k; }, faceLabel() { return 'rhombus'; },
+		faceColor(i, isSelf, isTarget) { return isSelf ? 'rgba(185,80,45,.9)' : isTarget ? 'rgba(240,125,70,.45)' : 'rgba(75,40,28,.85)'; },
+		ghostColor() { return 'rgba(240,125,70,.25)'; },
+		pip(rpx, rpy, i, invS) { return Math.abs(rpx)/(iB*invS)+Math.abs(rpy)/(iA*invS)<1; },
+		gnoProject(i, rpx, rpy, scale, faceOff) {
+			const co=Math.cos(faceOff), si=Math.sin(faceOff), gS=scale*gnomonicScale;
+			const x = rpx + gnomonicOrigin[0], y = rpy + gnomonicOrigin[1];
+			return { gx:(x*co-y*si)*gS, gy:(x*si+y*co)*gS, rF:facePlaneOffset };
+		}, presets
+	};
+})();
+
 // ─────────────────────────────────────────────────────────────────────
 // Truncoct-14 (Truncated Octahedron: 8 hexagons + 6 squares)
 // ─────────────────────────────────────────────────────────────────────
@@ -534,7 +729,6 @@ GEOMETRIES.truncoct14 = (function() {
 		[-INV_SQRT3, -INV_SQRT3, INV_SQRT3], [-INV_SQRT3, -INV_SQRT3, -INV_SQRT3],
 		[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]
 	];
-
 	const nSides = i => i < 8 ? 6 : 4;
 
 	const adj = Array.from({ length: nFaces }, () => []);
@@ -1805,6 +1999,207 @@ GEOMETRIES.rhombic12 = (function() {
 			const gS = scale / RD_B;
 			const co = Math.cos(faceOff), so = Math.sin(faceOff);
 			return { gx: (rpx * co - rpy * so) * gS, gy: (rpx * so + rpy * co) * gS, rF: 1 };
+		},
+		presets,
+	};
+})();
+
+// ─────────────────────────────────────────────────────────────────────
+// Octahedron-8 (8 equilateral triangles)
+// ─────────────────────────────────────────────────────────────────────
+GEOMETRIES.octahedron8 = (function() {
+	const N_FACES = 8;
+	const INV_SQRT3 = 1 / Math.sqrt(3);
+	const c3 = [
+		[ INV_SQRT3,  INV_SQRT3,  INV_SQRT3],
+		[ INV_SQRT3,  INV_SQRT3, -INV_SQRT3],
+		[ INV_SQRT3, -INV_SQRT3,  INV_SQRT3],
+		[ INV_SQRT3, -INV_SQRT3, -INV_SQRT3],
+		[-INV_SQRT3,  INV_SQRT3,  INV_SQRT3],
+		[-INV_SQRT3,  INV_SQRT3, -INV_SQRT3],
+		[-INV_SQRT3, -INV_SQRT3,  INV_SQRT3],
+		[-INV_SQRT3, -INV_SQRT3, -INV_SQRT3]
+	];
+	const adj = Array.from({ length: N_FACES }, () => []);
+	for (let i = 0; i < N_FACES; i++)
+		for (let j = i + 1; j < N_FACES; j++)
+			if (Math.abs(dot3(c3[i], c3[j]) - 1 / 3) < 1e-9) {
+				adj[i].push(j);
+				adj[j].push(i);
+			}
+
+	const frames = buildFrames(c3, N_FACES);
+	const ap3 = regularApothem(3);
+	const cr3 = regularCircumR(3);
+	const tabH = ap3 * 0.3;
+	const tabInset = 0.15;
+	const singleTabArea = (1 - tabInset) * tabH;
+
+	function nSides() { return 3; }
+	function edgeIdx(i, j) { return regularEdgeIdx(c3, frames, nSides, i, j); }
+	function apothem() { return ap3; }
+	function circumR() { return cr3; }
+
+	const presets = [
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[-1,0,0,1,0,1,2,3],tabs:{},mirrored:false,angle:0,lonOffset:0,northPole:{type:'center',face:0,dir:c3[0].slice()},southPole:{type:'center',face:7,dir:c3[7].slice()}},
+	];
+
+	return {
+		id: 'octahedron8',
+		name: 'Octahedron-8',
+		nFaces: N_FACES,
+		storageKey: 'octahedron8-custom-layouts',
+		c3, adj, frames,
+		nSides,
+		edgeIdx,
+		apothem,
+		circumR,
+		tabH,
+		tabInset,
+		singleTabArea,
+		initialRotation: 0,
+
+		ghostPlace(i, j, res, mirrored) {
+			return regularGhostPlace(nSides, apothem, edgeIdx, i, j, res, mirrored);
+		},
+		tryPlace(i, j, res, placed, mirrored) {
+			return regularTryPlace(this, i, j, res, placed, mirrored);
+		},
+		polyVerts(fx, fy, rot) {
+			return regularPolyVerts(fx, fy, rot, 3, cr3);
+		},
+		faceArea() { return regularArea(3); },
+		tabInsets() { return [tabInset, tabInset]; },
+		edgeSlot(i, k, mirrored) { return regularEdgeSlot(3, k, mirrored); },
+		faceLabel() { return 'tri'; },
+		faceColor(i, isSelf, isTarget) {
+			if (isSelf) return 'rgba(70, 150, 170, 0.9)';
+			if (isTarget) return 'rgba(80, 190, 215, 0.45)';
+			return 'rgba(30, 60, 70, 0.85)';
+		},
+		ghostColor() { return 'rgba(80, 190, 215, 0.25)'; },
+		pip(rpx, rpy, i, invS) { return pipRegular(rpx, rpy, 3, invS); },
+		gnoProject(i, rpx, rpy, scale, faceOff) {
+			const rF = 1 / Math.sqrt(3);
+			const gS = scale * Math.sqrt(1 - rF * rF) * 2 * Math.sin(Math.PI / 3);
+			const co = Math.cos(faceOff), so = Math.sin(faceOff);
+			return { gx: (rpx * co - rpy * so) * gS, gy: (rpx * so + rpy * co) * gS, rF };
+		},
+		presets,
+	};
+})();
+
+// ─────────────────────────────────────────────────────────────────────
+// Cuboctahedron-14 (8 equilateral triangles + 6 squares)
+// ─────────────────────────────────────────────────────────────────────
+GEOMETRIES.cuboctahedron14 = (function() {
+	const N_FACES = 14;
+	const INV_SQRT3 = 1 / Math.sqrt(3);
+	const c3 = [
+		[ INV_SQRT3,  INV_SQRT3,  INV_SQRT3],
+		[ INV_SQRT3,  INV_SQRT3, -INV_SQRT3],
+		[ INV_SQRT3, -INV_SQRT3,  INV_SQRT3],
+		[ INV_SQRT3, -INV_SQRT3, -INV_SQRT3],
+		[-INV_SQRT3,  INV_SQRT3,  INV_SQRT3],
+		[-INV_SQRT3,  INV_SQRT3, -INV_SQRT3],
+		[-INV_SQRT3, -INV_SQRT3,  INV_SQRT3],
+		[-INV_SQRT3, -INV_SQRT3, -INV_SQRT3],
+		[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]
+	];
+	const vertices = [];
+	for (let zero = 0; zero < 3; zero++)
+		for (const a of [-1, 1]) for (const b of [-1, 1]) {
+			const vertex = [0, 0, 0];
+			vertex[(zero + 1) % 3] = a / Math.sqrt(2);
+			vertex[(zero + 2) % 3] = b / Math.sqrt(2);
+			vertices.push(vertex);
+		}
+	const nSides = i => i < 8 ? 3 : 4;
+	const adj = Array.from({ length: N_FACES }, () => []);
+	for (let i = 0; i < 8; i++)
+		for (let j = 8; j < N_FACES; j++)
+			if (dot3(c3[i], c3[j]) > 0.5) {
+				adj[i].push(j);
+				adj[j].push(i);
+			}
+
+	const frames = buildFrames(c3, N_FACES);
+	const ap3 = regularApothem(3), ap4 = regularApothem(4);
+	const cr3 = regularCircumR(3), cr4 = regularCircumR(4);
+	const tabH = ap3 * 0.3;
+	const tabInset = 0.15;
+	const singleTabArea = (1 - tabInset) * tabH;
+
+	function edgeIdx(i, j) { return regularEdgeIdx(c3, frames, nSides, i, j); }
+	function apothem(i) { return nSides(i) === 3 ? ap3 : ap4; }
+	function circumR(i) { return nSides(i) === 3 ? cr3 : cr4; }
+	const faceOffsets = c3.map((normal, i) => {
+		let corner = vertices[0], bestDot = -Infinity;
+		for (const vertex of vertices) {
+			const d = dot3(vertex, normal);
+			if (d > bestDot) { bestDot = d; corner = vertex; }
+		}
+		const [T1, T2] = frames[i], n = nSides(i), step = 2 * Math.PI / n;
+		let offset = Math.atan2(dot3(corner, T2), dot3(corner, T1)) - Math.PI / n;
+		while (offset > Math.PI / n + 1e-9) offset -= step;
+		while (offset < -Math.PI / n - 1e-9) offset += step;
+		if (Math.abs(Math.abs(offset) - Math.PI / n) < 0.01) {
+			const neighbor = adj[i][0], neighborNormal = c3[neighbor];
+			const projected = norm3(sub3(neighborNormal, scale3(normal, dot3(neighborNormal, normal))));
+			const edgeAngle = Math.atan2(dot3(projected, T2), dot3(projected, T1));
+			let required = edgeAngle - 2 * Math.PI * edgeIdx(i, neighbor) / n;
+			while (required > Math.PI) required -= 2 * Math.PI;
+			while (required < -Math.PI) required += 2 * Math.PI;
+			offset = required > 0 ? Math.PI / n : -Math.PI / n;
+		}
+		return offset;
+	});
+
+	const presets = [
+		{label:'DIN A (1:√2)',aspect:1.4142857142857144,parents:[-1,8,8,8,12,10,12,13,0,4,1,2,2,1],tabs:{'6-9':9,'4-12':12,'0-10':10,'3-13':13,'5-10':10,'6-11':11,'3-11':11,'0-12':12,'7-13':13,'7-11':11,'4-10':10,'5-13':13},mirrored:false,angle:-0.5148721293383272,lonOffset:0,northPole:{type:'vertex',dir:[0,-0.7071067811865476,-0.7071067811865476]},southPole:{type:'vertex',dir:[0,0.7071067811865476,0.7071067811865476]}},
+	];
+
+	return {
+		id: 'cuboctahedron14',
+		name: 'Cuboctahedron-14',
+		nFaces: N_FACES,
+		storageKey: 'cuboctahedron14-custom-layouts',
+		c3, adj, frames, vertices, faceOffsets,
+		nSides,
+		edgeIdx,
+		apothem,
+		circumR,
+		tabH,
+		tabInset,
+		singleTabArea,
+		initialRotation: 0,
+
+		ghostPlace(i, j, res, mirrored) {
+			return regularGhostPlace(nSides, apothem, edgeIdx, i, j, res, mirrored);
+		},
+		tryPlace(i, j, res, placed, mirrored) {
+			return regularTryPlace(this, i, j, res, placed, mirrored);
+		},
+		polyVerts(fx, fy, rot, i) {
+			return regularPolyVerts(fx, fy, rot, nSides(i), circumR(i));
+		},
+		faceArea(i) { return regularArea(nSides(i)); },
+		tabInsets() { return [tabInset, tabInset]; },
+		edgeSlot(i, k, mirrored) { return regularEdgeSlot(nSides(i), k, mirrored); },
+		faceLabel(i) { return nSides(i) === 3 ? 'tri' : 'sq'; },
+		faceColor(i, isSelf, isTarget) {
+			const triangle = nSides(i) === 3;
+			if (isSelf) return triangle ? 'rgba(190, 95, 70, 0.9)' : 'rgba(70, 125, 185, 0.9)';
+			if (isTarget) return triangle ? 'rgba(225, 110, 80, 0.45)' : 'rgba(80, 155, 220, 0.45)';
+			return triangle ? 'rgba(75, 45, 35, 0.85)' : 'rgba(35, 55, 80, 0.85)';
+		},
+		ghostColor(i) { return nSides(i) === 3 ? 'rgba(225, 110, 80, 0.25)' : 'rgba(80, 155, 220, 0.25)'; },
+		pip(rpx, rpy, i, invS) { return pipRegular(rpx, rpy, nSides(i), invS); },
+		gnoProject(i, rpx, rpy, scale, faceOff) {
+			const rF = nSides(i) === 3 ? Math.sqrt(2 / 3) : 1 / Math.sqrt(2);
+			const gS = scale * Math.sqrt(1 - rF * rF) * 2 * Math.sin(Math.PI / nSides(i));
+			const co = Math.cos(faceOff), so = Math.sin(faceOff);
+			return { gx: (rpx * co - rpy * so) * gS, gy: (rpx * so + rpy * co) * gS, rF };
 		},
 		presets,
 	};

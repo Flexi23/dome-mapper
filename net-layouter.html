@@ -102,7 +102,7 @@ canvas { display: block; }
 <div id="tooltip"></div>
 <canvas id="c"></canvas>
 
-<script src="foldable-geometries.js?v=6"></script>
+<script src="foldable-geometries.js?v=15"></script>
 <script>
 'use strict';
 
@@ -115,6 +115,8 @@ let currentLayout = null;
 let hoveredEdge = null;
 let hoveredFace = -1;
 let boundaryEdges = [];
+let dragState = null;
+let suppressClickOnce = false;
 let glueTabMode = false;
 let tabOwnership = {};
 let vertexMap = null;
@@ -125,6 +127,7 @@ let hoveredSnap = null;    // { type, id/face/vertexId, positions }
 const undoStack = [];
 const redoStack = [];
 let historyIndex = 0;
+const DRAG_START_PX = 3;
 
 // ── DOM refs ──
 const canvas = document.getElementById('c');
@@ -864,6 +867,14 @@ function toWorld(sx, sy) {
 	return [(sx - canvas.width / 2) / viewScale + viewOX, -(sy - canvas.height / 2) / viewScale + viewOY];
 }
 
+function eventToCanvas(e) {
+	const rect = canvas.getBoundingClientRect();
+	return {
+		x: (e.clientX - rect.left) * (canvas.width / rect.width),
+		y: (e.clientY - rect.top) * (canvas.height / rect.height)
+	};
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Edge classification
 // ═══════════════════════════════════════════════════════════════════════
@@ -1356,10 +1367,11 @@ function draw() {
 // Mouse interaction
 // ═══════════════════════════════════════════════════════════════════════
 
-function hitTestEdge(mx, my) {
+function hitTestEdge(mx, my, requiredTargetFace) {
 	const [wx, wy] = toWorld(mx, my);
 	if (wx < paperMinX || wx > paperMaxX || wy < paperMinY || wy > paperMaxY) return null;
 	for (const edge of boundaryEdges) {
+		if (requiredTargetFace != null && edge.targetFace !== requiredTargetFace) continue;
 		if (glueTabMode && edge.isCutEdge) {
 			const key = edgeKey(edge.face, edge.targetFace);
 			const owner = tabOwnership[key] !== undefined ? tabOwnership[key] : Math.min(edge.face, edge.targetFace);
@@ -1383,12 +1395,39 @@ function hitTestFace(mx, my) {
 }
 
 canvas.addEventListener('mousemove', e => {
+	const pt = eventToCanvas(e);
 	// Defensive: pole/meridian edit modes require a computed layout (e.g. a freshly
 	// selected geometry with no presets and no layout yet). Self-heal if out of sync.
 	if ((merEditMode || poleEditMode) && !currentLayout) { merEditMode = false; poleEditMode = null; }
+
+	if (dragState) {
+		const dx = pt.x - dragState.startX;
+		const dy = pt.y - dragState.startY;
+		if (!dragState.active && Math.hypot(dx, dy) >= DRAG_START_PX) dragState.active = true;
+		if (dragState.active) {
+			const hit = hitTestEdge(pt.x, pt.y, dragState.face);
+			const face = hit ? -1 : hitTestFace(pt.x, pt.y);
+			if (hit !== hoveredEdge || face !== hoveredFace) {
+				hoveredEdge = hit;
+				hoveredFace = face;
+				draw();
+			}
+			if (hit) {
+				tooltip.style.display = 'block';
+				tooltip.style.left = (e.clientX + 14) + 'px';
+				tooltip.style.top = (e.clientY + 14) + 'px';
+				tooltip.innerHTML = `Drop: face ${dragState.face} → parent ${hit.face}`;
+			} else {
+				tooltip.style.display = 'none';
+			}
+			canvas.style.cursor = 'grabbing';
+			return;
+		}
+	}
+
 	// ── Meridian edit mode ──
 	if (merEditMode) {
-		const [wx, wy] = toWorld(e.clientX, e.clientY);
+		const [wx, wy] = toWorld(pt.x, pt.y);
 		const hitR = 12 / viewScale;
 		// Check if hovering pole markers for mode switching
 		let overMarker = null;
@@ -1428,7 +1467,7 @@ canvas.addEventListener('mousemove', e => {
 	}
 	// ── Pole edit mode ──
 	if (poleEditMode) {
-		const [wx, wy] = toWorld(e.clientX, e.clientY);
+		const [wx, wy] = toWorld(pt.x, pt.y);
 		const hitR = 12 / viewScale;
 		// Check if hovering 0° or other pole markers for mode switching
 		let overMarker = null;
@@ -1482,8 +1521,8 @@ canvas.addEventListener('mousemove', e => {
 	}
 	hoveredSnap = null;
 
-	const hit = hitTestEdge(e.clientX, e.clientY);
-	const face = hit ? -1 : hitTestFace(e.clientX, e.clientY);
+	const hit = hitTestEdge(pt.x, pt.y, null);
+	const face = hit ? -1 : hitTestFace(pt.x, pt.y);
 	if (hit !== hoveredEdge || face !== hoveredFace) {
 		hoveredEdge = hit;
 		hoveredFace = face;
@@ -1526,7 +1565,7 @@ canvas.addEventListener('mousemove', e => {
 		tooltip.innerHTML = label;
 		canvas.style.cursor = 'pointer';
 	} else if (!poleEditMode && !merEditMode && !glueTabMode && currentLayout && currentLayout.northPole) {
-		const [wx, wy] = toWorld(e.clientX, e.clientY);
+		const [wx, wy] = toWorld(pt.x, pt.y);
 		const hitR = 12 / viewScale;
 		let overPole = null;
 		// Check 0° marker
@@ -1560,6 +1599,50 @@ canvas.addEventListener('mousemove', e => {
 	}
 });
 
+canvas.addEventListener('mousedown', e => {
+	if (e.button !== 0 || !currentLayout || !geo) return;
+	if (poleEditMode || merEditMode || glueTabMode) return;
+	const pt = eventToCanvas(e);
+	const face = hitTestFace(pt.x, pt.y);
+	if (face < 0 || face === currentLayout.seed) return;
+	dragState = { face, startX: pt.x, startY: pt.y, active: false };
+});
+
+window.addEventListener('mouseup', e => {
+	if (!dragState) return;
+	const { active, face } = dragState;
+	dragState = null;
+	if (!active) return;
+	suppressClickOnce = true;
+	if (!hoveredEdge || hoveredEdge.targetFace !== face) {
+		hoveredEdge = null;
+		hoveredFace = -1;
+		tooltip.style.display = 'none';
+		canvas.style.cursor = 'default';
+		draw();
+		return;
+	}
+	const { face: newParent, targetFace } = hoveredEdge;
+	if (targetFace === currentLayout.seed) {
+		tooltip.style.display = 'block';
+		tooltip.style.left = (e.clientX + 14) + 'px';
+		tooltip.style.top = (e.clientY + 14) + 'px';
+		tooltip.innerHTML = 'Cannot reparent the root face';
+		return;
+	}
+	undoStack.push(cloneLayout(currentLayout));
+	redoStack.length = 0;
+	historyIndex++;
+	history.pushState({ idx: historyIndex }, '');
+	reparent(currentLayout, newParent, targetFace);
+	optimizeAndApplyRotation(currentLayout);
+	hoveredEdge = null;
+	hoveredFace = -1;
+	tooltip.style.display = 'none';
+	canvas.style.cursor = 'default';
+	draw();
+});
+
 canvas.addEventListener('mouseleave', () => {
 	hoveredEdge = null;
 	hoveredFace = -1;
@@ -1571,12 +1654,14 @@ canvas.addEventListener('mouseleave', () => {
 
 // ── Click handler ──
 canvas.addEventListener('click', e => {
+	if (suppressClickOnce) { suppressClickOnce = false; return; }
 	if (!currentLayout || !geo) return;
 	const N = geo.nFaces;
+	const pt = eventToCanvas(e);
 
 	// ── Click on existing pole marker or 0° marker to toggle edit ──
 	if (!glueTabMode && currentLayout.northPole) {
-		const [wx, wy] = toWorld(e.clientX, e.clientY);
+		const [wx, wy] = toWorld(pt.x, pt.y);
 		const clickR = 12 / viewScale;
 		// Check 0° marker first
 		const { eqRef } = getEquatorAndMeridian();
