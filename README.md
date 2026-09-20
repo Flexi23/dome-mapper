@@ -6,6 +6,8 @@
 
 A single-file browser app that loads equirectangular images and videos and renders them as an immersive spherical projection. The fragment shader casts rays from the origin against a unit sphere and maps the equirectangular texture using spherical coordinates — no mesh geometry needed.
 
+Live demo: <https://flexi23.github.io/dome-mapper/>
+
 ![WebGL 2.0](https://img.shields.io/badge/WebGL-2.0-blue?logo=webgl)
 ![GLSL 300 es](https://img.shields.io/badge/GLSL-300%20es-orange)
 ![No Build](https://img.shields.io/badge/Build-None-brightgreen)
@@ -274,7 +276,7 @@ Non-quaternion attributes (FOV, zoom, stereographic coefficients, etc.) use a st
 
 Selecting a polyhedron from the dropdown activates its **last-used view mode** (Preview or Foldable, tracked by the toggle button); clicking the toggle switches modes without touching the dropdown. Internally each polyhedron still has two GLSL cascade modes (unchanged since v0.16 — `M_*_PREVIEW` / `M_*_FOLDABLE` constants, sharing one compiled shader-family program), only the UI is collapsed to one entry.
 
-All preview modes: SDF sphere-tracing with Blinn-Phong lighting, bevelled edges, real-time rotation via Y/P/R face sliders, **stereographic panorama background** (see below). The nonconvex Rhombic Hexecontahedron uses direct ray-rhombus intersections instead of the SDF approximation. All foldable modes: gnomonic back-projection per face, hand-tuned paper-format presets (`net-layouter.html`), canvas overlay (edges, glue tabs), paper format outline, cut line overlay, SVG/PDF export.
+All preview modes: SDF sphere-tracing with Blinn-Phong lighting, bevelled edges, real-time rotation via Y/P/R face sliders, **stereographic panorama background** (see below). The nonconvex Rhombic Hexecontahedron uses direct ray-rhombus intersections instead of the SDF approximation, and its background net lines are derived from the face-center support directions rather than the invalid shared face-offset heuristic. All foldable modes: gnomonic back-projection per face, hand-tuned paper-format presets (`net-layouter.html`), canvas overlay (edges, glue tabs), paper format outline, cut line overlay, SVG/PDF export.
 
 ---
 

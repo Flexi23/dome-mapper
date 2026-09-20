@@ -5829,8 +5829,10 @@ void main() {
 			hexeconta60ViewVerts[i] = viewInv * worldRot * hexeconta60Vertices[i];
 		}
 		vec3 hexeconta60ViewNormals[60];
+		vec3 hexeconta60ViewCenters[60];
 		for (int i = 0; i < 60; i++) {
 			hexeconta60ViewNormals[i] = normalize(viewInv * worldRot * hexeconta60Normals[i]);
+			hexeconta60ViewCenters[i] = normalize(viewInv * worldRot * hexeconta60Centers[i]);
 		}
 		float nearestT = 1e9;
 		int bestFace = -1;
@@ -5865,9 +5867,14 @@ void main() {
 		col = applyGrid(col, dirToEquirect(bgDir));
 		{
 			vec3 bgLocalDir = stereoLocalDir(lensUV);
+			// Nonconvex rhombi do not expose a single outward-facing half-space for
+			// the background silhouette. Use the plane distance magnitude instead of
+			// the convex-only max-positive logic so adjacent rhombus planes on the
+			// concave shell still register as a shared edge when their distances are
+			// nearly equal.
 			float bgMaxD = -1e9, bgSecD = -1e9;
 			for (int i = 0; i < 60; i++) {
-				float di = dot(bgLocalDir, hexeconta60ViewNormals[i]) - hexeconta60FaceOffset;
+				float di = dot(bgLocalDir, hexeconta60ViewCenters[i]);
 				if (di > bgMaxD) { bgSecD = bgMaxD; bgMaxD = di; }
 				else if (di > bgSecD) { bgSecD = di; }
 			}
@@ -5912,9 +5919,21 @@ void main() {
 			const geometry = GEOMETRIES.rhombicHexecontahedron60;
 			const number = value => Number(value).toPrecision(12);
 			const vec3 = value => 'vec3(' + value.map(number).join(',') + ')';
+			const normalizedCenter = face => {
+				const sum = [0, 0, 0];
+				for (const index of face) {
+					const p = geometry.vertices[index];
+					sum[0] += p[0];
+					sum[1] += p[1];
+					sum[2] += p[2];
+				}
+				const len = Math.hypot(sum[0], sum[1], sum[2]) || 1;
+				return sum.map(value => value / len);
+			};
 			return '\nconst vec3 hexeconta60Vertices[62] = vec3[62](' + geometry.vertices.map(vec3).join(',') + ');\n' +
 				'const ivec4 hexeconta60Faces[60] = ivec4[60](' + geometry.faces.map(face => 'ivec4(' + face.join(',') + ')').join(',') + ');\n' +
 				'const vec3 hexeconta60Normals[60] = vec3[60](' + geometry.facePlanes.map(plane => vec3(plane.normal)).join(',') + ');\n' +
+				'const vec3 hexeconta60Centers[60] = vec3[60](' + geometry.faces.map(face => vec3(normalizedCenter(face))).join(',') + ');\n' +
 				'const float hexeconta60FaceOffset = ' + number(geometry.facePlaneOffset) + ';\n' +
 				'const float hexeconta60GnomonicScale = ' + number(geometry.gnomonicScale) + ';\n' +
 				'const vec2 hexeconta60GnomonicOrigin = vec2(' + geometry.gnomonicOrigin.map(number).join(',') + ');\n';
